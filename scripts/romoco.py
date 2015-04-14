@@ -142,16 +142,6 @@ Class for grasp learning.
             return T_B_Tm * T_Tm_Bm * T_Bm_Gm
         return None
 
-    def updatePose(self, name, T_Br_Bo):
-        with self.env:
-            body = self.env.GetKinBody(name)
-            if body != None:
-                body.SetTransform(KDLToOpenrave(self.T_World_Br*T_Br_Bo))
-            else:
-#                print "openrave: could not find body: %s"%(name)
-                pass
-            self.env.UpdatePublishedBodies()
-
     def poseUpdaterThread(self, args, *args2):
         index = 0
         z_limit = 0.3
@@ -215,7 +205,7 @@ Class for grasp learning.
                         R_B_Co = velmautils.meanOrientation(Br_Co_list, weights=weights_ori)[1]
                         p_B_Co = velmautils.meanPosition(Br_Co_list, weights=weights_pos)
 #                        obj.updatePose( PyKDL.Frame(copy.deepcopy(R_B_Co.M), copy.deepcopy(p_B_Co)) )
-                        self.updatePose(obj_name, T_Br_Co)
+                        self.openrave.updatePose(obj_name, T_Br_Co)
 
             index += 1
             if index >= 100:
@@ -266,8 +256,10 @@ Class for grasp learning.
         #rospack.list_pkgs() 
 
         # get the file path for rospy_tutorials
-        filneme_environment = rospack.get_path('velma_scripts') + '/data/romoco/romoco.env.xml'
-        filneme_objectmarker = rospack.get_path('velma_scripts') + '/data/romoco/object_marker.txt'
+        filname_environment = rospack.get_path('velma_scripts') + '/data/romoco/romoco.env.xml'
+        filname_objectmarker = rospack.get_path('velma_scripts') + '/data/romoco/object_marker.txt'
+
+        graspable_object_name = "big_box"
 
         simulation_only = True
         if simulation_only:
@@ -283,15 +275,12 @@ Class for grasp learning.
         #
         # Init Openrave
         #
-        parser = OptionParser(description='Openrave Velma interface')
-        OpenRAVEGlobalArguments.addOptions(parser)
-        (options, leftargs) = parser.parse_args()
-        self.env = OpenRAVEGlobalArguments.parseAndCreate(options,defaultviewer=True)
+        self.openrave = openraveinstance.OpenraveInstance()
+        self.openrave.startOpenrave(filname_environment)
 
-        self.env.Load(filneme_environment)#'romoco/romoco.env.xml')
-
+        self.openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
         # set the camera in openrave
-        if True:
+        if False:
             cam_pos = PyKDL.Vector(2.0, 0.0, 2.0)
             target_pos = PyKDL.Vector(0.60, 0.0, 1.10)
 
@@ -307,11 +296,11 @@ Class for grasp learning.
             
             self.env.GetViewer().SetCamera(KDLToOpenrave(cam_T), focalDistance)
 
-        self.openrave_robot = self.env.GetRobots()[0]
+#        self.openrave_robot = self.env.GetRobots()[0]
 
-        dof_values = self.openrave_robot.GetDOFValues()
-        dof_values[1] = 0.0
-        self.openrave_robot.SetDOFValues(dof_values)
+#        dof_values = self.openrave_robot.GetDOFValues()
+#        dof_values[1] = 0.0
+#        self.openrave_robot.SetDOFValues(dof_values)
 
         dyn_objects_map = set()
         dyn_objects_map.add("table")
@@ -319,7 +308,7 @@ Class for grasp learning.
 
         self.dyn_obj_markers = {}
 
-        with open(filneme_objectmarker, 'r') as f:
+        with open(filname_objectmarker, 'r') as f:
             for line in f:
                 line_s = line.split()
                 obj_name = line_s[0]
@@ -361,6 +350,7 @@ Class for grasp learning.
 
         self.velma.updateTransformations()
 
+        self.openrave.updateRobotConfiguration(self.velma.js)
         self.allowUpdateObjects()
         # start thread for updating objects' positions in openrave
         thread.start_new_thread(self.poseUpdaterThread, (None,1))
@@ -409,25 +399,13 @@ Class for grasp learning.
         self.velma.updateTransformations()
         self.velma_init_T_B_W = copy.deepcopy(self.velma.T_B_W)
 
-        if simulation_only:
-#            self.velma.qar[1] += 10.0/180.0*math.pi
-            self.velma.qar[6] = 90.0/180.0*math.pi
-            rospy.sleep(1.0)
-
-        sim_grips = []
+#        sim_grips = []
 
         self.disallowUpdateObjects()
 
-        vertices, faces = self.openrave.getMesh("object")
+        self.openrave.prepareGraspingModule(graspable_object_name, force_load=False)
 
-        print vertices
-        print faces
-
-#        com_pt = velmautils.generateComSamples(vertices, faces, 2000)
-#        obj_grasp.addComPoints(com_pt)
-
-        self.openrave.prepareGraspingModule("object", force_load=False)
-
+        
         raw_input(".")
         exit(0)
 

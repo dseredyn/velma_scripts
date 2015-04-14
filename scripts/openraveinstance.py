@@ -64,15 +64,59 @@ import random
 
 class OpenraveInstance:
 
-    def __init__(self, T_World_Br):
-        self.robot = None
-        self.rolling = False
-        self.env = None
-        self.T_World_Br = T_World_Br
-        self.listener = tf.TransformListener();
-        self.kinBodies = []
-        self.visibility_surface_samples_dict = {}
-        self.robot_rave_update_lock = RLock()
+    def __init__(self):#, T_World_Br):
+        self.joint_idx_dof_map = None
+#        self.robot = None
+#        self.rolling = False
+#        self.env = None
+#        self.T_World_Br = T_World_Br
+#        self.listener = tf.TransformListener();
+#        self.kinBodies = []
+#        self.visibility_surface_samples_dict = {}
+#        self.robot_rave_update_lock = RLock()
+
+    def startOpenrave(self, filename_environment):
+        parser = OptionParser(description='Openrave Velma interface')
+        OpenRAVEGlobalArguments.addOptions(parser)
+        (options, leftargs) = parser.parse_args()
+        self.env = OpenRAVEGlobalArguments.parseAndCreate(options,defaultviewer=True)
+        self.env.Load(filename_environment)
+        self.robot_rave = self.env.GetRobot("velma")
+        base_link = self.robot_rave.GetLink("torso_base")
+        self.T_World_Br = self.OpenraveToKDL(base_link.GetTransform())
+
+    def setCamera(self, cam_pos, target_pos):
+            cam_z = target_pos - cam_pos
+            focalDistance = cam_z.Norm()
+            cam_y = PyKDL.Vector(0,0,-1)
+            cam_x = cam_y * cam_z
+            cam_y = cam_z * cam_x
+            cam_x.Normalize()
+            cam_y.Normalize()
+            cam_z.Normalize()
+            cam_T = PyKDL.Frame(PyKDL.Rotation(cam_x,cam_y,cam_z), cam_pos)
+            
+            self.env.GetViewer().SetCamera(self.KDLToOpenrave(cam_T), focalDistance)
+
+    def updateRobotConfiguration(self, js):
+        # create the dictionary: <openrave_dof_idx, ros_joint_idx>
+        if self.joint_idx_dof_map == None:
+            joint_name_idx_map = {}
+            for dof_idx in range(self.robot_rave.GetDOF()):
+                joint_name = self.robot_rave.GetJointFromDOFIndex(dof_idx).GetName()
+                joint_name_idx_map[joint_name] = dof_idx
+            self.joint_dof_idx_map = {}
+            for ros_joint_idx in range(len(js.name)):
+                if js.name[ros_joint_idx] in joint_name_idx_map:
+                    dof_idx = joint_name_idx_map[js.name[ros_joint_idx]]
+                    self.joint_dof_idx_map[dof_idx] = ros_joint_idx
+
+        dof_values = []
+        for dof_idx in range(self.robot_rave.GetDOF()):
+            ros_joint_idx = self.joint_dof_idx_map[dof_idx]
+            dof_values.append(js.position[ros_joint_idx])
+
+        self.robot_rave.SetDOFValues(dof_values)
 
     def addRobotInterface(self, robot):
         self.robot = robot
@@ -195,9 +239,9 @@ class OpenraveInstance:
                     geom.SetDiffuseColor([r,g,b])
                     geom.SetTransparency(a)
 
-    def setCamera(self, T_Br_C):
-        T_World_C = self.T_World_Br * T_Br_C
-        self.env.GetViewer().SetCamera(self.KDLToOpenrave(T_World_C), 1.0)
+#    def setCamera(self, T_Br_C):
+#        T_World_C = self.T_World_Br * T_Br_C
+#        self.env.GetViewer().SetCamera(self.KDLToOpenrave(T_World_C), 1.0)
 
     def main(self,env,options):
         try:
@@ -429,7 +473,16 @@ class OpenraveInstance:
         if not target_name in self.gmodel.keys():
             target = self.env.GetKinBody(target_name)
             self.gmodel[target_name] = databases.grasping.GraspingModel(self.robot_rave,target)
+            self.gmodel[target_name].numthreads = 4
             if force_load or not self.gmodel[target_name].load():
+              with self.env:
+                print "removing all other objects"
+                all_bodies = self.env.GetBodies()
+                for body in all_bodies:
+                    name = body.GetName()
+                    if name != target_name and name != "velma":
+                        self.env.Remove(body)
+
                 print 'generating grasping model (one time computation)'
                 self.gmodel[target_name].init(friction=0.6,avoidlinks=[])
                 print 'grasping model initialised'
@@ -447,8 +500,13 @@ class OpenraveInstance:
 # http://openrave.org/docs/latest_stable/openravepy/databases.grasping/#openravepy.databases.grasping.GraspingModel.generatepcg
 #                self.gmodel[target_name].generate(approachrays=approachrays3, forceclosure=False, standoffs=[0.025, 0.05, 0.075])
 #                self.gmodel[target_name].generate(approachrays=approachrays3, friction=0.6, forceclosure=True, standoffs=[0.04, 0.06, 0.07])
-                self.gmodel[target_name].generate(approachrays=approachrays3, friction=0.6, forceclosure=False, standoffs=[0.04, 0.06, 0.07])
+                self.gmodel[target_name].generate(approachrays=approachrays3, friction=0.6, forceclosure=False, standoffs=np.array([0.04, 0.06, 0.07]))
                 self.gmodel[target_name].save()
+
+                for body in all_bodies:
+                    name = body.GetName()
+                    if name != target_name and name != "velma":
+                        self.env.Add(body)
 
     def getGraspsCount(self, target_name):
         self.prepareGraspingModule(target_name)

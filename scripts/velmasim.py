@@ -665,38 +665,65 @@ Class for velma robot.
             joint_name = self.js.name[i]
             if joint_name in self.mimic_joints_map:
                 continue
-            if self.js.position[i] < self.joints_limit_map[joint_name].lower:
-                self.js.position[i] = self.joints_limit_map[joint_name].lower
-            elif self.js.position[i] > self.joints_limit_map[joint_name].upper:
-                self.js.position[i] = self.joints_limit_map[joint_name].upper
+            if self.js.position[i] < self.joint_name_limit_map[joint_name].lower:
+                self.js.position[i] = self.joint_name_limit_map[joint_name].lower
+            elif self.js.position[i] > self.joint_name_limit_map[joint_name].upper:
+                self.js.position[i] = self.joint_name_limit_map[joint_name].upper
 
     def initJointStatePublisher(self):
         self.pub_js = rospy.Publisher("/joint_states", JointState)
         self.robot = URDF.from_parameter_server()
         self.mimic_joints_map = {}
-        self.joints_limit_map = {}
+        self.joint_name_limit_map = {}
+        self.joint_name_idx_map = {}
         self.js = JointState()
 
+        joint_idx_ros = 0
         for i in range(len(self.robot.joints)):
             joint = self.robot.joints[i]
             
             if joint.joint_type == "fixed":
                 continue
             if joint.mimic != None:
-                self.mimic_joints_map[self.robot.joints[i].name] = joint.mimic
+                self.mimic_joints_map[joint.name] = joint.mimic
 
-            self.joints_limit_map[self.robot.joints[i].name] = joint.limit
+            self.joint_name_limit_map[joint.name] = joint.limit
+            self.joint_name_idx_map[joint.name] = joint_idx_ros
 
             self.js.name.append(joint.name)
+            print joint.name
             self.js.position.append(0)
+            joint_idx_ros += 1
 
         self.updateJointLimits()
         self.updateMimicJoints()
         print self.js.name
+        print self.joint_name_idx_map
 
     def publishJointStates(self):
         self.js.header.stamp = rospy.Time.now()
         self.pub_js.publish(self.js)
+
+    def setInitialJointPosition(self):
+        print "limits:", self.joint_name_limit_map["torso_1_joint"]
+        self.js.position[self.joint_name_idx_map["torso_1_joint"]] = -80.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["right_arm_0_joint"]] = 90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["right_arm_1_joint"]] = -90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["right_arm_2_joint"]] = 90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["right_arm_3_joint"]] = 90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["right_arm_4_joint"]] = 0.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["right_arm_5_joint"]] = -90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["right_arm_6_joint"]] = 90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["left_arm_0_joint"]] = 90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["left_arm_1_joint"]] = 90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["left_arm_2_joint"]] = -90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["left_arm_3_joint"]] = -90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["left_arm_4_joint"]] = 0.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["left_arm_5_joint"]] = 90.0/180.0*math.pi
+        self.js.position[self.joint_name_idx_map["left_arm_6_joint"]] = -90.0/180.0*math.pi
+
+        self.updateJointLimits()
+        self.updateMimicJoints()
 
     #
     # init
@@ -756,6 +783,7 @@ Class for velma robot.
         self.max_tactile_value = 0
 
         self.initJointStatePublisher()
+        self.setInitialJointPosition()
 
         self.fk_solver = velma_fk_ik.VelmaFkIkSolver(self.js)
 #

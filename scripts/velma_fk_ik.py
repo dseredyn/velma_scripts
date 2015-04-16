@@ -34,120 +34,120 @@ from urdf_parser_py.urdf import URDF
 from pykdl_utils.kdl_parser import kdl_tree_from_urdf_model
 
 class VelmaFkIkSolver:
+
     def calculateFk(self, link_name, joint_states):
+        js_name_idx_map = {}
+        for j_idx in range(len(joint_states.name)):
+            js_name_idx_map[joint_states.name[j_idx]] = j_idx
+
+        q = PyKDL.JntArray(self.fk_chains[link_name].getNrOfJoints())
         ja_idx = 0
-        for js_idx in self.fk_joint_state_idx[link_name]:
-            self.joint_arrays[link_name][ja_idx] = joint_states.position[js_idx]
+        for js_name in self.fk_joint_state_name[link_name]:
+            q[ja_idx] = joint_states.position[ js_name_idx_map[js_name] ]
             ja_idx += 1
 
         fr = PyKDL.Frame()
-        self.fk_solvers[link_name].JntToCart(self.joint_arrays[link_name], fr)
+        self.fk_solvers[link_name].JntToCart(q, fr)
         return fr
 
-    def __init__(self, joint_states):
+    def simulateTrajectory(self, link_name, init_js, T_B_Ed):#, progress):
+#        if progress < 0.0 or progress > 1.0:
+#            print "simulateTrajectory: bad progress value: %s"%(progress)
+#            return None
+
+        chain_length = self.ik_chains[link_name].getNrOfJoints()
+
+        js_name_idx_map = {}
+        for j_idx in range(len(init_js.name)):
+            js_name_idx_map[init_js.name[j_idx]] = j_idx
+
+        q_end = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        q_init = PyKDL.JntArray(chain_length)
+        for ja_idx in range(chain_length):
+            js_idx = js_name_idx_map[self.ik_joint_state_name[link_name][ja_idx]]
+            q_init[ja_idx] = init_js.position[js_idx]
+
+        T_B_BB = self.calculateFk(self.ik_base, init_js)
+        T_BB_B = T_B_BB.Inverse()
+#        init_T_B_E = self.calculateFk(link_name, init_js)
+
+        q_out = PyKDL.JntArray(chain_length)
+#        T_B_E_diff = PyKDL.diff(init_T_B_E, T_B_Ed, 1.0)
+#        T_B_Ei = PyKDL.addDelta(init_T_B_E, T_B_E_diff, progress)
+#        T_BB_Ei = T_BB_B * T_B_Ei
+        T_BB_Ed = T_BB_B * T_B_Ed
+        status = self.ik_solvers[link_name].CartToJnt(q_init, T_BB_Ed, q_out)
+        if status != 0:
+            return None
+        for i in range(chain_length):
+            q_end[i] = q_out[i]
+        return q_end
+
+    def __init__(self):
         self.robot = URDF.from_parameter_server()
 
         self.tree = kdl_tree_from_urdf_model(self.robot)
-        self.fk_links = [
+        fk_links = [
         "torso_link2",
         "left_arm_7_link",
         "right_arm_7_link",
         "left_HandPalmLink",
         "right_HandPalmLink",
         ]
-        self.chains = {}
+        self.fk_chains = {}
         self.fk_solvers = {}
-        self.joint_arrays = {}
-        self.fk_joint_state_idx = {}
-        for link_name in self.fk_links:
-            self.chains[link_name] = self.tree.getChain("torso_base", link_name)
-            self.fk_solvers[link_name] = PyKDL.ChainFkSolverPos_recursive(self.chains[link_name])
+        self.fk_joint_state_name = {}
+        for link_name in fk_links:
+            self.fk_chains[link_name] = self.tree.getChain("torso_base", link_name)
+            self.fk_solvers[link_name] = PyKDL.ChainFkSolverPos_recursive(self.fk_chains[link_name])
 
-            self.joint_arrays[link_name] = PyKDL.JntArray(self.chains[link_name].getNrOfJoints())
-            self.fk_joint_state_idx[link_name] = []
-            for seg_idx in range(self.chains[link_name].getNrOfSegments()):
-                joint = self.chains[link_name].getSegment(seg_idx).getJoint()
+            self.fk_joint_state_name[link_name] = []
+            for seg_idx in range(self.fk_chains[link_name].getNrOfSegments()):
+                joint = self.fk_chains[link_name].getSegment(seg_idx).getJoint()
                 if joint.getType() == PyKDL.Joint.None:
                     continue
                 joint_name = joint.getName()
 
-                for js_idx in range(len(joint_states.name)):
-                    if joint_name == joint_states.name[js_idx]:
-                        break
-                self.fk_joint_state_idx[link_name].append(js_idx)
+                self.fk_joint_state_name[link_name].append(joint_name)
 
-#        self.q_min = PyKDL.JntArray(7)
-#        self.q_max = PyKDL.JntArray(7)
-#        self.q_limit = 0.26
-#        self.q_min[0] = -2.96 + self.q_limit
-#        self.q_min[1] = -2.09 + self.q_limit
-#        self.q_min[2] = -2.96 + self.q_limit
-#        self.q_min[3] = -2.09 + self.q_limit
-#        self.q_min[4] = -2.96 + self.q_limit
-#        self.q_min[5] = -2.09 + self.q_limit
-#        self.q_min[6] = -2.96 + self.q_limit
-#        self.q_max[0] = 2.96 - self.q_limit
-#        self.q_max[1] = 2.09 - self.q_limit
-#        self.q_max[2] = 2.96 - self.q_limit
-#        self.q_max[3] = 2.09 - self.q_limit
-#        self.q_max[4] = 2.96 - self.q_limit
-#        self.q_max[5] = 2.09 - self.q_limit
-#        self.q_max[6] = 2.96 - self.q_limit
+        self.ik_base = "torso_link2"
+        ik_links = [
+        "left_HandPalmLink",
+        "right_HandPalmLink",
+        ]
 
-#        self.fk_solver = PyKDL.TreeFkSolverPos_recursive(self.tree)
-#        self.vel_ik_solver = PyKDL.ChainIkSolverVel_pinv(self.chain)
-#        self.ik_solver = PyKDL.ChainIkSolverPos_NR_JL(self.chain, self.q_min, self.q_max, self.fk_solver, self.vel_ik_solver, 100)
+        joint_limit_map = {}
+        for j in self.robot.joints:
+            if j.limit != None:
+                joint_limit_map[j.name] = j.limit
 
-#        self.q_out = PyKDL.JntArray(7)
+        self.ik_fk_solver = {}
+        self.vel_ik_solver = {}
+        self.q_min = {}
+        self.q_max = {}
+        self.ik_solvers = {}
+        self.ik_chains = {}
+        self.ik_joint_state_name = {}
+        for link_name in ik_links:
+            # get chain
+            self.ik_chains[link_name] = self.tree.getChain(self.ik_base, link_name)
 
-
-    def calculateIk(self, x_index_start, x_index_end, print_lock, next_lock):
-#process...
-#print_lock.acquire
-#print
-#print_lock.release
-#next_lock.release
-
-        ret = []
-        for x in self.x_set[x_index_start:x_index_end]:
-            ret_x = []
-            print >> sys.stderr, "x=%s"%(x)
-            if rospy.is_shutdown():
-                break
-            y = 0
-            for y in self.y_set:
-                ret_y = []
-                for z in self.z_set:
-                    ret_z = []
-                    if rospy.is_shutdown():
-                        break
-                    rot_index = 0
-                    dist = (self.pt_c_in_T2.x()-x)*(self.pt_c_in_T2.x()-x) + (self.pt_c_in_T2.y()-y)*(self.pt_c_in_T2.y()-y) + (self.pt_c_in_T2.z()-z)*(self.pt_c_in_T2.z()-z)
-                    if dist <= self.max_dist2 and dist >= self.min_dist2:
-                        for r in self.rot:
-                            fr = PyKDL.Frame(r, PyKDL.Vector(x,y,z))
-                            success = False
-                            for i in range(0,5):
-                                q_init = PyKDL.JntArray(7)
-                                for j in range(0,7):
-                                    q_init[j] = random.uniform(self.q_min[j]+0.1, self.q_max[j]-0.1)
-                                status = self.ik_solver.CartToJnt(q_init, fr, self.q_out)
-                                if status == 0 and not self.hasSingularity(self.q_out):
-                                    success = True
-#                                    print >> sys.stderr, "sing. %s"%(i)
-                                    break
-                            if success:
-                                ret_z.append(rot_index)
-                            rot_index += 1
-                    ret_y.append(ret_z)
-                ret_x.append(ret_y)
-            ret.append(ret_x)
-
-        if print_lock != None:
-            print_lock.acquire()
-        self.printLookupTablePart(ret)
-        if print_lock != None:
-            print_lock.release()
-        if next_lock != None:
-            next_lock.release()
+            # get limits
+            self.q_min[link_name] = PyKDL.JntArray(self.ik_chains[link_name].getNrOfJoints())
+            self.q_max[link_name] = PyKDL.JntArray(self.ik_chains[link_name].getNrOfJoints())
+            j_idx = 0
+            self.ik_joint_state_name[link_name] = []
+            for seg_idx in range(self.ik_chains[link_name].getNrOfSegments()):
+                joint = self.ik_chains[link_name].getSegment(seg_idx).getJoint()
+                if joint.getType() == PyKDL.Joint.None:
+                    continue
+                joint_name = joint.getName()
+                self.q_min[link_name][j_idx] = joint_limit_map[joint_name].lower
+                self.q_max[link_name][j_idx] = joint_limit_map[joint_name].upper
+                self.ik_joint_state_name[link_name].append(joint_name)
+                j_idx += 1
+            # prepare fk solver for ik solver
+            self.ik_fk_solver[link_name] = PyKDL.ChainFkSolverPos_recursive(self.ik_chains[link_name])
+            self.vel_ik_solver[link_name] = PyKDL.ChainIkSolverVel_pinv(self.ik_chains[link_name])
+            self.ik_solvers[link_name] = PyKDL.ChainIkSolverPos_NR_JL(self.ik_chains[link_name], self.q_min[link_name], self.q_max[link_name], self.ik_fk_solver[link_name], self.vel_ik_solver[link_name], 100)
 

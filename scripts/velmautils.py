@@ -218,6 +218,31 @@ class MarkerPublisher:
 def getAngle(v1, v2):
     return math.atan2((v1*v2).Norm(), PyKDL.dot(v1,v2))
 
+def contactToWrenches(pos, normal, friction, Nconepoints):
+            wrenches = []
+            fdeltaang = 2.0*math.pi/float(Nconepoints)
+            nz = normal
+            if abs(nz.z()) < 0.7:
+                nx = PyKDL.Vector(0,0,1)
+            elif abs(nz.y()) < 0.7:
+                nx = PyKDL.Vector(0,1,0)
+            else:
+                nx = PyKDL.Vector(1,0,0)
+            ny = nz * nx
+            nx = ny * nz
+            nx.Normalize()
+            ny.Normalize()
+            nz.Normalize()
+            R_n = PyKDL.Frame(PyKDL.Rotation(nx,ny,nz))
+            fangle = 0.0
+            for cp in range(Nconepoints):
+                nn = R_n * PyKDL.Frame(PyKDL.Rotation.RotZ(fangle)) * PyKDL.Vector(friction,0,1)
+                fangle += fdeltaang
+                tr = pos * nn
+                wr = PyKDL.Wrench(nn,tr)
+                wrenches.append([wr[0], wr[1], wr[2], wr[3], wr[4], wr[5]])
+            return wrenches
+
 #% by Tolga Birdal
 #% Q is an Mx4 matrix of quaternions. Qavg is the average quaternion
 #% Based on 

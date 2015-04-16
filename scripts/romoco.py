@@ -52,7 +52,6 @@ from tf2_msgs.msg import *
 
 import PyKDL
 import math
-from numpy import *
 import numpy as np
 import copy
 import matplotlib.pyplot as plt
@@ -66,26 +65,8 @@ from openravepy.misc import OpenRAVEGlobalArguments
 import velmautils
 import openraveinstance
 import itertools
-import grip
 import operator
-
-import velma_fk_ik
-
 import rospkg
-
-from sklearn import manifold, datasets
-#from sklearn.cluster import AgglomerativeClustering
-
-# reference frames:
-# B - robot's base
-# R - camera
-# W - wrist
-# E - gripper
-# F - finger distal link
-# T - tool
-# C - current contact point
-# N - the end point of finger's nail
-# J - jar marker frame (jar cap)
 
 def KDLToOpenrave(T):
         ret = numpy.array([
@@ -128,7 +109,9 @@ Class for grasp learning.
         T_B_Tm = PyKDL.Frame( PyKDL.Rotation.RotZ(90.0/180.0*math.pi), PyKDL.Vector(0.55,-0.2,0.9) )
         T_B_Tbb = PyKDL.Frame( PyKDL.Vector(0.5,-0.8,2.0) )
         T_Tm_Bm = PyKDL.Frame( PyKDL.Vector(-0.06, 0.3, 0.135) )
-        T_Bm_Gm = PyKDL.Frame( PyKDL.Rotation.RotZ(-30.0/180.*math.pi), PyKDL.Vector(0.1,-0.1,0.06) )
+        T_Bm_Gm = PyKDL.Frame( PyKDL.Rotation.RotZ(90.0/180.*math.pi) * PyKDL.Rotation.RotY(90.0/180.*math.pi), PyKDL.Vector(0.0,0.0,0.17) )    # the block standing on the table
+#        T_Bm_Gm = PyKDL.Frame( PyKDL.Rotation.RotZ(-30.0/180.*math.pi), PyKDL.Vector(0.1,-0.1,0.06) )    # the block lying on the table
+#        T_Bm_Gm = PyKDL.Frame( PyKDL.Rotation.RotX(90.0/180.*math.pi), PyKDL.Vector(0.1,-0.1,0.06) )
         if marker_id == 6:
             return T_B_Tm
         elif marker_id == 7:
@@ -247,7 +230,89 @@ Class for grasp learning.
             print "FATAL ERROR: impedance control in unknown state: %s %s"%(robot.joint_impedance_active, robot.cartesian_impedance_active)
             exit(0)
 
+    def calculateWrenchesForTransportTask(self, ext_wrenches_W, transport_T_B_O):
+        ext_wrenches_O = []
+        for i in range(len(transport_T_B_O)-1):
+            diff_B_O = PyKDL.diff(transport_T_B_O[i], transport_T_B_O[i+1])
+            # simulate object motion and calculate expected wrenches
+            for t in np.linspace(0.0, 1.0, 5):
+                T_B_Osim = PyKDL.addDelta(transport_T_B_O[i], diff_B_O, t)
+                T_Osim_B = T_B_Osim.Inverse()
+                for ewr in ext_wrenches_W:
+                    ext_wrenches_O.append(PyKDL.Frame(T_Osim_B.M) * ewr)
+        return ext_wrenches_O
+
+    def makePlan(self, graspable_object_name, grasp, T_B_Od):
+
+        plan_ret = None
+
+        config = self.openrave.getRobotConfigurationRos()
+        init_T_B_O = self.openrave.getPose(graspable_object_name)
+
+        T_B_Ed = self.openrave.getGraspTransform(graspable_object_name, grasp, collisionfree=True)
+
+        # plan first trajectory (in configuration space)
+        traj = self.openrave.planMoveForRightArm(T_B_Ed, None)
+        if traj == None:
+            print "colud not plan trajectory in configuration space"
+            return None, None
+
+        # calculate the score for first trajectory: distance in the configuration space
+        total_distance = 0.0
+        q_weights = [20.0, 15.0, 15.0, 10.0, 5.0, 3.0, 3.0]
+        for conf_idx in range(len(traj[4])-1):
+            dist = 0.0
+            for q_idx in range(len(traj[4][conf_idx])):
+                qd = (traj[4][conf_idx][q_idx] - traj[4][conf_idx+1][q_idx]) * q_weights[q_idx]
+                dist += qd * qd
+            total_distance += dist
+        total_distance = math.sqrt(total_distance)
+
+#        duration = math.fsum(traj[3])
+#        raw_input("Press Enter to visualize the trajectory...")
+#        if self.velma.checkStopCondition():
+#            exit(0)
+#        self.openrave.showTrajectory(duration * time_mult * 0.3, qar_list=traj[4])
+
+        # start planning from the end of the previous trajectory
+        self.openrave.updateRobotConfiguration(qar=traj[0][-1])
+
+        # grab the body
+        self.openrave.grab(graspable_object_name)
+
+        # calculate the destination pose of the end effector
+        T_B_O = self.openrave.getPose(graspable_object_name)
+        T_E_O = T_B_Ed.Inverse() * T_B_O
+        T_B_Ed = T_B_Od * T_E_O.Inverse()
+        T_B_Wd = T_B_Ed * self.velma.T_E_W
+
+        # interpolate trajectory for the second motion (in the cartesian space)
+        init_js = self.openrave.getRobotConfigurationRos()
+        traj = self.velma.getCartImpWristTraj(init_js, T_B_Wd)
+        if traj == None:
+            print "could not plan trajectory in cartesian space"
+            self.openrave.release()
+            self.openrave.updatePose(graspable_object_name, init_T_B_O)
+            self.openrave.updateRobotConfigurationRos(config)
+            return None, None
+#        raw_input("Press Enter to visualize the trajectory...")
+#        if self.velma.checkStopCondition():
+#            exit(0)
+#        self.openrave.showTrajectory(duration * time_mult * 3, qar_list=traj)
+
+#        self.openrave.updateRobotConfiguration(qar=traj[-1])
+
+        self.openrave.release()
+        self.openrave.updatePose(graspable_object_name, init_T_B_O)
+
+#        raw_input(".")
+        self.openrave.updateRobotConfigurationRos(config)
+
+        return total_distance, plan_ret
+
     def spin(self):
+
+        graspable_object_name = "big_box"
 
         # get an instance of RosPack with the default search paths
         rospack = rospkg.RosPack()
@@ -258,8 +323,8 @@ Class for grasp learning.
         # get the file path for rospy_tutorials
         filname_environment = rospack.get_path('velma_scripts') + '/data/romoco/romoco.env.xml'
         filname_objectmarker = rospack.get_path('velma_scripts') + '/data/romoco/object_marker.txt'
+        filename_wrenches = rospack.get_path('velma_scripts') + '/data/romoco/wrenches_' + graspable_object_name + '.txt'
 
-        graspable_object_name = "big_box"
 
         simulation_only = True
         if simulation_only:
@@ -273,35 +338,16 @@ Class for grasp learning.
         self.pub_marker.eraseMarkers(0,3000, frame_id='world')
 
         #
-        # Init Openrave
+        # Initialise Openrave
         #
         self.openrave = openraveinstance.OpenraveInstance()
         self.openrave.startOpenrave(filname_environment)
 
         self.openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
-        # set the camera in openrave
-        if False:
-            cam_pos = PyKDL.Vector(2.0, 0.0, 2.0)
-            target_pos = PyKDL.Vector(0.60, 0.0, 1.10)
 
-            cam_z = target_pos - cam_pos
-            focalDistance = cam_z.Norm()
-            cam_y = PyKDL.Vector(0,0,-1)
-            cam_x = cam_y * cam_z
-            cam_y = cam_z * cam_x
-            cam_x.Normalize()
-            cam_y.Normalize()
-            cam_z.Normalize()
-            cam_T = PyKDL.Frame(PyKDL.Rotation(cam_x,cam_y,cam_z), cam_pos)
-            
-            self.env.GetViewer().SetCamera(KDLToOpenrave(cam_T), focalDistance)
-
-#        self.openrave_robot = self.env.GetRobots()[0]
-
-#        dof_values = self.openrave_robot.GetDOFValues()
-#        dof_values[1] = 0.0
-#        self.openrave_robot.SetDOFValues(dof_values)
-
+        #
+        # Initialise dynamic objects and their marker information
+        #
         dyn_objects_map = set()
         dyn_objects_map.add("table")
         dyn_objects_map.add("big_box")
@@ -332,17 +378,10 @@ Class for grasp learning.
 
         self.T_World_Br = PyKDL.Frame(PyKDL.Vector(0,0,0.1))
 
-        # create Openrave interface
-#        self.openrave = openraveinstance.OpenraveInstance(PyKDL.Frame(PyKDL.Vector(0,0,0.1)))
-#        self.openrave.startNewThread()
-
-#        self.waitForOpenraveInit()
-
         self.velma = None
 
         if simulation_only:
             # create the robot interface for simulation
-#            self.velma = VelmaSim(self.openrave, velma_ikr)
             self.velma = VelmaSim(None, velma_ikr)
         else:
             # create the robot interface for real hardware
@@ -350,17 +389,21 @@ Class for grasp learning.
 
         self.velma.updateTransformations()
 
-        self.openrave.updateRobotConfiguration(self.velma.js)
+        self.openrave.updateRobotConfigurationRos(self.velma.js)
+
         self.allowUpdateObjects()
         # start thread for updating objects' positions in openrave
         thread.start_new_thread(self.poseUpdaterThread, (None,1))
 
-#        self.openrave.addRobotInterface(self.velma)
-
         self.velma.updateTransformations()
 
-#        camera_fov_x = 50.0/180.0*math.pi
-#        camera_fov_y = 40.0/180.0*math.pi
+        # TEST: moveWrist
+#        T_B_Ed = PyKDL.Frame(PyKDL.Vector(0,0.0,0.4)) * self.openrave.getLinkPose("right_HandPalmLink")        
+#        T_B_Wd = T_B_Ed * self.velma.T_E_W
+#        init_js = self.openrave.getRobotConfigurationRos()
+#        self.velma.getCartImpWristTraj(init_js, T_B_Wd)
+#        self.velma.moveWrist(T_B_Wd, 4, None)
+#        exit(0)
 
         k_pregrasp = Wrench(Vector3(1000.0, 1000.0, 1000.0), Vector3(300.0, 300.0, 300.0))
         k_grasp = Wrench(Vector3(500.0, 500.0, 500.0), Vector3(150.0, 150.0, 150.0))
@@ -405,396 +448,230 @@ Class for grasp learning.
 
         self.openrave.prepareGraspingModule(graspable_object_name, force_load=False)
 
-        
-        raw_input(".")
-        exit(0)
-
         try:
-            print "trying to read grasping data from file"
-            with open('sim_grips_' + obj_model + '.txt', 'r') as f:
-                for line in f:
-                    if line == 'None' or line == 'None\n':
-                        sim_grips.append(None)
-                    else:
-                        gr = grip.Grip(obj_grasp)
-                        gr.fromStr(line)
-                        sim_grips.append(gr)
+            print "trying to read wrenches for each grasp from file"
+            self.openrave.loadWrenchesforAllGrasps(graspable_object_name, filename_wrenches)
+            print "done."
         except IOError as e:
             print "could not read from file:"
             print e
             print "generating grapsing data..."
-            self.disallowUpdateObjects()
-            T_B_Oorig = self.openrave.getPose("object")
-            # move the object 10 meters above
-            self.openrave.updatePose("object", PyKDL.Frame(PyKDL.Vector(0,0,10)))
-            T_B_O = self.openrave.getPose("object")
-            T_O_B = T_B_O.Inverse()
-            vertices, faces = self.openrave.getMesh("object")
-            # get the possible grasps for the current scene
+            self.openrave.generateWrenchesforAllGrasps(graspable_object_name)
+            print "done."
+            print "saving grasping data to file..."
+            self.openrave.saveWrenchesforAllGrasps(graspable_object_name, filename_wrenches)
+            print "done."
 
-            valid_grasps = 0
-            grips = []
-            for idx in range(0, self.openrave.getGraspsCount("object")):
-                if idx % 100 == 0:
-                    print "index: %s"%(idx)
-                sim_grips.append(None)
-                grasp = self.openrave.getGrasp("object", idx)
-                q, contacts, normals = self.openrave.getFinalConfig("object", grasp)
-                if contacts == None:
-                    contacts = []
-#                print "grasp_idx: %s   contacts: %s"%(idx, len(contacts))
-                if len(contacts) == 0:
-                    continue
+        # TEST
+#        T_B_Ed = PyKDL.Frame(PyKDL.Vector(0,0,0.2)) * self.openrave.getLinkPose("right_HandPalmLink")
 
-                T_B_E = self.openrave.getGraspTransform("object", grasp)
-
-                gr = grip.Grip(obj_grasp)
-                self.pub_marker.eraseMarkers(2, m_id)
-                m_id = 2
-
-                checked_contacts = []
-                contacts_groups = []
-                while len(checked_contacts) < len(contacts):
-                    pos = None
-                    # group the contacts
-                    for c_idx in range(0, len(contacts)):
-                        if c_idx in checked_contacts:
-                            continue
-                        c_O = T_B_O.Inverse() * contacts[c_idx]
-                        if pos == None:
-                            pos = c_O
-                            checked_contacts.append(c_idx)
-                            contacts_groups.append([])
-                            contacts_groups[-1].append(c_idx)
-                        else:
-                            dist = (pos - c_O).Norm()
-                            if dist < 0.02:
-                                checked_contacts.append(c_idx)
-                                contacts_groups[-1].append(c_idx)
-
-                if len(contacts_groups) < 3:
-                    continue
-
-                centers = []
-#                center_normals = []
-                for g in contacts_groups:
-                    center = PyKDL.Vector()
-#                    normal = PyKDL.Vector()
-                    for c in g:
-                        center += T_B_O.Inverse() * contacts[c]
-#                        normal += T_B_O.Inverse() * normals[c]
-                    center *= 1.0/len(g)
-                    centers.append(center)
-#                    normal.Normalize()
-#                    center_normals.append(normal)
-
-#                for i in range(0, len(centers)):
-#                        c = centers[i]
-#                        nz = center_normals[i]
-#                        # create frame for contact
-#                        if abs(nz.z()) < 0.8:
-#                            nx = PyKDL.Vector(0,0,1)
-#                        elif abs(nz.y()) < 0.8:
-#                            nx = PyKDL.Vector(0,1,0)
-#                        else:
-#                            nx = PyKDL.Vector(1,0,0)
-#                        ny = nz * nx
-#                        nx = ny * nz
-#                        fr = PyKDL.Frame( PyKDL.Rotation(nx, ny, nz), c)
-#                        # get the finger in contact index
-#                        P_F = PyKDL.Vector(0.0510813, -0.0071884, 0.0)
-#                        finger_idx_min = -1
-#                        d_min = 1000000.0
-#                        fr_B_p = T_B_O * fr * PyKDL.Vector(0,0,0)
-#                        for finger_idx in range(0,3):
-#                            pt_B = T_B_E * velma.get_T_E_Fd( finger_idx, q[finger_idx], q[3]) * P_F
-#                            d = (fr_B_p - pt_B).Norm()
-#                            if d < d_min:
-#                                d_min = d
-#                                finger_idx_min = finger_idx
-#                        gr.addContact(fr, finger_idx_min)
-                    
-
-                for c in centers:
-                        points = velmautils.sampleMesh(vertices, faces, 0.003, [c], 0.005)
-                        if len(points) < 3:
-                            continue
-                        # get the contact surface normal
-                        fr = velmautils.estPlane(points)
-                        # set the proper direction of the contact surface normal (fr.z axis)
-                        fr_B_p = T_B_O * fr * PyKDL.Vector(0,0,0)
-                        fr_B_z = PyKDL.Frame( copy.deepcopy((T_B_O * fr).M) ) * PyKDL.Vector(0,0,1)
-                        # get the finger in contact index
-                        P_F = PyKDL.Vector(0.0510813, -0.0071884, 0.0)
-                        finger_idx_min = -1
-                        d_min = 1000000.0
-                        for finger_idx in range(0,3):
-                            pt_B = T_B_E * velma.get_T_E_Fd( finger_idx, q[finger_idx], q[3]) * P_F
-                            d = (fr_B_p - pt_B).Norm()
-                            if d < d_min:
-                                d_min = d
-                                finger_idx_min = finger_idx
-                        n_B = PyKDL.Frame( copy.deepcopy((T_B_E * velma.get_T_E_Fd( finger_idx_min, q[finger_idx_min], q[3])).M) ) * PyKDL.Vector(1,-1,0)
-                        if PyKDL.dot(n_B, fr_B_z) < 0:
-                            fr = fr * PyKDL.Frame(PyKDL.Rotation.RotX(math.pi))
-                        # add the contact to the grip description
-                        gr.addContact(fr, finger_idx_min)
-
-                valid_grasps += 1
-                if len(gr.contacts) == 3:
-                    sim_grips[-1] = copy.deepcopy(gr)
-
-            print "added grasps: %s / %s"%(valid_grasps, len(sim_grips))
-            print "writing grasping data to file"
-            with open('sim_grips_' + obj_model + '.txt', 'w') as f:
-                for gr in sim_grips:
-                    if gr == None:
-                        f.write('None\n')
-                    else:
-#                        print "%s"%(len(gr.contacts))
-                        f.write(gr.toStr() + '\n')
-            self.openrave.updatePose("object", T_B_Oorig)
-            self.allowUpdateObjects()
-
-        if False:
-            velmautils.comSamplesUnitTest(self.openrave, self.pub_marker, "cbeam")
-            exit(0)
-
-        if False:
-            velmautils.updateComUnitTest(self.openrave, self.pub_marker, "object")
-            exit(0)
-
-        if False:
-            print "grasps: %s  %s"%(len(sim_grips), self.openrave.getGraspsCount("object"))
-
-            # verify the grasps
-            for i in range(0, len(sim_grips)):
-                if sim_grips[i] == None:
-                    continue
-                if len(sim_grips[i].contacts) != 3:
-                    print "ERROR: len(sim_grips[i].contacts) != 3"
-                    grasp = self.openrave.getGrasp("object", i)
-                    self.openrave.getFinalConfig("object", grasp, show=True)
-                    exit(0)
-                fingers = [sim_grips[i].contacts[0][0], sim_grips[i].contacts[1][0], sim_grips[i].contacts[2][0]]
-                if (not 0 in fingers) or (not 1 in fingers) or (not 2 in fingers):
-                    print "ERROR: grasp %s: not all fingers have contacts"%(i)
-                    sim_grips[i] = None
-#                    grasp = self.openrave.getGrasp("object", i)
-#                    self.openrave.getFinalConfig("object", grasp, show=True)
-                    continue
-
-
-            valid_indices = self.openrave.generateGrasps("object", show=False, checkcollision=True, checkik=False, checkgrasper=True)
-            print "valid grasps: %s"%(len(valid_indices))
-
-            for i in range(0, len(sim_grips)):
-                if not i in valid_indices:
-                    sim_grips[i] = None
-
-            max_valid_grasps = 300
-            valid_grasps = 0
-            for i in range(0, len(sim_grips)):
-                if sim_grips[i] != None:
-                    valid_grasps += 1
-
-            print "valid grasps: %d"%(valid_grasps)
-            print "reducing to %s"%(max_valid_grasps)
-            g_idx = 0
-            while valid_grasps > max_valid_grasps:
-                if sim_grips[g_idx] != None and random.random() > 0.8:
-                    sim_grips[g_idx] = None
-                    valid_grasps -= 1
-                g_idx = (g_idx + 1) % len(sim_grips)
-
-            print "valid grasps: %d"%(valid_grasps)
-            sim_grips_valid = []
-            sim_grips_valid_idx = []
-            valid_grasps = 0
-            for i in range(0, len(sim_grips)):
-                if sim_grips[i] != None:
-                    valid_grasps += 1
-                    sim_grips_valid.append(copy.deepcopy(sim_grips[i]))
-                    sim_grips_valid_idx.append(i)
-            print "valid grasps: %d"%(valid_grasps)
-
-            print "showing 10 random grips"
-            random_idx = -1
-            random_grasps = []
-            # get random grasp
-            while True:
-                random_idx = random.randint(0, len(sim_grips_valid)-1)
-                if sim_grips_valid[random_idx] != None:
-                    grasp = self.openrave.getGrasp("object", sim_grips_valid_idx[random_idx])
-                    random_grasps.append(grasp)
-                    self.openrave.getFinalConfig("object", grasp, show=True)
-                if len(random_grasps) >= 10:
-                    break
-
-#            print "random grasp: %s"%(random_idx)
-#            grasp = self.openrave.getGrasp("object", random_idx)
-#            self.openrave.getFinalConfig("object", grasp, show=True)
-
-#            self.openrave.showFinalConfigs("object", random_grasps)
+#        self.openrave.getGraspsForObjectTransport(graspable_object_name, [PyKDL.Frame(PyKDL.Rotation.RotZ(90.0/180.0*math.pi), PyKDL.Vector(0.5,-0.1,1.0))])
+#        traj = self.openrave.planMoveForRightArm(T_B_Ed, None)
+#        if traj == None:
+#            print "colud not plan trajectory"
 #            exit(0)
-
-
-
-
-
-
-            print "searching for grasps..."
-            checked_idx = []
-
-            dist_cache = numpy.zeros( (len(sim_grips_valid), len(sim_grips_valid)) )
-            for i in range(0, len(sim_grips_valid)):
-                for j in range(0, len(sim_grips_valid)):
-                    dist_cache[i][j] = -1.0
-
-            axis_B = PyKDL.Vector(0,0,1)
-            T_B_O = self.openrave.getPose("object")
-            T_O_B = T_B_O.Inverse()
-            axis_O = PyKDL.Frame(T_O_B.M) * axis_B
-
-            max_dist = None
-            # calculate distance between all grips
-            for i in range(0, len(sim_grips_valid)):
-                if sim_grips_valid[i] == None:
-                    continue
-                print "calculating grip distances: %s%%"%(100.0 * float(i)/len(sim_grips_valid))
-                for j in range(0, len(sim_grips_valid)):
-                    if sim_grips_valid[j] == None:
-                        continue
-                    if i == j:
-                        dist_cache[j][i] = 0.0
-                    elif dist_cache[i][j] < 0.0:
-#                        dist, angles, all_scores, all_angles, all_scores2, n1_s_list, pos1_s_list, n2_s_list, pos2_s_list = grip.gripDist5(sim_grips_valid[i], sim_grips_valid[j])
-                        dist, angles, all_scores, all_angles, all_scores2, n1_s_list, pos1_s_list, n2_s_list, pos2_s_list = grip.gripDist6(sim_grips_valid[i], sim_grips_valid[j], axis_O)
-                        dist_cache[i][j] = dist
-                        dist_cache[j][i] = dist
-                        if max_dist == None or dist > max_dist:
-                            max_dist = dist
-
-#            print "max pair-wise distance: %s"%(max_dist)
-#            hist_count = 10
-#            hist_delta = max_dist / hist_count
-#            for v in np.linspace(0, max_dist-hist_delta, hist_count):
-#                samples_count = 0
-#                for i in range(0, len(sim_grips_valid)):
-#                    for j in range(0, i):
-#                        if dist_cache[i][j] >= v and dist_cache[i][j] <= v + hist_delta:
-#                            samples_count += 1
-#                print "hist: (%s ; %s): %s"%(v, v + hist_delta, samples_count)
-
-            n_clusters = 5
-            print "dist_cache shape:"
-            print dist_cache.shape
-            clustering = AgglomerativeClustering(linkage='average', affinity='precomputed', n_clusters=n_clusters, compute_full_tree=True)
-            clustering.fit(dist_cache)
-
-            print "clustering.n_leaves_: %s"%(clustering.n_leaves_)
-            print "clustering.n_components_: %s"%(clustering.n_components_)
-            index = 0
-            for lab in clustering.labels_:
-                print "%s:  %s"%(index, lab)
-                index += 1
-
-            index = 0
-            for ch in clustering.children_:
-                print "%s:  %s"%(index, ch)
-                index += 1
-
-#            for cl in range(0, n_clusters):
-#                print "showing cluster %s"%(cl)
-#                grasps = []
-#                for i in range(0, len(clustering.labels_)):
-#                    if clustering.labels_[i] == cl:
-#                        grasp = self.openrave.getGrasp("object", sim_grips_valid_idx[i])
-#                        grasps.append(grasp)
-#                print "number of grasps: %s"%(len(grasps))
-#                self.openrave.showFinalConfigs("object", grasps)
-#            print "end"
-
+#        duration = math.fsum(traj[3])
+#        raw_input("Press Enter to visualize the trajectory...")
+#        if self.velma.checkStopCondition():
 #            exit(0)
+#        self.openrave.showTrajectory(duration * time_mult * 1, qar_list=traj[4])
+
+#        raw_input(".")
+#        exit(0)
+
+
+        #
+        # transport task specification
+        #
+
+        # current object pose
+        current_T_B_O = self.openrave.getPose(graspable_object_name)
+
+#        current_T_B_O = current_T_B_O * PyKDL.Frame(PyKDL.Rotation.RotX(45.0/180.0*math.pi))
+        #self.openrave.updatePose(graspable_object_name, current_T_B_O)
+
+        # object destination poses
+        T_B_O_trans = PyKDL.Frame(PyKDL.Vector(0,0,0.1)) * current_T_B_O
+        T_B_O_rot = PyKDL.Frame(PyKDL.Vector(0,0,0.1)) * current_T_B_O * PyKDL.Frame(PyKDL.Rotation.RotY(-90.0/180.0*math.pi))
+
+        transport_T_B_O = []
+        transport_T_B_O.append(current_T_B_O)
+
+#        transport_T_B_O.append( T_B_O_rot )   # first variant (lying)
+        transport_T_B_O.append( T_B_O_trans )   # second variant (standing)
+
+
+        #
+        # definition of the expected external wrenches for lift-up task for objects c.o.m. in the World frame
+        #
+        ext_wrenches_W = []
+        # main force (downward)
+        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(0,0,-1), PyKDL.Vector(0,0,0)))
+        # disturbance forces
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(0,0,0.1), PyKDL.Vector()))
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(0,0.1,0), PyKDL.Vector()))
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(0,-0.1,0), PyKDL.Vector()))
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(0.1,0,0), PyKDL.Vector()))
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(-0.1,0,0), PyKDL.Vector()))
+        # disturbance torques
+        max_torque = 0.15
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(), PyKDL.Vector(max_torque*0.1, 0, 0)))
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(), PyKDL.Vector(-max_torque*0.1, 0, 0)))
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(), PyKDL.Vector(0, max_torque*0.1, 0)))
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(), PyKDL.Vector(0, -max_torque*0.1, 0)))
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(), PyKDL.Vector(0, 0, max_torque*0.1)))
+#        ext_wrenches_W.append(PyKDL.Wrench(PyKDL.Vector(), PyKDL.Vector(0, 0, -max_torque*0.1)))
+
+        ext_wrenches_O = self.calculateWrenchesForTransportTask(ext_wrenches_W, transport_T_B_O)
+        print ext_wrenches_O
+
+
+
+        # TEST: visualise the quality of all grasps
+#        m_id = 0
+#        self.openrave.generateGWSforAllGrasps(graspable_object_name)
+#        for grasp_idx in range(self.openrave.getGraspsCount(graspable_object_name)):
+#            gws = self.openrave.getGWSforGraspId(graspable_object_name, grasp_idx)
+#            q_min = None
+#            for wr_O in ext_wrenches_O:
+#                q = self.openrave.getQualityMeasure2(gws, wr_O)
+#                if q_min == None or q < q_min:
+#                    q_min = q
+#            grasp = self.openrave.getGrasp(graspable_object_name, grasp_idx)
+#            T_B_E = self.openrave.getGraspTransform(graspable_object_name, grasp)
+#            scale = q_min * 0.1
+#            m_id = self.pub_marker.publishSinglePointMarker(T_B_E * PyKDL.Vector(), m_id, r=0, g=0, b=1, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(scale, scale, scale), T=None)
+#        raw_input(".")
+#        exit(0)
+
+
+
+        print "calculating set of possible grasps..."
+        valid_indices = self.openrave.getGraspsForObjectTransport(graspable_object_name, transport_T_B_O)
+        print "done"
+
+        print "calculating quality measure..."
+        evaluated_grasps = []
+        for grasp_idx in valid_indices:
+            gws = self.openrave.getGWSforGraspId(graspable_object_name, grasp_idx)
+            q_min = None
+            for wr_O in ext_wrenches_O:
+                q = self.openrave.getQualityMeasure2(gws, wr_O)
+                if q_min == None or q < q_min:
+                    q_min = q
+            evaluated_grasps.append([q_min, grasp_idx])
+        print "done."
+
+        evaluated_grasps_sorted = sorted(evaluated_grasps, key=operator.itemgetter(0), reverse=True)
+
+        # show grasps sorted by their scores
+#        for q, grasp_idx in evaluated_grasps_sorted:
+#            print "showing the grasp..."
+#            print q
+#            grasp = self.openrave.getGrasp(graspable_object_name, grasp_idx)
+#            self.openrave.getFinalConfig(graspable_object_name, grasp, show=True)
+
+#        print "showing the grasp..."
+#        self.openrave.getFinalConfig(graspable_object_name, grasp, show=True)
+
+        q_max = evaluated_grasps_sorted[0][0]
+        print "max quality: %s"%(q_max)
+
+        evaluated_plans = []
+        while len(evaluated_grasps_sorted) > 0:
+            best_grasp_q, best_grasp_idx = evaluated_grasps_sorted.pop(0)
+            if best_grasp_q < 0.95 * q_max:
+                break
+
+            grasp = self.openrave.getGrasp(graspable_object_name, best_grasp_idx)
+
+            score, plan = self.makePlan(graspable_object_name, grasp, transport_T_B_O[1])
+
+            print best_grasp_q, score
+            if score != None:
+                evaluated_plans.append([score, best_grasp_idx])
+
+        evaluated_plans_sorted = sorted(evaluated_plans, key=operator.itemgetter(0))
+        print "best plan: %s"%(evaluated_plans_sorted[0][0])
+
+        grasp = self.openrave.getGrasp(graspable_object_name, evaluated_plans_sorted[0][1])
+        print "showing the grasp..."
+        self.openrave.getFinalConfig(graspable_object_name, grasp, show=True)
+
+
+###################################################3
+
+
+
+
+        exit(0)
 
 
 
 
 
+#        self.openrave.generateGWSforAllGrasps(graspable_object_name)
 
+        print "generating valid grasps for current environment state..."
+        valid_indices = self.openrave.generateGrasps(graspable_object_name, show=False, checkcollision=True, checkik=True, checkgrasper=True)
+        print "done."
 
+        print "valid grasps: %s"%(len(valid_indices))
 
+        print "calculating quality measure..."
+        q_max = None
+        idx_max = None
+        for grasp_idx in valid_indices:
+            gws = self.openrave.getGWSforGraspId(graspable_object_name, grasp_idx)
 
-#                        dist2, angles2, all_scores3, all_angles2, all_scores4, n1_s_list2, pos1_s_list2, n2_s_list2, pos2_s_list2 = grip.gripDist5(sim_grips[i], sim_grips[c_idx])
-#                        if abs(dist-dist2) > 0.01:
-#                            print "%s %s:  %s  %s"%(idx, i, dist, dist2)
+            q_min = None
+            for wr_O in ext_wrenches_O:
+                q = self.openrave.getQualityMeasure2(gws, wr_O)
+                if q_min == None or q < q_min:
+                    q_min = q
+            if q_max == None or q_min > q_max:
+                q_max = q_min
+                idx_max = grasp_idx
+        print "done."
 
+        print "best grasp: %s"%(idx_max)
 
+        print "showing the grasp..."
+        grasp = self.openrave.getGrasp(graspable_object_name, idx_max)
+        self.openrave.getFinalConfig(graspable_object_name, grasp, show=True)
 
-#            for i in range(0, len(sim_grips)):
-#                if sim_grips[i] == None:
-#                    continue
-#                print i
-#                grasp = self.openrave.getGrasp("object", i)
-#                self.openrave.getFinalConfig("object", grasp, show=True)
+        T_B_Ed = self.openrave.getGraspTransform(graspable_object_name, grasp, collisionfree=True)
 
-            idx = random_idx
-            grasp = self.openrave.getGrasp("object", sim_grips_valid_idx[idx])
-            self.openrave.getFinalConfig("object", grasp, show=True)
-
-            for tries in range(0, 10):
-                checked_idx.append(idx)
-                next_idx = None
-                max_dist = None
-                for i in range(0, len(sim_grips_valid)):
-                    if sim_grips_valid[i] == None:
-                        continue
-                    if i in checked_idx:
-                        continue
-                    min_dist = None
-                    for c_idx in checked_idx:
-#                        if dist_cache[c_idx][i] < 0.0:
-#                            dist, angles, all_scores, all_angles, all_scores2, n1_s_list, pos1_s_list, n2_s_list, pos2_s_list = grip.gripDist5(sim_grips_valid[c_idx], sim_grips_valid[i])
-#                            dist_cache[c_idx][i] = dist
-#                            dist_cache[i][c_idx] = dist
-
-#                            dist2, angles2, all_scores3, all_angles2, all_scores4, n1_s_list2, pos1_s_list2, n2_s_list2, pos2_s_list2 = grip.gripDist5(sim_grips_valid[i], sim_grips_valid[c_idx])
-#                            if abs(dist-dist2) > 0.01:
-#                                print "%s %s:  %s  %s"%(idx, i, dist, dist2)
-#                        else:
-                        dist = dist_cache[c_idx][i]
-
-                        if min_dist == None or dist < min_dist:
-                            min_dist = dist
-
-                    if max_dist == None or min_dist > max_dist:
-                        max_dist = min_dist
-                        next_idx = i
-
-                print "next grip: %s  dist: %s"%(next_idx, max_dist)
-
-                grasp = self.openrave.getGrasp("object", sim_grips_valid_idx[next_idx])
-                self.openrave.getFinalConfig("object", grasp, show=True)
-#                self.openrave.showGrasp("object", grasp)
-                idx = next_idx
-
+        traj = self.openrave.planMoveForRightArm(T_B_Ed, None)
+        if traj == None:
+            print "colud not plan trajectory"
             exit(0)
 
+        final_config, contacts_ret, normals = self.openrave.getFinalConfig(graspable_object_name, grasp)
+        if final_config == None:
+            print "colud not plan trajectory for grasping motion"
+
+        print "final_config:"
+        print final_config
+        print "contacts (sim): %s"%(len(contacts_ret))
+        print "standoff: %s"%(self.openrave.getGraspStandoff(graspable_object_name, grasp))
+
+#            print "q_start: %s"%(traj[0][0])
+#            print "q_end:   %s"%(traj[0][-1])
+
+        duration = math.fsum(traj[3])
+
+        raw_input("Press Enter to visualize the trajectory...")
+        if velma.checkStopCondition():
+            exit(0)
+        self.openrave.showTrajectory(duration * time_mult * 0.3, qar_list=traj[4])
 
 
 
 
+        raw_input(".")
 
-
-
-
-
-
-
-
-
-
-
+        exit(0)
 
 
 

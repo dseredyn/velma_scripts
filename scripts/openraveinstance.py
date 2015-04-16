@@ -65,7 +65,7 @@ import random
 class OpenraveInstance:
 
     def __init__(self):#, T_World_Br):
-        self.joint_idx_dof_map = None
+        self.joint_dof_idx_map = None
 #        self.robot = None
 #        self.rolling = False
 #        self.env = None
@@ -84,6 +84,19 @@ class OpenraveInstance:
         self.robot_rave = self.env.GetRobot("velma")
         base_link = self.robot_rave.GetLink("torso_base")
         self.T_World_Br = self.OpenraveToKDL(base_link.GetTransform())
+        self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
+        if not self.ikmodel.load():
+            self.ikmodel.autogenerate()
+
+        self.manipulator_dof_indices_map = {}
+        manipulators = self.robot_rave.GetManipulators()
+        for man in manipulators:
+            self.manipulator_dof_indices_map[man.GetName()] = man.GetArmIndices()
+
+        self.minimumgoalpaths = 1
+        plannername = "BiRRT"#None
+        self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
+        self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
 
     def setCamera(self, cam_pos, target_pos):
             cam_z = target_pos - cam_pos
@@ -98,9 +111,9 @@ class OpenraveInstance:
             
             self.env.GetViewer().SetCamera(self.KDLToOpenrave(cam_T), focalDistance)
 
-    def updateRobotConfiguration(self, js):
+    def updateRobotConfigurationRos(self, js):
         # create the dictionary: <openrave_dof_idx, ros_joint_idx>
-        if self.joint_idx_dof_map == None:
+        if True:#self.joint_dof_idx_map == None:
             joint_name_idx_map = {}
             for dof_idx in range(self.robot_rave.GetDOF()):
                 joint_name = self.robot_rave.GetJointFromDOFIndex(dof_idx).GetName()
@@ -116,6 +129,36 @@ class OpenraveInstance:
             ros_joint_idx = self.joint_dof_idx_map[dof_idx]
             dof_values.append(js.position[ros_joint_idx])
 
+        self.robot_rave.SetDOFValues(dof_values)
+
+    def getRobotConfigurationRos(self):
+        js = JointState()
+        joints = self.robot_rave.GetJoints() + self.robot_rave.GetPassiveJoints()
+        for j in joints:
+            if j.IsStatic():
+                continue
+            js.name.append(j.GetName())
+            js.position.append(j.GetValue(0))
+#            print j.GetName()
+
+#        for dof_idx in range(self.robot_rave.GetDOF()):
+#            ros_joint_idx = self.joint_dof_idx_map[dof_idx]
+#            dof_values.append(js.position[ros_joint_idx])
+        return js
+
+    def updateRobotConfiguration(self, qt=None, qal=None, qhl=None, qar=None, qhr=None):
+        dof_values = self.robot_rave.GetDOFValues()
+        if qt == None:
+            qt = dof_values[0:2]
+        if qal == None:
+            qal = dof_values[2:9]
+        if qhl == None:
+            qhl = dof_values[9:13]
+        if qar == None:
+            qar = dof_values[13:20]
+        if qhr == None:
+            qhr = dof_values[20:24]
+        dof_values = list(qt) + list(qal) + list(qhl) + list(qar) + list(qhr)
         self.robot_rave.SetDOFValues(dof_values)
 
     def addRobotInterface(self, robot):
@@ -274,6 +317,8 @@ class OpenraveInstance:
             "right_arm_5_joint",
             "right_arm_6_joint",
             ]
+
+
 
             self.right_arm_dof_indices = []
             self.right_arm_wrist_dof_indices = []
@@ -516,13 +561,73 @@ class OpenraveInstance:
         self.prepareGraspingModule(target_name)
         return self.gmodel[target_name].grasps[grasp_idx]
 
-    def generateGrasps(self, target_name, show=False, checkcollision=True, checkik=True, checkgrasper=True):
+    def computeValidGrasps(self, target_name, grasp_indices, checkcollision=True,checkik=True,checkgrasper=True,backupdist=0.0,returnnum=np.inf):
+        """Returns the set of grasps that satisfy conditions like collision-free and reachable.
+
+        :param returnnum: If set, will also return once that many number of grasps are found.
+        :param backupdist: If > 0, then will move the hand along negative approach direction and check for validity.
+        :param checkgrasper: If True, will execute the grasp and check if gripper only contacts target.
+        :param checkik: If True will check that the grasp is reachable by the arm.
+        :param checkcollision: If true will return only collision-free grasps. If checkik is also True, will return grasps that have collision-free arm solutions.
+        """
+        with self.gmodel[target_name].robot:
+            validgrasps = []
+            validindices = []
+            self.gmodel[target_name].robot.SetActiveManipulator(self.gmodel[target_name].manip)
+            report = CollisionReport()
+            for i in grasp_indices:
+                grasp = self.gmodel[target_name].grasps[i]
+                self.gmodel[target_name].setPreshape(grasp)
+                Tglobalgrasp = self.gmodel[target_name].getGlobalGraspTransform(grasp,collisionfree=True)
+                if checkik:
+                    if self.gmodel[target_name].manip.GetIkSolver().Supports(IkParameterization.Type.Transform6D):
+                        if self.gmodel[target_name].manip.FindIKSolution(Tglobalgrasp,checkcollision) is None:
+                            continue
+                    elif self.gmodel[target_name].manip.GetIkSolver().Supports(IkParameterization.Type.TranslationDirection5D):
+                        ikparam = IkParameterization(Ray(Tglobalgrasp[0:3,3],dot(Tglobalgrasp[0:3,0:3],self.gmodel[target_name].manip.GetDirection())),IkParameterization.Type.TranslationDirection5D)
+                        solution = self.gmodel[target_name].manip.FindIKSolution(ikparam,checkcollision)
+                        if solution is None:
+                            continue
+                        with RobotStateSaver(self.gmodel[target_name].robot):
+                            self.gmodel[target_name].robot.SetDOFValues(solution, self.gmodel[target_name].manip.GetArmIndices())
+                            Tglobalgrasp = self.gmodel[target_name].manip.GetEndEffectorTransform()
+                            grasp = array(grasp)
+                            grasp[self.gmodel[target_name].graspindices['grasptrans_nocol']] = Tglobalgrasp[0:3,0:4].flatten()
+                    else:
+                        return ValueError('manipulator iktype not correct')
+                elif checkcollision:
+                    if self.gmodel[target_name].manip.CheckEndEffectorCollision(Tglobalgrasp):
+                        continue
+                if backupdist > 0:
+                    Tnewgrasp = array(Tglobalgrasp)
+                    Tnewgrasp[0:3,3] -= backupdist * self.gmodel[target_name].getGlobalApproachDir(grasp)
+                    if checkik:
+                        if self.gmodel[target_name].manip.FindIKSolution(Tnewgrasp,checkcollision) is None:
+                            continue
+                    elif checkcollision:
+                        if self.gmodel[target_name].manip.CheckEndEffectorCollision(Tnewgrasp):
+                            continue
+                if checkcollision and checkgrasper:
+                    try:
+                        contacts2,finalconfig2,mindist2,volume2 = self.gmodel[target_name].runGraspFromTrans(grasp)
+                    except planning_error, e:
+                        continue
+                validgrasps.append(grasp)
+                validindices.append(i)
+                if len(validgrasps) == returnnum:
+                    return validgrasps,validindices
+            return validgrasps,validindices
+
+    def generateGrasps(self, target_name, show=False, checkcollision=True, checkik=True, checkgrasper=True, grasp_indices=None):
         self.prepareGraspingModule(target_name)
 
-        validgrasps,validindices = self.gmodel[target_name].computeValidGrasps(checkcollision=checkcollision, checkik=checkik, checkgrasper=checkgrasper)
-        print "all valid grasps: %s"%(len(validgrasps))
+        if grasp_indices == None:
+            grasp_indices = range(self.getGraspsCount(target_name))
+#        validgrasps,validindices = self.gmodel[target_name].computeValidGrasps(checkcollision=checkcollision, checkik=checkik, checkgrasper=checkgrasper)
+        validgrasps,validindices = self.computeValidGrasps(target_name, grasp_indices, checkcollision=checkcollision, checkik=checkik, checkgrasper=checkgrasper)
+#        print "all valid grasps: %s"%(len(validgrasps))
 
-        print "done."
+#        print "done."
         return validindices
 
     def getGraspTransform(self, target_name, grasp, collisionfree=False):
@@ -553,7 +658,7 @@ class OpenraveInstance:
         time_d = time / length
         report = CollisionReport()
         first_collision = None
-        self.robot_rave_update_lock.acquire()
+#        self.robot_rave_update_lock.acquire()
         with self.robot_rave.CreateRobotStateSaver():
             with self.env:
                 for i in range(0, length):
@@ -587,9 +692,11 @@ class OpenraveInstance:
                     if first_collision == None and report.numCols > 0:
                         first_collision = i
                         print "first collision at step %s"%(i)
+                    elif report.numCols > 0:
+                        print "collision at step %s"%(i)
                     if time_d > 0.0:
                         rospy.sleep(time_d)
-        self.robot_rave_update_lock.release()
+#        self.robot_rave_update_lock.release()
         return first_collision
 
     def getMesh(self, name):
@@ -623,6 +730,14 @@ class OpenraveInstance:
     def getGraspQuality(self, target_name, grasp):
         return grasp[self.gmodel[target_name].graspindices.get('forceclosure')]
 
+    def generateGWSwrenches(self, target_name, wrenches):
+        qhullpoints = []
+        for wr in wrenches:
+            qhullpoints.append([wr[0], wr[1], wr[2], wr[3], wr[4], wr[5]])
+
+        qhullplanes = self.getGraspQHull(target_name, qhullpoints)
+        return qhullplanes
+
     def generateGWS(self, target_name, contacts):
         friction = 1.0
         Nconepoints = 8
@@ -653,7 +768,7 @@ class OpenraveInstance:
         qhullplanes = self.getGraspQHull(target_name, qhullpoints)
         return qhullplanes
 
-    def getQualituMeasure2(self, qhull, wr):
+    def getQualityMeasure2(self, qhull, wr):
         if qhull == None:
             return 0.0
 
@@ -662,7 +777,7 @@ class OpenraveInstance:
         for qp in qhull:
             n = np.array([qp[0],qp[1],qp[2],qp[3],qp[4],qp[5]])
             if np.dot(n,n) > 1.00001 or np.dot(n,n) < 0.9999:
-                print "ERROR: getQualituMeasure2: np.dot(n,n): %s"%(np.dot(n,n))
+                print "ERROR: getQualityMeasure2: np.dot(n,n): %s"%(np.dot(n,n))
                 exit(0)
             dot = np.dot(np.array(wr6), n)
             if dot > 0:
@@ -671,14 +786,20 @@ class OpenraveInstance:
                     mindist = dqp
         return mindist
 
-    def getFinalConfig(self, target_name, grasp, show=False, sim_grip=None):
+    def getFinalConfig(self, target_name, grasp, show=False, sim_grip=None, remove_other_objects=False):
         hand_config = None
         contacts = None
-        normals = None
+        normals_O = None
 #        mindist_grav = None
-        self.robot_rave_update_lock.acquire()
+#        self.robot_rave_update_lock.acquire()
         with self.robot_rave.CreateRobotStateSaver():
             with self.gmodel[target_name].GripperVisibility(self.robot_rave.GetActiveManipulator()):
+                if remove_other_objects:
+                    all_bodies = self.env.GetBodies()
+                    for body in all_bodies:
+                        name = body.GetName()
+                        if name != target_name and name != "velma":
+                            self.env.Remove(body)
                 try:
                     contacts,finalconfig,mindist,volume = self.runGraspFromTrans(self.gmodel[target_name], grasp)
                     hand_config = [
@@ -719,16 +840,139 @@ class OpenraveInstance:
                 except planning_error,e:
                     print "getFinalConfig: planning error:"
                     print e
-        self.robot_rave_update_lock.release()
+                if remove_other_objects:
+                    for body in all_bodies:
+                        name = body.GetName()
+                        if name != target_name and name != "velma":
+                            self.env.Add(body)
+#        self.robot_rave_update_lock.release()
         if contacts == None:
-            contacts_ret = None
+            contacts_ret_O = None
         else:
-            contacts_ret = []
-            normals = []
+            body = self.env.GetKinBody(target_name)
+            T_World_O = self.OpenraveToKDL(body.GetTransform())
+            T_O_World = T_World_O.Inverse()
+            contacts_ret_O = []
+            normals_O = []
             for c in contacts:
-                contacts_ret.append(self.T_World_Br.Inverse() * PyKDL.Vector(c[0], c[1], c[2]))
-                normals.append(PyKDL.Frame(self.T_World_Br.Inverse().M) * PyKDL.Vector(c[3], c[4], c[5]))
-        return hand_config, contacts_ret, normals#, mindist_grav
+                contacts_ret_O.append(T_O_World * PyKDL.Vector(c[0], c[1], c[2]))
+                normals_O.append(PyKDL.Frame(T_O_World.M) * PyKDL.Vector(c[3], c[4], c[5]))
+        return hand_config, contacts_ret_O, normals_O
+
+    def generateWrenchesforAllGrasps(self, graspable_object_name):
+            if not hasattr(self, 'wrenches_map') or self.wrenches_map == None:
+                self.wrenches_map = {}
+
+            self.wrenches_map[graspable_object_name] = []
+
+            # calculate the scaling factor for torque for wrench reduction
+            vertices, faces = self.getMesh(graspable_object_name)
+            max_radius = None
+            for v in vertices:
+                radius = math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
+                if max_radius == None or radius > max_radius:
+                    max_radius = radius
+            max_radius2 = max_radius * max_radius
+
+            # calculate GWS for each grasp
+            for idx in range(0, self.getGraspsCount(graspable_object_name)):
+                self.wrenches_map[graspable_object_name].append(None)
+
+                if idx % 100 == 0:
+                    print "generateWrenchesforAllGrasps: index: %s"%(idx)
+                grasp = self.getGrasp(graspable_object_name, idx)
+                q, contacts_O, normals_O = self.getFinalConfig(graspable_object_name, grasp, remove_other_objects=True)
+                if contacts_O == None:
+                    contacts_O = []
+#                print "grasp_idx: %s   contacts: %s"%(idx, len(contacts_O))
+                if len(contacts_O) == 0:
+                    continue
+
+                wrenches = []
+                for c_idx in range(len(contacts_O)):
+                    wrenches += velmautils.contactToWrenches(contacts_O[c_idx], normals_O[c_idx], 1.0, 8)
+
+                wrenches_reduced = []
+                for wr in wrenches:
+                    add_wr = True
+                    for wr_r in wrenches_reduced:
+                        dist = math.sqrt(
+                        (wr[0]-wr_r[0])*(wr[0]-wr_r[0]) +
+                        (wr[1]-wr_r[1])*(wr[1]-wr_r[1]) +
+                        (wr[2]-wr_r[2])*(wr[2]-wr_r[2]) +
+                        (wr[3]-wr_r[3])*(wr[3]-wr_r[3])/max_radius2 +
+                        (wr[4]-wr_r[4])*(wr[4]-wr_r[4])/max_radius2 +
+                        (wr[5]-wr_r[5])*(wr[5]-wr_r[5])/max_radius2 )
+                        if dist < 0.05:
+                            add_wr = False
+                            break
+                    if add_wr:
+                        wrenches_reduced.append(wr)
+#                print "wrenches:   %s   %s   planes: %s"%(len(wrenches), len(wrenches_reduced), len(qhullplanes))
+                self.wrenches_map[graspable_object_name][-1] = wrenches_reduced
+
+    def generateGWSforAllGrasps(self, graspable_object_name):
+        if not hasattr(self, 'gws_map') or self.gws_map == None:
+            self.gws_map = {}
+
+        self.gws_map[graspable_object_name] = []
+
+        for wrenches in self.wrenches_map[graspable_object_name]:
+            if wrenches == None:
+                self.gws_map[graspable_object_name].append(None)
+            else:
+                qhullplanes = self.generateGWSwrenches(graspable_object_name, wrenches)
+                self.gws_map[graspable_object_name].append(qhullplanes)
+
+    def getGWSforGraspId(self, graspable_object_name, grasp_idx):
+        if not hasattr(self, 'gws_map') or self.gws_map == None:
+            self.gws_map = {}
+
+        if not graspable_object_name in self.gws_map:
+            self.gws_map[graspable_object_name] = []
+            for i in range(self.getGraspsCount(graspable_object_name)):
+                self.gws_map[graspable_object_name].append(None)
+
+        if self.gws_map[graspable_object_name][grasp_idx] == None:
+            wrenches = self.wrenches_map[graspable_object_name][grasp_idx]
+            if wrenches == None:
+                self.gws_map[graspable_object_name][grasp_idx] = []
+            else:
+                qhullplanes = self.generateGWSwrenches(graspable_object_name, wrenches)
+                self.gws_map[graspable_object_name][grasp_idx] = qhullplanes
+
+        return self.gws_map[graspable_object_name][grasp_idx]
+
+
+    def saveWrenchesforAllGrasps(self, graspable_object_name, filename_wrenches):
+        with open(filename_wrenches, 'w') as f:
+            for wrenches in self.wrenches_map[graspable_object_name]:
+                if wrenches == None:
+                    f.write('None\n')
+                else:
+                    line = ""
+                    for wr in wrenches:
+                        line += str(wr[0]) + " " + str(wr[1]) + " " + str(wr[2]) + " " + str(wr[3]) + " " + str(wr[4]) + " " + str(wr[5]) + " "
+                    f.write(line + '\n')
+
+    def loadWrenchesforAllGrasps(self, graspable_object_name, filename_wrenches):
+        if not hasattr(self, 'wrenches_map') or self.wrenches_map == None:
+            self.wrenches_map = {}
+
+        self.wrenches_map[graspable_object_name] = []
+        with open(filename_wrenches, 'r') as f:
+            for line in f:
+                line_s = line.split()
+                if len(line_s) == 0:
+                    break
+                if line_s[0] == 'None':
+                    self.wrenches_map[graspable_object_name].append(None)
+                    continue
+
+                self.wrenches_map[graspable_object_name].append([])
+                for i in range(0, len(line_s), 6):
+                    self.wrenches_map[graspable_object_name][-1].append(
+                    PyKDL.Wrench(PyKDL.Vector(float(line_s[i+0]), float(line_s[i+1]), float(line_s[i+2])), PyKDL.Vector(float(line_s[i+3]), float(line_s[i+4]), float(line_s[i+5]))))
 
     def showFinalConfigs(self, target_name, grasps):
        self.robot_rave_update_lock.acquire()
@@ -785,16 +1029,12 @@ class OpenraveInstance:
 
     def grab(self, name):
         body = self.env.GetKinBody(name)
-        self.robot_rave_update_lock.acquire()
         with self.env:
-            self.robot_rave.Grab( self.env.GetKinBody(name))
-        self.robot_rave_update_lock.release()
+            self.robot_rave.Grab( body )
 
-    def release(self, name):
-        self.robot_rave_update_lock.acquire()
+    def release(self):
         with self.env:
             self.robot_rave.ReleaseAllGrabbed()
-        self.robot_rave_update_lock.release()
 
     def getVisibility(self, name, T_Br_C, qt=None, qar=None, qal=None, qhr=None, qhl=None, pub_marker=None, fov_x=None, fov_y=None, min_dist=0.01):
         # remove the head sphere from environment
@@ -900,17 +1140,14 @@ class OpenraveInstance:
     def findIkSolutions(self, T_Br_E):
         return self.ikmodel.manip.FindIKSolutions(self.KDLToOpenrave(self.T_World_Br * T_Br_E), IkFilterOptions.CheckEnvCollisions)
 
-    def findIkSolutionsTranslation3D(self, T_Br_E):
-        return self.ikmodel_translation3D.manip.FindIKSolutions(self.KDLToOpenrave(self.T_World_Br * T_Br_E), IkFilterOptions.CheckEnvCollisions)
-
     def getBestFinalConfigs(self, T_Br_E):
 
         q_list = self.findIkSolutions(T_Br_E)
-        print "ik solutions: %s"%(len(q_list))
+#        print "ik solutions: %s"%(len(q_list))
         q_score = []
-        lower_lim, upper_lim = self.robot_rave.GetDOFLimits(self.right_arm_dof_indices)
-        print lower_lim
-        print upper_lim
+        lower_lim, upper_lim = self.robot_rave.GetDOFLimits(self.manipulator_dof_indices_map["right_arm"])
+#        print lower_lim
+#        print upper_lim
         for q in q_list:
             q_score.append([1000000.0, q])
             # punish for singularities in end configuration
@@ -933,7 +1170,7 @@ class OpenraveInstance:
             score *= 10.0
 
             for i in range(0, 7):
-                score += (self.robot.qar[i]-q[i])*(self.robot.qar[i]-q[i])
+#                score += (self.robot.qar[i]-q[i])*(self.robot.qar[i]-q[i])
                 if abs(q[i]-lower_lim[i]) < 40.0/180.0*math.pi:
                     score += 40.0/180.0*math.pi - abs(q[i]-lower_lim[i])
                 if abs(q[i]-upper_lim[i]) < 40.0/180.0*math.pi:
@@ -1039,154 +1276,45 @@ class OpenraveInstance:
         self.robot_rave_update_lock.release()
         return min_q_sol
 
-    def planMoveThroughGoals(self, goals, goal0_wrist_only=False):
+    def planMove(self, goal):
         traj = None
-        self.robot_rave_update_lock.acquire()
         try:
             with self.robot_rave:
-                self.robot_rave.SetActiveDOFs(self.right_arm_dof_indices)
-                if goal0_wrist_only:
-                    self.robot_rave.GetLink("right_arm_5_link").Enable(False)
-                    traj = self.basemanip.MoveActiveJoints(goal=goals[0],execute=False,outputtrajobj=True)#, steplength=0.002, maxiter=100000, maxtries=100)
-                    self.robot_rave.GetLink("right_arm_5_link").Enable(True)
-                else:
-                    traj = self.basemanip.MoveActiveJoints(goal=goals[0],execute=False,outputtrajobj=True)#, steplength=0.002, maxiter=100000, maxtries=100)
-                print "waypoints: %s"%(traj.GetNumWaypoints())
-                for idx in range(1, len(goals)):
-                    with self.robot_rave.CreateRobotStateSaver():
-                        self.robot_rave.SetActiveDOFs(self.right_arm_dof_indices)
-                        self.robot_rave.GetController().Reset(0)
-                        dof_values = self.robot_rave.GetDOFValues()
-                        qt = dof_values[0:2]
-                        qal = dof_values[2:9]
-                        qhl = dof_values[9:13]
-                        qar = goals[idx-1]
-                        qhr = dof_values[20:24]
-                        dof_values = list(qt) + list(qal) + list(qhl) + list(qar) + list(qhr)
-                        print dof_values
-                        self.robot_rave.SetDOFValues(dof_values)
-                        t = self.basemanip.MoveActiveJoints(goal=goals[idx],execute=False,outputtrajobj=True)
-                    print "trajectory len: %s"%(t.GetNumWaypoints())
-                    if t.GetNumWaypoints() > 1:
-                        traj.Insert(traj.GetNumWaypoints(), t.GetWaypoints(0, t.GetNumWaypoints()), False)
+                self.robot_rave.SetActiveDOFs(self.manipulator_dof_indices_map["right_arm"])
+                traj = self.basemanip.MoveActiveJoints(goal=goal,execute=False,outputtrajobj=True, steplength=0.02, postprocessingplanner="LinearSmoother")#, postprocessingparameters="<_nmaxiterations>20</_nmaxiterations><_postprocessing planner=\"parabolicsmoother\"><_nmaxiterations>100</_nmaxiterations></_postprocessing>")#, steplength=0.002, maxiter=100000, maxtries=100)
+#                print "waypoints: %s"%(traj.GetNumWaypoints())
         except planning_error,e:
             print "planMoveThroughGoals: planning error"
-        self.robot_rave_update_lock.release()
         return traj
 
     def planMoveForRightArm(self, T_Br_E, q_dest, maxiter=500, verbose_print=False):
-        self.robot_rave_update_lock.acquire()
+#        self.robot_rave_update_lock.acquire()
 
         if T_Br_E != None and q_dest == None:
             q_list = self.getBestFinalConfigs(T_Br_E)
-            if len(q_list) < 30:
-                self.robot_rave_update_lock.release()
+            if len(q_list) < 10:
+#                self.robot_rave_update_lock.release()
                 print "planMoveForRightArm: strange pose - a few ik solutions"
                 return None
         elif T_Br_E == None and q_dest != None:
             q_list = [[0.0, q_dest]]
         else:
-            self.robot_rave_update_lock.release()
+#            self.robot_rave_update_lock.release()
             print "planMoveForRightArm: wrong arguments: %s %s"%(T_Br_E, q_dest)
             return None
 
-        init_q = self.robot_rave.GetDOFValues(self.right_arm_dof_indices)
-        init_sect = self.wrist_collision_avoidance.getQ5Q6SpaceSectors(init_q[5], init_q[6])
-        print "init_sect: %s"%(init_sect)
-        if len(init_sect) == 0:
-#            init_sect = [ self.wrist_collision_avoidance.getClosestQ5Q6SpaceSector(init_q[5], init_q[6]) ]
-            print "planMoveForRightArm: wrong starting position in q5: %s and q6: %s"%(init_q[5], init_q[6])
+        init_q = self.robot_rave.GetDOFValues(self.manipulator_dof_indices_map["right_arm"])
         for q_s in q_list:
 
             traj = None
-            q = q_s[1]
-            end_sect = self.wrist_collision_avoidance.getQ5Q6SpaceSectors(q[5], q[6])
-            print "end_sect: %s"%(end_sect)
-            if len(end_sect) == 0:
-                continue
+            goal = q_s[1]
 
             score = q_s[0]
-            print score
+#            print score
             if score > 10000.0:
                 break
 
-            goal0_wrist_only = False
-            goals = []
-            # the starting position is outside the safe q5-q6 area
-            if len(init_sect) == 0:
-                closest_sect = self.wrist_collision_avoidance.getClosestQ5Q6SpaceSector(q[5], q[6])
-                q5_d, q6_d = self.wrist_collision_avoidance.forceMoveQ5Q6ToSector(q[5], q[6], closest_sect)
-                goals.append(np.array([init_q[0], init_q[1], init_q[2], init_q[3], init_q[4], q5_d, q6_d]))
-                init_sect = [ closest_sect ]
-                goal0_wrist_only = True
-            same_sector = False
-            for s in init_sect:
-                if s in end_sect:
-                    same_sector = True
-                    break
-            # q5 and q6 are in the same sector - there should be no problem in path execution
-            if same_sector:
-                goals.append(q)
-            else:
-                # q5 and q6 are in different sectors - we have to move the wrist to the safe area first
-                q5q6_traj = self.wrist_collision_avoidance.getQ5Q6Traj(init_q[5], init_q[6], q[5], q[6])
-
-                P_Br = self.findFreeSpaceSphere(0.35, 0.5)
-                if P_Br == None:
-                    print "planMoveForRightArm: could not find free area"
-
-                with self.robot_rave:
-                    try:
-#                        self.robot_rave.SetActiveDOFs(self.right_arm_not_wrist_dof_indices)
-                        self.robot_rave.SetActiveDOFs(self.right_arm_dof_indices)
-                        # set the intermediate point
-                        T_Br_E_int = PyKDL.Frame(P_Br)
-                        T_Br_E_current = self.getLinkPose("right_HandPalmLink")
-
-                        print "frames: %s"%(len(self.frames_60_deg))
-                        q_list2 = []
-                        for fr in self.frames_60_deg:
-                            diff1 = PyKDL.diff(fr, T_Br_E_current)
-                            if diff1.rot.Norm() > 90.0/180.0*math.pi:
-                                continue
-                            sol = list(self.findIkSolutions(T_Br_E_int * fr))
-                            print len(sol)
-                            q_list2 += sol
-                        print "found solutions: %s"%(len(q_list2))
-
-                        min_score = 1000000.0
-                        min_q_sol = None
-                        # get the closest solution to the current and the end configuration
-                        for q_sol in q_list2:
-                            end_sect = self.wrist_collision_avoidance.getQ5Q6SpaceSectors(q_sol[5], q_sol[6])
-                            same_sector = False
-                            for s in init_sect:
-                                if s in end_sect:
-                                    same_sector = True
-                                    break
-                            if not same_sector:
-                                continue
-                            score = 0.0
-                            for q_idx in range(0, 5):
-                                score += (q_sol[q_idx]-init_q[q_idx])*(q_sol[q_idx]-init_q[q_idx])
-                                score += (q_sol[q_idx]-q[q_idx])*(q_sol[q_idx]-q[q_idx])
-                            if score < min_score:
-                                min_score = score
-                                min_q_sol = q_sol
-
-                        goals = []
-                        goals.append(min_q_sol)
-
-                        for q5q6 in q5q6_traj:
-                            goals.append(np.array([min_q_sol[0], min_q_sol[1], min_q_sol[2], min_q_sol[3], min_q_sol[4], q5q6[0], q5q6[1]]))
-                        goals.append(q)
-                    except planning_error,e:
-                        pass
-
-#            print "goals count: %s"%(len(goals))
-#            print "goals:"
-#            print goals
-            traj = self.planMoveThroughGoals(goals, goal0_wrist_only=goal0_wrist_only)
+            traj = self.planMove(goal)
             if traj == None:
                 print "error: planMoveThroughGoals"
                 continue
@@ -1195,31 +1323,14 @@ class OpenraveInstance:
             conf = traj.GetConfigurationSpecification()
             q_traj = []
             steps2 = max(2, int(traj.GetDuration()*200.0))
-            q5q6_collision = False
-            first_q5q6_collision = None
             for t in np.linspace(0.0, traj.GetDuration(), steps2):
-                q = conf.ExtractJointValues(traj.Sample(t), self.robot_rave, self.right_arm_dof_indices)
+                q = conf.ExtractJointValues(traj.Sample(t), self.robot_rave, self.manipulator_dof_indices_map["right_arm"])
                 q_traj.append(list(q))
-                if len(self.wrist_collision_avoidance.getQ5Q6SpaceSectors(q[5], q[6])) == 0:
-                    if first_q5q6_collision == None:
-                        first_q5q6_collision = t
-                    q5q6_collision = True
-
-            if q5q6_collision:
-                # TODO: better handle the q5-q6 collision
-                print "q5q6 collision"
-#                continue
             break
-
-        self.robot_rave_update_lock.release()
 
         if traj == None:
             print "planMoveForRightArm: planning error"
             return None
-
-        if q5q6_collision:
-            print "planMoveForRightArm: q5-q6 collision: %s / %s"%(first_q5q6_collision, traj.GetDuration())
-#            return None
 
         if verbose_print:
             print "all groups:"
@@ -1296,7 +1407,7 @@ class OpenraveInstance:
             if tim != None:
                 print "tim sum: %s"%(math.fsum(tim))
             print "duration: %s"%(traj.GetDuration())
-        return pos, vel, acc, tim, q_traj, q5q6_collision
+        return pos, vel, acc, tim, q_traj
 
     def printCollisions(self):
         report = CollisionReport()
@@ -1329,4 +1440,29 @@ class OpenraveInstance:
         self.robot_rave_update_lock.release()
         return collision
 
+    def getGraspsForObjectTransport(self, target_name, transport_T_B_O):
+        current_T_B_O = self.getPose(target_name)
+
+        valid_indices = range(self.getGraspsCount(target_name))
+
+        # eliminate the colliding grasps
+#        valid_indices = self.generateGrasps(target_name, show=False, checkcollision=True, checkik=False, checkgrasper=False)
+#        print len(valid_indices)
+        for T_B_Od in transport_T_B_O:
+            self.updatePose(target_name, T_B_Od)
+            valid_indices = self.generateGrasps(target_name, show=False, checkcollision=True, checkik=False, checkgrasper=False, grasp_indices=valid_indices)
+            print len(valid_indices)
+#        self.updatePose(target_name, current_T_B_O)
+
+        # eliminate non-reachable grasps (ik)
+#        valid_indices = self.generateGrasps(target_name, show=False, checkcollision=True, checkik=True, checkgrasper=False, grasp_indices=valid_indices)
+#        print len(valid_indices)
+        for T_B_Od in transport_T_B_O:
+            self.updatePose(target_name, T_B_Od)
+            valid_indices = self.generateGrasps(target_name, show=False, checkcollision=True, checkik=True, checkgrasper=False, grasp_indices=valid_indices)
+            print len(valid_indices)
+
+        self.updatePose(target_name, current_T_B_O)
+
+        return valid_indices
 

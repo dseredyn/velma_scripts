@@ -36,14 +36,10 @@ from pykdl_utils.kdl_parser import kdl_tree_from_urdf_model
 class VelmaFkIkSolver:
 
     def calculateFk(self, link_name, js_pos):
-#        js_name_idx_map = {}
-#        for j_idx in range(len(joint_states.name)):
-#            js_name_idx_map[joint_states.name[j_idx]] = j_idx
-
         q = PyKDL.JntArray(self.fk_chains[link_name].getNrOfJoints())
         ja_idx = 0
         for js_name in self.fk_joint_state_name[link_name]:
-            q[ja_idx] = js_pos[js_name]#joint_states.position[ js_name_idx_map[js_name] ]
+            q[ja_idx] = js_pos[js_name]
             ja_idx += 1
 
         fr = PyKDL.Frame()
@@ -54,15 +50,10 @@ class VelmaFkIkSolver:
 
         chain_length = self.ik_chains[link_name].getNrOfJoints()
 
-#        js_name_idx_map = {}
-#        for j_idx in range(len(init_js.name)):
-#            js_name_idx_map[init_js.name[j_idx]] = j_idx
-
         q_end = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         q_init = PyKDL.JntArray(chain_length)
         for ja_idx in range(chain_length):
-#            js_idx = js_name_idx_map[self.ik_joint_state_name[link_name][ja_idx]]
-            q_init[ja_idx] = init_js[self.ik_joint_state_name[link_name][ja_idx]] #init_js.position[js_idx]
+            q_init[ja_idx] = init_js[self.ik_joint_state_name[link_name][ja_idx]]
 
         T_B_BB = self.calculateFk(self.ik_base, init_js)
         T_BB_B = T_B_BB.Inverse()
@@ -145,4 +136,5 @@ class VelmaFkIkSolver:
             self.ik_fk_solver[link_name] = PyKDL.ChainFkSolverPos_recursive(self.ik_chains[link_name])
             self.vel_ik_solver[link_name] = PyKDL.ChainIkSolverVel_pinv(self.ik_chains[link_name])
             self.ik_solvers[link_name] = PyKDL.ChainIkSolverPos_NR_JL(self.ik_chains[link_name], self.q_min[link_name], self.q_max[link_name], self.ik_fk_solver[link_name], self.vel_ik_solver[link_name], 100)
+
 

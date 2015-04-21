@@ -66,14 +66,6 @@ class OpenraveInstance:
 
     def __init__(self):#, T_World_Br):
         self.joint_dof_idx_map = None
-#        self.robot = None
-#        self.rolling = False
-#        self.env = None
-#        self.T_World_Br = T_World_Br
-#        self.listener = tf.TransformListener();
-#        self.kinBodies = []
-#        self.visibility_surface_samples_dict = {}
-#        self.robot_rave_update_lock = RLock()
 
     def startOpenrave(self, filename_environment):
         parser = OptionParser(description='Openrave Velma interface')
@@ -117,32 +109,12 @@ class OpenraveInstance:
 
     def updateRobotConfigurationRos(self, js_pos):
 
-        dof_values = []
+        dof_values = self.robot_rave.GetDOFValues()
         for dof_idx in range(self.robot_rave.GetDOF()):
             joint = self.robot_rave.GetJointFromDOFIndex(dof_idx)
             joint_name = joint.GetName()
-            dof_values.append(js_pos[joint_name])
-
-        self.robot_rave.SetDOFValues(dof_values)
-
-        return
-
-        # create the dictionary: <openrave_dof_idx, ros_joint_idx>
-        if True:#self.joint_dof_idx_map == None:
-            joint_name_idx_map = {}
-            for dof_idx in range(self.robot_rave.GetDOF()):
-                joint_name = self.robot_rave.GetJointFromDOFIndex(dof_idx).GetName()
-                joint_name_idx_map[joint_name] = dof_idx
-            self.joint_dof_idx_map = {}
-            for ros_joint_idx in range(len(js.name)):
-                if js.name[ros_joint_idx] in joint_name_idx_map:
-                    dof_idx = joint_name_idx_map[js.name[ros_joint_idx]]
-                    self.joint_dof_idx_map[dof_idx] = ros_joint_idx
-
-        dof_values = []
-        for dof_idx in range(self.robot_rave.GetDOF()):
-            ros_joint_idx = self.joint_dof_idx_map[dof_idx]
-            dof_values.append(js.position[ros_joint_idx])
+            if joint_name in js_pos:
+                dof_values[dof_idx] = js_pos[joint_name]
 
         self.robot_rave.SetDOFValues(dof_values)
 
@@ -155,20 +127,6 @@ class OpenraveInstance:
             js_pos[j.GetName()] = j.GetValue(0)
 
         return js_pos
-
-        js = JointState()
-        joints = self.robot_rave.GetJoints() + self.robot_rave.GetPassiveJoints()
-        for j in joints:
-            if j.IsStatic():
-                continue
-            js.name.append(j.GetName())
-            js.position.append(j.GetValue(0))
-#            print j.GetName()
-
-#        for dof_idx in range(self.robot_rave.GetDOF()):
-#            ros_joint_idx = self.joint_dof_idx_map[dof_idx]
-#            dof_values.append(js.position[ros_joint_idx])
-        return js
 
     def updateRobotConfiguration(self, qt=None, qal=None, qhl=None, qar=None, qhr=None):
         dof_values = self.robot_rave.GetDOFValues()
@@ -305,225 +263,6 @@ class OpenraveInstance:
                 for geom in link.GetGeometries():
                     geom.SetDiffuseColor([r,g,b])
                     geom.SetTransparency(a)
-
-#    def setCamera(self, T_Br_C):
-#        T_World_C = self.T_World_Br * T_Br_C
-#        self.env.GetViewer().SetCamera(self.KDLToOpenrave(T_World_C), 1.0)
-
-    def main(self,env,options):
-        try:
-            self.wrist_collision_avoidance = velmautils.WristCollisionAvoidance("right", None, 5.0/180.0*math.pi)
-            self.normals_sphere_30_deg = velmautils.generateNormalsSphere(60.0/180.0*math.pi)
-            self.frames_60_deg = velmautils.generateFramesForNormals(60.0/180.0*math.pi, self.normals_sphere_30_deg)
-
-            self.normals_sphere_5_deg = velmautils.generateNormalsSphere(5.0/180.0*math.pi, x_positive = True, y_positive = False)
-            self.env = env
-            self.robot_rave = env.ReadRobotXMLFile('robots/velma_col.robot.xml')
-#            self.robot_rave = env.ReadRobotXMLFile('robots/velma2.robot.xml')
-
-            # ODE does not support distance measure
-            #self.env.GetCollisionChecker().SetCollisionOptions(CollisionOptions.Distance|CollisionOptions.Contacts)
-            self.env.GetCollisionChecker().SetCollisionOptions(CollisionOptions.Contacts)
-
-            arms_joint_names = [
-            "left_arm_0_joint",
-            "left_arm_1_joint",
-            "left_arm_2_joint",
-            "left_arm_3_joint",
-            "left_arm_4_joint",
-            "left_arm_5_joint",
-            "left_arm_6_joint",
-            "right_arm_0_joint",
-            "right_arm_1_joint",
-            "right_arm_2_joint",
-            "right_arm_3_joint",
-            "right_arm_4_joint",
-            "right_arm_5_joint",
-            "right_arm_6_joint",
-            ]
-
-
-
-            self.right_arm_dof_indices = []
-            self.right_arm_wrist_dof_indices = []
-            self.right_arm_not_wrist_dof_indices = []
-            self.left_arm_dof_indices = []
-            self.left_arm_wrist_dof_indices = []
-            self.left_arm_not_wrist_dof_indices = []
-            for j in self.robot_rave.GetJoints():
-                if j.GetName().startswith("right_arm_"):
-                    self.right_arm_dof_indices.append(j.GetJointIndex())
-                    if j.GetName() == "right_arm_5_joint" or j.GetName() == "right_arm_6_joint":
-                        self.right_arm_wrist_dof_indices.append(j.GetJointIndex())
-                    else:
-                        self.right_arm_not_wrist_dof_indices.append(j.GetJointIndex())
-                if j.GetName().startswith("left_arm_"):
-                    self.left_arm_dof_indices.append(j.GetJointIndex())
-                    if j.GetName() == "left_arm_5_joint" or j.GetName() == "left_arm_6_joint":
-                        self.left_arm_wrist_dof_indices.append(j.GetJointIndex())
-                    else:
-                        self.left_arm_not_wrist_dof_indices.append(j.GetJointIndex())
-                print j
-
-            self.right_palm_links_indices = []
-            self.left_palm_links_indices = []
-            for j in self.robot_rave.GetLinks():
-                if j.GetName().startswith("right_Hand"):
-                    self.right_palm_links_indices.append(j.GetIndex())
-                if j.GetName().startswith("left_Hand"):
-                    self.left_palm_links_indices.append(j.GetIndex())
-                print j
-
-            # apply soft limits
-            q_soft_limit = 0.0#0.26*0.2
-            for name in arms_joint_names:
-                joint = self.robot_rave.GetJoint(name)
-                lower, upper = joint.GetLimits()
-                lower[0] += q_soft_limit
-                upper[0] -= q_soft_limit
-                joint.SetLimits(lower, upper)
-
-            # apply limits for arms
-#            joint = self.robot_rave.GetJoint("left_arm_1_joint")
-#            lower, upper = joint.GetLimits()
-#            upper[0] = -10.0/180.0*math.pi
-#            joint.SetLimits(lower, upper)
-#            joint = self.robot_rave.GetJoint("right_arm_1_joint")
-#            lower, upper = joint.GetLimits()
-#            lower[0] = 10.0/180.0*math.pi
-#            joint.SetLimits(lower, upper)
-
-            # apply limits for elbows
-            joint = self.robot_rave.GetJoint("left_arm_3_joint")
-            lower, upper = joint.GetLimits()
-            upper[0] = -10.0/180.0*math.pi
-#            joint.SetLimits(lower, upper)
-            joint = self.robot_rave.GetJoint("right_arm_3_joint")
-            lower, upper = joint.GetLimits()
-            lower[0] = 10.0/180.0*math.pi
-#            joint.SetLimits(lower, upper)
-            
-            # apply limits for wrists
-            joint = self.robot_rave.GetJoint("left_arm_5_joint")
-            lower, upper = joint.GetLimits()
-            lower[0] = 20.0/180.0*math.pi
-#            joint.SetLimits(lower, upper)
-            joint = self.robot_rave.GetJoint("right_arm_5_joint")
-            lower, upper = joint.GetLimits()
-            print lower, upper
-            upper[0] = -20.0/180.0*math.pi
-#            joint.SetLimits(lower, upper)
-
-            # set velocity limits - it is not working
-            vel_limits = []
-            for i in range(0, self.robot_rave.GetDOF()):
-                vel_limits.append(5.0/180.0*math.pi)
-            self.robot_rave.SetDOFVelocityLimits(vel_limits)
-
-            env.Add(self.robot_rave)
-
-            self.max_robots = 50
-#            robot = self.env.GetRobots()[0]
-
-            if False:
-                transparency = 0.8
-                self.newrobots = []
-                for ind in range(0, self.max_robots):
-                    newrobot = RaveCreateRobot(self.env, self.robot_rave.GetXMLId())
-                    newrobot.Clone(self.robot_rave,0)
-                    for link in newrobot.GetLinks():
-                        for geom in link.GetGeometries():
-                            geom.SetTransparency(transparency)
-                    self.newrobots.append(newrobot)
-                for link in self.robot_rave.GetLinks():
-                    for geom in link.GetGeometries():
-                        geom.SetTransparency(transparency)
-            else:
-                self.newrobots = None
-
-            joint = self.robot_rave.GetJoint("right_arm_5_joint")
-            lower, upper = joint.GetLimits()
-            print lower, upper
-
-            self.robot_rave.SetActiveManipulator('right_arm')
-            print "manipulator - arm indices: %s"%(self.robot_rave.GetActiveManipulator().GetArmIndices())
-            print "manipulator - gripper indices: %s"%(self.robot_rave.GetActiveManipulator().GetGripperIndices())
-
-            self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
-            if not self.ikmodel.load():
-                self.ikmodel.autogenerate()
-
-            print "*********************************************************************"
-            print "IKFast parameters"
-            print "self.ikmodel.freeindices: %s"%(self.ikmodel.freeindices)
-            print "self.ikmodel.freeinc: %s"%(self.ikmodel.freeinc)
-            print "*********************************************************************"
-
-#            self.ikmodel_translation3D = databases.inversekinematics.InverseKinematicsModel(self.robot_rave, iktype=IkParameterization.Type.Translation3D, freeindices=[self.robot_rave.GetJointIndex("right_arm_1_joint"), self.robot_rave.GetJointIndex("right_arm_4_joint"), self.robot_rave.GetJointIndex("right_arm_5_joint"), self.robot_rave.GetJointIndex("right_arm_6_joint")])
-#            if not self.ikmodel_translation3D.load():
-#                self.ikmodel_translation3D.autogenerate()
-
-            links = self.robot_rave.GetLinks()
-            # 31   <link:right_HandPalmLink (31), parent=Velma>
-#            for i in range(0, 40):
-#                print "%s   %s"%(i, links[i])
-
-#            cam_pos = PyKDL.Vector(0.5, 0.0, 0.2)
-#            target_pos = PyKDL.Vector(0.0, 0.0, 0.0)
-            cam_pos = PyKDL.Vector(2.0, 0.0, 2.0)
-            target_pos = PyKDL.Vector(0.60, 0.0, 1.10)
-
-            cam_z = target_pos - cam_pos
-            focalDistance = cam_z.Norm()
-            cam_y = PyKDL.Vector(0,0,-1)
-            cam_x = cam_y * cam_z
-            cam_y = cam_z * cam_x
-            cam_x.Normalize()
-            cam_y.Normalize()
-            cam_z.Normalize()
-            cam_T = PyKDL.Frame(PyKDL.Rotation(cam_x,cam_y,cam_z), cam_pos)
-            
-            env.GetViewer().SetCamera(self.KDLToOpenrave(cam_T), focalDistance)
-
-#            self.robot_rave_update_lock.acquire()
-#            self.robot_rave_update_lock.release()
-
-            self.minimumgoalpaths = 1
-            plannername = None
-            self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
-            self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
-
-            # add torso
-            self.addBox("torso_box", 0.3, 1.1, 0.25)
-            self.obj_torso_box = self.env.GetKinBody("torso_box")
-            self.changeColor("torso_box", 255.0/255.0, 150.0/255.0, 0, 0 )
-#            self.obj_torso_box = None
-            # add head
-            self.addSphere("head_sphere", 0.4)
-            self.obj_head_sphere = self.env.GetKinBody("head_sphere")
-            self.changeColor("head_sphere", 255.0/255.0, 150.0/255.0, 0, 0 )
-#            self.obj_head_sphere = None
-
-            while not rospy.is_shutdown():
-                self.rolling = True
-                if self.robot != None:
-                    self.robot_rave_update_lock.acquire()
-                    dof_values = self.robot.getAllDOFs()
-                    self.robot_rave.SetDOFValues(dof_values)
-                    self.robot_rave_update_lock.release()
-
-                    # update head and torso
-                    T_World_T2 = self.getLinkPose("torso_link2")
-                    if T_World_T2 != None:
-                        if self.obj_torso_box != None:
-                            self.obj_torso_box.SetTransform(self.KDLToOpenrave(T_World_T2 * PyKDL.Frame(PyKDL.Vector(0, -0.40, 0))))
-                        if self.obj_head_sphere != None:
-                            self.obj_head_sphere.SetTransform(self.KDLToOpenrave(T_World_T2 * PyKDL.Frame(PyKDL.Vector(0.1, 0.57, 0))))
-                rospy.sleep(0.1)
-        finally:
-            self.rolling = False
-            env.Destroy()
-            #RaveDestroy()
 
     def run(self, args, *args2):
         parser = OptionParser(description='Openrave Velma interface')
@@ -1239,62 +978,6 @@ class OpenraveInstance:
 
         return P_Br
 
-    def planMoveToFreeSpace(self):
-        self.robot_rave_update_lock.acquire()
-        P_Br = self.findFreeSpaceSphere(0.35, 0.5)
-        if P_Br == None:
-            print "planMoveToFreeSpace: could not find free area"
-            return None
-
-        init_q = self.robot_rave.GetDOFValues(self.right_arm_dof_indices)
-        init_sect = self.wrist_collision_avoidance.getQ5Q6SpaceSectors(init_q[5], init_q[6])
-        print "init_sect: %s"%(init_sect)
-        if len(init_sect) == 0:
-            init_sect = [ self.wrist_collision_avoidance.getClosestQ5Q6SpaceSector(init_q[5], init_q[6]) ]
-            print "planMoveToFreeSpace: wrong starting position in q5: %s and q6: %s"%(init_q[5], init_q[6])
-
-        with self.robot_rave:
-                    try:
-                        init_q = self.robot_rave.GetDOFValues(self.right_arm_dof_indices)
-                        self.robot_rave.SetActiveDOFs(self.right_arm_dof_indices)
-                        # set the intermediate point
-                        T_Br_E_int = PyKDL.Frame(P_Br)
-                        T_Br_E_current = self.getLinkPose("right_HandPalmLink")
-
-                        print "frames: %s"%(len(self.frames_60_deg))
-                        q_list = []
-                        for fr in self.frames_60_deg:
-                            diff1 = PyKDL.diff(fr, T_Br_E_current)
-                            if diff1.rot.Norm() > 90.0/180.0*math.pi:
-                                continue
-                            sol = list(self.findIkSolutions(T_Br_E_int * fr))
-                            print len(sol)
-                            q_list += sol
-                        print "found solutions: %s"%(len(q_list))
-
-                        min_score = 1000000.0
-                        min_q_sol = None
-                        # get the closest solution to the current and the end configuration
-                        for q_sol in q_list:
-                            end_sect = self.wrist_collision_avoidance.getQ5Q6SpaceSectors(q_sol[5], q_sol[6])
-                            same_sector = False
-                            for s in init_sect:
-                                if s in end_sect:
-                                    same_sector = True
-                                    break
-                            if not same_sector:
-                                continue
-                            score = 0.0
-                            for q_idx in range(0, 5):
-                                score += (q_sol[q_idx]-init_q[q_idx])*(q_sol[q_idx]-init_q[q_idx])
-                            if score < min_score:
-                                min_score = score
-                                min_q_sol = q_sol
-                    except planning_error,e:
-                        pass
-        self.robot_rave_update_lock.release()
-        return min_q_sol
-
     def planMove(self, goal):
         traj = None
         try:
@@ -1432,6 +1115,13 @@ class OpenraveInstance:
                 print "tim sum: %s"%(math.fsum(tim))
             print "duration: %s"%(traj.GetDuration())
         return pos, vel, acc, tim, q_traj, penalty
+
+    def checkRobotCollision(self):
+        report = CollisionReport()
+        if self.env.CheckCollision(self.robot_rave, report):
+            return True
+
+        return False
 
     def printCollisions(self):
         report = CollisionReport()

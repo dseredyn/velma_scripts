@@ -57,7 +57,6 @@ import copy
 import matplotlib.pyplot as plt
 import thread
 from velma import Velma
-from velmasim import VelmaSim
 import random
 from openravepy import *
 from optparse import OptionParser
@@ -125,12 +124,18 @@ Class for grasp learning.
             return T_B_Tm * T_Tm_Bm * T_Bm_Gm
         return None
 
+    def getCameraPose(self):
+        return pm.fromTf(self.listener.lookupTransform('torso_base', 'camera', rospy.Time(0)))
+
+    def getCameraPoseFake(self):
+        return PyKDL.Frame(PyKDL.Rotation.RotY(135.0/180.0*math.pi), PyKDL.Vector(0.4, 0, 1.4)) * PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi))
+
     def poseUpdaterThread(self, args, *args2):
         index = 0
         z_limit = 0.3
         while not rospy.is_shutdown():
             rospy.sleep(0.1)
-            self.velma.publishJointStates()
+#            self.velma.publishJointStates()
 #            continue
 
             if self.allow_update_objects_pose == None or not self.allow_update_objects_pose:
@@ -145,7 +150,7 @@ Class for grasp learning.
                 for marker in obj:#.markers:
                     T_Br_M = self.getMarkerPose(marker[0], wait = False, timeBack = 0.3)
                     if T_Br_M != None and self.velma != None:
-                        T_B_C = self.velma.T_B_C
+                        T_B_C = self.getCameraPose()
                         T_C_M = T_B_C.Inverse() * T_Br_M
                         v = T_C_M * PyKDL.Vector(0,0,1) - T_C_M * PyKDL.Vector()
                         if v.z() > -z_limit:
@@ -242,9 +247,78 @@ Class for grasp learning.
                     ext_wrenches_O.append(PyKDL.Frame(T_Osim_B.M) * ewr)
         return ext_wrenches_O
 
-    def makePlan(self, graspable_object_name, grasp, T_B_Od):
+    def showPlan(self, plan):
+        init_config = self.openrave.getRobotConfigurationRos()
+        init_T_B_O = None
+        grasped = False
+        for stage in plan:
+            if stage[0] == "move_joint":
+                traj = stage[1]
+                raw_input("Press Enter to visualize the joint trajectory...")
+                duration = math.fsum(traj[3])
+                self.openrave.showTrajectory(duration * 5.0, qar_list=traj[4])
+                self.openrave.updateRobotConfiguration(qar=traj[0][-1])
+            elif stage[0] == "grasp":
+                graspable_object_name = stage[1]
+                grasp = stage[2]
+                if init_T_B_O == None:
+                    init_T_B_O = self.openrave.getPose(graspable_object_name)
+                grasped = True
+                self.openrave.grab(graspable_object_name)
+            elif stage[0] == "move_cart":
+                T_B_Wd = stage[1]
+                init_js = self.openrave.getRobotConfigurationRos()
+                traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_Wd)
+                raw_input("Press Enter to visualize the cartesian trajectory...")
+                self.openrave.showTrajectory(3.0, qar_list=traj)
+                self.openrave.updateRobotConfiguration(qar=traj[-1])
 
-        plan_ret = None
+        if grasped:
+            self.openrave.release()
+        if init_T_B_O != None:
+            self.openrave.updatePose(graspable_object_name, init_T_B_O)
+        self.openrave.updateRobotConfigurationRos(init_config)
+
+    def executePlan(self, plan, time_mult):
+        for stage in plan:
+            print stage[0]
+            if stage[0] == "move_joint":
+                traj = stage[1]
+                print "switching to joint impedance..."
+                self.velma.switchToJoint()
+                print "done."
+                duration = math.fsum(traj[3])
+                print "trajectory len: %s"%(len(traj[0]))
+                raw_input("Press Enter to execute the trajectory on real robot in " + str(duration * time_mult) + "s ...")
+                if self.velma.checkStopCondition():
+                    exit(0)
+                self.velma.moveWristTrajJoint(traj, time_mult, Wrench(Vector3(20,20,20), Vector3(4,4,4)))
+                if self.velma.checkStopCondition(duration * time_mult + 1.0):
+                    exit(0)
+            elif stage[0] == "grasp":
+                pass
+#                graspable_object_name = stage[1]
+#                grasp = stage[2]
+#                if init_T_B_O == None:
+#                    init_T_B_O = self.openrave.getPose(graspable_object_name)
+#                grasped = True
+#                self.openrave.grab(graspable_object_name)
+            elif stage[0] == "move_cart":
+                self.velma.switchToCart()
+                # move to the desired position
+                self.velma.updateTransformations()
+                T_B_Wd = stage[1]
+                duration = self.velma.getMovementTime(T_B_Wd, max_v_l=0.1, max_v_r=0.2)
+                raw_input("Press Enter to move the robot in " + str(duration) + " s...")
+                if self.velma.checkStopCondition():
+                    exit(0)
+                self.velma.moveWrist(T_B_Wd, duration, Wrench(Vector3(20,20,20), Vector3(4,4,4)), abort_on_q5_singularity=True, abort_on_q5_q6_self_collision=True)
+                if self.velma.checkStopCondition(duration):
+                    break
+
+    def makePlan(self, graspable_object_name, grasp, T_B_Od, penalty_threshold):
+
+        plan_ret = []
 
         config = self.openrave.getRobotConfigurationRos()
         init_T_B_O = self.openrave.getPose(graspable_object_name)
@@ -252,21 +326,24 @@ Class for grasp learning.
         T_B_Ed = self.openrave.getGraspTransform(graspable_object_name, grasp, collisionfree=True)
 
         # plan first trajectory (in configuration space)
-        traj = self.openrave.planMoveForRightArm(T_B_Ed, None)
+        traj = self.openrave.planMoveForRightArm(T_B_Ed, None, penalty_threshold=penalty_threshold)
         if traj == None:
             print "colud not plan trajectory in configuration space"
             return None, None
 
+        plan_ret.append(["move_joint", traj])
+
+        penalty = traj[5]
         # calculate the score for first trajectory: distance in the configuration space
-        total_distance = 0.0
-        q_weights = [20.0, 15.0, 15.0, 10.0, 5.0, 3.0, 3.0]
-        for conf_idx in range(len(traj[4])-1):
-            dist = 0.0
-            for q_idx in range(len(traj[4][conf_idx])):
-                qd = (traj[4][conf_idx][q_idx] - traj[4][conf_idx+1][q_idx]) * q_weights[q_idx]
-                dist += qd * qd
-            total_distance += dist
-        total_distance = math.sqrt(total_distance)
+#        total_distance = 0.0
+#        q_weights = [20.0, 15.0, 15.0, 10.0, 5.0, 3.0, 3.0]
+#        for conf_idx in range(len(traj[4])-1):
+#            dist = 0.0
+#            for q_idx in range(len(traj[4][conf_idx])):
+#                qd = (traj[4][conf_idx][q_idx] - traj[4][conf_idx+1][q_idx]) * q_weights[q_idx]
+#                dist += qd * qd
+#            total_distance += dist
+#        total_distance = math.sqrt(total_distance)
 
 #        duration = math.fsum(traj[3])
 #        raw_input("Press Enter to visualize the trajectory...")
@@ -280,6 +357,8 @@ Class for grasp learning.
         # grab the body
         self.openrave.grab(graspable_object_name)
 
+        plan_ret.append(["grasp", graspable_object_name, grasp])
+
         # calculate the destination pose of the end effector
         T_B_O = self.openrave.getPose(graspable_object_name)
         T_E_O = T_B_Ed.Inverse() * T_B_O
@@ -288,7 +367,7 @@ Class for grasp learning.
 
         # interpolate trajectory for the second motion (in the cartesian space)
         init_js = self.openrave.getRobotConfigurationRos()
-        traj = self.velma.getCartImpWristTraj(init_js, T_B_Wd)
+        traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_Wd)
         if traj == None:
             print "could not plan trajectory in cartesian space"
             self.openrave.release()
@@ -302,13 +381,15 @@ Class for grasp learning.
 
 #        self.openrave.updateRobotConfiguration(qar=traj[-1])
 
+        plan_ret.append(["move_cart", T_B_Wd])
+
         self.openrave.release()
         self.openrave.updatePose(graspable_object_name, init_T_B_O)
 
 #        raw_input(".")
         self.openrave.updateRobotConfigurationRos(config)
 
-        return total_distance, plan_ret
+        return penalty, plan_ret
 
     def spin(self):
 
@@ -375,21 +456,23 @@ Class for grasp learning.
         # simulation
         if simulation_only:
             self.getMarkerPose = self.getMarkerPoseFake
+            self.getCameraPose = self.getCameraPoseFake
 
         self.T_World_Br = PyKDL.Frame(PyKDL.Vector(0,0,0.1))
 
+        self.velma_solvers = velmautils.VelmaSolvers()
+
         self.velma = None
 
-        if simulation_only:
-            # create the robot interface for simulation
-            self.velma = VelmaSim(None, velma_ikr)
-        else:
-            # create the robot interface for real hardware
-            self.velma = Velma()
+        print "creating interface for Velma..."
+        # create the interface for Velma robot
+        self.velma = Velma()
+        print "done."
 
+        rospy.sleep(0.5)
         self.velma.updateTransformations()
 
-        self.openrave.updateRobotConfigurationRos(self.velma.js)
+        self.openrave.updateRobotConfigurationRos(self.velma.js_pos)
 
         self.allowUpdateObjects()
         # start thread for updating objects' positions in openrave
@@ -401,8 +484,10 @@ Class for grasp learning.
 #        T_B_Ed = PyKDL.Frame(PyKDL.Vector(0,0.0,0.4)) * self.openrave.getLinkPose("right_HandPalmLink")        
 #        T_B_Wd = T_B_Ed * self.velma.T_E_W
 #        init_js = self.openrave.getRobotConfigurationRos()
-#        self.velma.getCartImpWristTraj(init_js, T_B_Wd)
-#        self.velma.moveWrist(T_B_Wd, 4, None)
+#        self.velma.switchToCart()
+#        self.velma.moveTool(PyKDL.Frame(PyKDL.Vector(0,0,-0.3)), 2, stamp=None)
+#        rospy.sleep(2)
+#        self.velma.moveWrist(T_B_Wd, 4, Wrench(Vector3(20,20,20), Vector3(4,4,4)))
 #        exit(0)
 
         k_pregrasp = Wrench(Vector3(1000.0, 1000.0, 1000.0), Vector3(300.0, 300.0, 300.0))
@@ -442,6 +527,38 @@ Class for grasp learning.
         self.velma.updateTransformations()
         self.velma_init_T_B_W = copy.deepcopy(self.velma.T_B_W)
 
+########
+        self.openrave.updateRobotConfigurationRos(self.velma.js_pos)
+
+        init_T_B_E = self.velma.T_B_W * self.velma.T_W_E
+        T_B_Ed = init_T_B_E * PyKDL.Frame(PyKDL.Vector(0.1,0.1,0))
+
+        # plan first trajectory (in configuration space)
+        traj = self.openrave.planMoveForRightArm(T_B_Ed, None)
+        if traj == None:
+            print "colud not plan trajectory in configuration space"
+            return None, None
+
+        plan = []
+        plan.append(["move_joint", traj])
+
+        # calculate the destination pose of the end effector
+        T_B_Ed = init_T_B_E
+        T_B_Wd = T_B_Ed * self.velma.T_E_W
+
+        # interpolate trajectory for the second motion (in the cartesian space)
+        plan.append(["move_cart", T_B_Wd])
+
+
+        self.showPlan(plan)
+
+        print "executing plan..."
+        self.executePlan(plan, time_mult)
+
+
+
+
+        exit(0)
 #        sim_grips = []
 
         self.disallowUpdateObjects()
@@ -578,6 +695,7 @@ Class for grasp learning.
         print "max quality: %s"%(q_max)
 
         evaluated_plans = []
+        penalty_threshold = 1000.0
         while len(evaluated_grasps_sorted) > 0:
             best_grasp_q, best_grasp_idx = evaluated_grasps_sorted.pop(0)
             if best_grasp_q < 0.95 * q_max:
@@ -585,18 +703,24 @@ Class for grasp learning.
 
             grasp = self.openrave.getGrasp(graspable_object_name, best_grasp_idx)
 
-            score, plan = self.makePlan(graspable_object_name, grasp, transport_T_B_O[1])
+            penalty, plan = self.makePlan(graspable_object_name, grasp, transport_T_B_O[1], penalty_threshold)
 
-            print best_grasp_q, score
-            if score != None:
-                evaluated_plans.append([score, best_grasp_idx])
+            print best_grasp_q, penalty
+            if penalty != None:
+                penalty_threshold = penalty
+                evaluated_plans.append([penalty, best_grasp_idx, plan])
+                if penalty < 0.000001:
+                    break
 
         evaluated_plans_sorted = sorted(evaluated_plans, key=operator.itemgetter(0))
         print "best plan: %s"%(evaluated_plans_sorted[0][0])
 
-        grasp = self.openrave.getGrasp(graspable_object_name, evaluated_plans_sorted[0][1])
-        print "showing the grasp..."
-        self.openrave.getFinalConfig(graspable_object_name, grasp, show=True)
+        self.showPlan(evaluated_plans_sorted[0][2])
+
+        self.executePlan(evaluated_plans_sorted[0][2], time_mult)
+#        grasp = self.openrave.getGrasp(graspable_object_name, evaluated_plans_sorted[0][1])
+#        print "showing the grasp..."
+#        self.openrave.getFinalConfig(graspable_object_name, grasp, show=True)
 
 
 ###################################################3

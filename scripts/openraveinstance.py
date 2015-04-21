@@ -89,12 +89,16 @@ class OpenraveInstance:
             self.ikmodel.autogenerate()
 
         self.manipulator_dof_indices_map = {}
+        self.lower_lim = {}
+        self.upper_lim = {}
         manipulators = self.robot_rave.GetManipulators()
         for man in manipulators:
-            self.manipulator_dof_indices_map[man.GetName()] = man.GetArmIndices()
+            man_name = man.GetName()
+            self.manipulator_dof_indices_map[man_name] = man.GetArmIndices()
+            self.lower_lim[man_name], self.upper_lim[man_name] = self.robot_rave.GetDOFLimits(self.manipulator_dof_indices_map[man_name])
 
         self.minimumgoalpaths = 1
-        plannername = "BiRRT"#None
+        plannername = "BiRRT"
         self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
         self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
 
@@ -111,7 +115,18 @@ class OpenraveInstance:
             
             self.env.GetViewer().SetCamera(self.KDLToOpenrave(cam_T), focalDistance)
 
-    def updateRobotConfigurationRos(self, js):
+    def updateRobotConfigurationRos(self, js_pos):
+
+        dof_values = []
+        for dof_idx in range(self.robot_rave.GetDOF()):
+            joint = self.robot_rave.GetJointFromDOFIndex(dof_idx)
+            joint_name = joint.GetName()
+            dof_values.append(js_pos[joint_name])
+
+        self.robot_rave.SetDOFValues(dof_values)
+
+        return
+
         # create the dictionary: <openrave_dof_idx, ros_joint_idx>
         if True:#self.joint_dof_idx_map == None:
             joint_name_idx_map = {}
@@ -132,6 +147,15 @@ class OpenraveInstance:
         self.robot_rave.SetDOFValues(dof_values)
 
     def getRobotConfigurationRos(self):
+        js_pos = {}
+        joints = self.robot_rave.GetJoints() + self.robot_rave.GetPassiveJoints()
+        for j in joints:
+            if j.IsStatic():
+                continue
+            js_pos[j.GetName()] = j.GetValue(0)
+
+        return js_pos
+
         js = JointState()
         joints = self.robot_rave.GetJoints() + self.robot_rave.GetPassiveJoints()
         for j in joints:
@@ -1140,44 +1164,39 @@ class OpenraveInstance:
     def findIkSolutions(self, T_Br_E):
         return self.ikmodel.manip.FindIKSolutions(self.KDLToOpenrave(self.T_World_Br * T_Br_E), IkFilterOptions.CheckEnvCollisions)
 
-    def getBestFinalConfigs(self, T_Br_E):
+    def getConfigurationPenalty(self, q):
+        # punish for singularities in end configuration
+        if abs(q[1]) < 30.0/180.0*math.pi:
+            return 100000.0
+        if abs(q[3]) < 30.0/180.0*math.pi:
+            return 100000.0
+        if abs(q[5]) < 30.0/180.0*math.pi:
+            return 100000.0
 
+        penalty = 0.0
+        if abs(q[1]) < 40.0/180.0*math.pi:
+            penalty += 40.0/180.0*math.pi - abs(q[1])
+        if abs(q[3]) < 40.0/180.0*math.pi:
+            penalty += 40.0/180.0*math.pi - abs(q[3])
+        if abs(q[5]) < 40.0/180.0*math.pi:
+            penalty += 40.0/180.0*math.pi - abs(q[5])
+        penalty *= 10.0
+
+        for i in range(0, 7):
+            if abs(q[i]-self.lower_lim["right_arm"][i]) < 40.0/180.0*math.pi:
+                penalty += 40.0/180.0*math.pi - abs(q[i]-self.lower_lim["right_arm"][i])
+            if abs(q[i]-self.upper_lim["right_arm"][i]) < 40.0/180.0*math.pi:
+                penalty += 40.0/180.0*math.pi - abs(q[i]-self.upper_lim["right_arm"][i])
+
+        return penalty
+        
+    def getBestFinalConfigs(self, T_Br_E):
         q_list = self.findIkSolutions(T_Br_E)
 #        print "ik solutions: %s"%(len(q_list))
-        q_score = []
-        lower_lim, upper_lim = self.robot_rave.GetDOFLimits(self.manipulator_dof_indices_map["right_arm"])
-#        print lower_lim
-#        print upper_lim
+        q_penalty = []
         for q in q_list:
-            q_score.append([1000000.0, q])
-            # punish for singularities in end configuration
-            if abs(q[1]) < 30.0/180.0*math.pi:
-                continue
-            if abs(q[3]) < 30.0/180.0*math.pi:
-                continue
-            if abs(q[5]) < 30.0/180.0*math.pi:
-                continue
-
-            score = 0.0
-
-            if abs(q[1]) < 40.0/180.0*math.pi:
-                score += 40.0/180.0*math.pi - abs(q[1])
-            if abs(q[3]) < 40.0/180.0*math.pi:
-                score += 40.0/180.0*math.pi - abs(q[3])
-            if abs(q[5]) < 40.0/180.0*math.pi:
-                score += 40.0/180.0*math.pi - abs(q[5])
-
-            score *= 10.0
-
-            for i in range(0, 7):
-#                score += (self.robot.qar[i]-q[i])*(self.robot.qar[i]-q[i])
-                if abs(q[i]-lower_lim[i]) < 40.0/180.0*math.pi:
-                    score += 40.0/180.0*math.pi - abs(q[i]-lower_lim[i])
-                if abs(q[i]-upper_lim[i]) < 40.0/180.0*math.pi:
-                    score += 40.0/180.0*math.pi - abs(q[i]-upper_lim[i])
-            q_score[-1][0] = score
-
-        q_sorted = sorted(q_score, key=operator.itemgetter(0))
+            q_penalty.append([self.getConfigurationPenalty(q), q])
+        q_sorted = sorted(q_penalty, key=operator.itemgetter(0))
         return q_sorted
 
     def findFreeSpaceSphere(self, radius, dist_from_shoulder):
@@ -1281,13 +1300,14 @@ class OpenraveInstance:
         try:
             with self.robot_rave:
                 self.robot_rave.SetActiveDOFs(self.manipulator_dof_indices_map["right_arm"])
-                traj = self.basemanip.MoveActiveJoints(goal=goal,execute=False,outputtrajobj=True, steplength=0.02, postprocessingplanner="LinearSmoother")#, postprocessingparameters="<_nmaxiterations>20</_nmaxiterations><_postprocessing planner=\"parabolicsmoother\"><_nmaxiterations>100</_nmaxiterations></_postprocessing>")#, steplength=0.002, maxiter=100000, maxtries=100)
+                traj = self.basemanip.MoveActiveJoints(goal=goal,execute=False,outputtrajobj=True, steplength=0.02, postprocessingplanner="LinearSmoother")
+#, postprocessingparameters="<_nmaxiterations>20</_nmaxiterations><_postprocessing planner=\"parabolicsmoother\"><_nmaxiterations>100</_nmaxiterations></_postprocessing>")#, steplength=0.002, maxiter=100000, maxtries=100)
 #                print "waypoints: %s"%(traj.GetNumWaypoints())
         except planning_error,e:
             print "planMoveThroughGoals: planning error"
         return traj
 
-    def planMoveForRightArm(self, T_Br_E, q_dest, maxiter=500, verbose_print=False):
+    def planMoveForRightArm(self, T_Br_E, q_dest, maxiter=500, verbose_print=False, penalty_threshold=None):
 #        self.robot_rave_update_lock.acquire()
 
         if T_Br_E != None and q_dest == None:
@@ -1309,9 +1329,13 @@ class OpenraveInstance:
             traj = None
             goal = q_s[1]
 
-            score = q_s[0]
-#            print score
-            if score > 10000.0:
+            penalty = q_s[0]
+
+            if penalty_threshold != None and penalty > penalty_threshold:
+                return None
+
+#            print penalty
+            if penalty > 10000.0:
                 break
 
             traj = self.planMove(goal)
@@ -1407,7 +1431,7 @@ class OpenraveInstance:
             if tim != None:
                 print "tim sum: %s"%(math.fsum(tim))
             print "duration: %s"%(traj.GetDuration())
-        return pos, vel, acc, tim, q_traj
+        return pos, vel, acc, tim, q_traj, penalty
 
     def printCollisions(self):
         report = CollisionReport()

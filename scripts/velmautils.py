@@ -61,6 +61,8 @@ from subprocess import Popen, PIPE, STDOUT
 
 import operator
 
+import velma_fk_ik
+
 class MarkerPublisher:
     def __init__(self):
         self.pub_marker = rospy.Publisher('/velma_markers', MarkerArray)
@@ -1299,6 +1301,105 @@ class WristCollisionAvoidance:
                 traj.append( [q5_traj[i], q6_traj[i]] )
             
         return traj, total_length
+
+class VelmaSolvers:
+    def __init__(self):
+        self.fk_solver = velma_fk_ik.VelmaFkIkSolver()
+
+        self.robot = URDF.from_parameter_server()
+        self.mimic_joints_map = {}
+        self.joint_name_limit_map = {}
+#        self.joint_name_idx_map = {}
+#        self.js = JointState()
+
+        joint_idx_ros = 0
+        for i in range(len(self.robot.joints)):
+            joint = self.robot.joints[i]
+            
+            if joint.joint_type == "fixed":
+                continue
+            if joint.mimic != None:
+                self.mimic_joints_map[joint.name] = joint.mimic
+
+            self.joint_name_limit_map[joint.name] = joint.limit
+#            self.joint_name_idx_map[joint.name] = joint_idx_ros
+
+#            self.js.name.append(joint.name)
+            print joint.name
+#            self.js.position.append(0)
+            joint_idx_ros += 1
+
+#        self.updateJointLimits(self.js)
+#        self.updateMimicJoints(self.js)
+#        print self.js.name
+#        print self.joint_name_idx_map
+
+
+    def updateMimicJoints(self, js_pos):
+        for joint_name in self.mimic_joints_map:
+            mimic_name = self.mimic_joints_map[joint_name].joint
+            js_pos[joint_name] = js_pos[mimic_name] * self.mimic_joints_map[joint_name].multiplier
+            if self.mimic_joints_map[joint_name].offset != None:
+                js_pos[joint_name] += self.mimic_joints_map[joint_name].offset
+        return
+
+        position_map = {}
+        for i in range(len(js.name)):
+            position_map[js.name[i]] = js.position[i]
+
+        for i in range(len(js.name)):
+            joint_name = js.name[i]
+            if joint_name in self.mimic_joints_map:
+                js.position[i] = position_map[self.mimic_joints_map[joint_name].joint] * self.mimic_joints_map[joint_name].multiplier
+                if self.mimic_joints_map[joint_name].offset != None:
+                    js.position[i] += self.mimic_joints_map[joint_name].offset
+
+    def updateJointLimits(self, js_pos):
+        for joint_name in js_pos:
+            if joint_name in self.mimic_joints_map:
+                continue
+            if js_pos[joint_name] < self.joint_name_limit_map[joint_name].lower:
+                js_pos[joint_name] = self.joint_name_limit_map[joint_name].lower
+            elif js_pos[joint_name] > self.joint_name_limit_map[joint_name].upper:
+                js_pos[joint_name] = self.joint_name_limit_map[joint_name].upper
+        return
+
+        for i in range(len(js.name)):
+            joint_name = js.name[i]
+            if joint_name in self.mimic_joints_map:
+                continue
+            if js.position[i] < self.joint_name_limit_map[joint_name].lower:
+                js.position[i] = self.joint_name_limit_map[joint_name].lower
+            elif js.position[i] > self.joint_name_limit_map[joint_name].upper:
+                js.position[i] = self.joint_name_limit_map[joint_name].upper
+
+    def getCartImpWristTraj(self, js, goal_T_B_W):
+        init_js = copy.deepcopy(js)
+        init_T_B_W = self.fk_solver.calculateFk("right_arm_7_link", init_js)
+        T_B_Wd = goal_T_B_W # * self.T_W_E
+        T_B_W_diff = PyKDL.diff(init_T_B_W, T_B_Wd, 1.0)
+#        js_map = {}
+#        for j_idx in range(len(init_js.name)):
+#            js_map[init_js.name[j_idx]] = j_idx
+
+        self.updateJointLimits(init_js)
+        self.updateMimicJoints(init_js)
+        q_list = []
+        for f in np.linspace(0.0, 1.0, 50):
+            T_B_Wi = PyKDL.addDelta(init_T_B_W, T_B_W_diff, f)
+            q_out = self.fk_solver.simulateTrajectory("right_arm_7_link", init_js, T_B_Wi)
+            if q_out == None:
+                return None
+            q_list.append(q_out)
+
+#            print "len(q_out) ", len(q_out)
+            for i in range(7):
+                joint_name = self.fk_solver.ik_joint_state_name["right_arm_7_link"][i]
+#                init_js.position[ js_map[joint_name] ] = q_out[i]
+                init_js[ joint_name ] = q_out[i]
+
+        return q_list
+
 
 class VelmaIkSolver:
     def __init__(self):

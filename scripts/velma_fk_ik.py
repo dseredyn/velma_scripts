@@ -35,46 +35,39 @@ from pykdl_utils.kdl_parser import kdl_tree_from_urdf_model
 
 class VelmaFkIkSolver:
 
-    def calculateFk(self, link_name, joint_states):
-        js_name_idx_map = {}
-        for j_idx in range(len(joint_states.name)):
-            js_name_idx_map[joint_states.name[j_idx]] = j_idx
+    def calculateFk(self, link_name, js_pos):
+#        js_name_idx_map = {}
+#        for j_idx in range(len(joint_states.name)):
+#            js_name_idx_map[joint_states.name[j_idx]] = j_idx
 
         q = PyKDL.JntArray(self.fk_chains[link_name].getNrOfJoints())
         ja_idx = 0
         for js_name in self.fk_joint_state_name[link_name]:
-            q[ja_idx] = joint_states.position[ js_name_idx_map[js_name] ]
+            q[ja_idx] = js_pos[js_name]#joint_states.position[ js_name_idx_map[js_name] ]
             ja_idx += 1
 
         fr = PyKDL.Frame()
         self.fk_solvers[link_name].JntToCart(q, fr)
         return fr
 
-    def simulateTrajectory(self, link_name, init_js, T_B_Ed):#, progress):
-#        if progress < 0.0 or progress > 1.0:
-#            print "simulateTrajectory: bad progress value: %s"%(progress)
-#            return None
+    def simulateTrajectory(self, link_name, init_js, T_B_Ed):
 
         chain_length = self.ik_chains[link_name].getNrOfJoints()
 
-        js_name_idx_map = {}
-        for j_idx in range(len(init_js.name)):
-            js_name_idx_map[init_js.name[j_idx]] = j_idx
+#        js_name_idx_map = {}
+#        for j_idx in range(len(init_js.name)):
+#            js_name_idx_map[init_js.name[j_idx]] = j_idx
 
         q_end = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         q_init = PyKDL.JntArray(chain_length)
         for ja_idx in range(chain_length):
-            js_idx = js_name_idx_map[self.ik_joint_state_name[link_name][ja_idx]]
-            q_init[ja_idx] = init_js.position[js_idx]
+#            js_idx = js_name_idx_map[self.ik_joint_state_name[link_name][ja_idx]]
+            q_init[ja_idx] = init_js[self.ik_joint_state_name[link_name][ja_idx]] #init_js.position[js_idx]
 
         T_B_BB = self.calculateFk(self.ik_base, init_js)
         T_BB_B = T_B_BB.Inverse()
-#        init_T_B_E = self.calculateFk(link_name, init_js)
 
         q_out = PyKDL.JntArray(chain_length)
-#        T_B_E_diff = PyKDL.diff(init_T_B_E, T_B_Ed, 1.0)
-#        T_B_Ei = PyKDL.addDelta(init_T_B_E, T_B_E_diff, progress)
-#        T_BB_Ei = T_BB_B * T_B_Ei
         T_BB_Ed = T_BB_B * T_B_Ed
         status = self.ik_solvers[link_name].CartToJnt(q_init, T_BB_Ed, q_out)
         if status != 0:
@@ -114,6 +107,8 @@ class VelmaFkIkSolver:
         ik_links = [
         "left_HandPalmLink",
         "right_HandPalmLink",
+        "left_arm_7_link",
+        "right_arm_7_link",
         ]
 
         joint_limit_map = {}

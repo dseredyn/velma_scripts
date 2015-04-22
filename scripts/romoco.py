@@ -135,14 +135,11 @@ Class for grasp learning.
         z_limit = 0.3
         while not rospy.is_shutdown():
             rospy.sleep(0.1)
-#            self.velma.publishJointStates()
-#            continue
 
             if self.allow_update_objects_pose == None or not self.allow_update_objects_pose:
                 continue
             for obj_name in self.dyn_obj_markers:
                 obj = self.dyn_obj_markers[obj_name]
-#            for obj in self.objects:
                 visible_markers_Br_Co = []
                 visible_markers_weights_ori = []
                 visible_markers_weights_pos = []
@@ -327,7 +324,7 @@ Class for grasp learning.
                 g_shape["right_HandFingerOneKnuckleOneJoint"],
                 ]
                 raw_input("Press Enter to change the gripper configuration...")
-                self.velma.move_hand_client(q)
+                self.velma.move_hand_client(q, t=(3000.0, 3000.0, 3000.0, 3000.0))
 
     def makePlan(self, graspable_object_name, grasp, T_B_Od, penalty_threshold):
 
@@ -360,10 +357,13 @@ Class for grasp learning.
         plan_ret.append(["move_gripper", preshape])
 
         # plan first trajectory (in configuration space)
+        self.openrave.extendAllObjects(0.02)
         traj = self.openrave.planMoveForRightArm(T_B_Ed, None, penalty_threshold=penalty_threshold)
+        self.openrave.restoreExtendedObjects()
         if traj == None:
             print "colud not plan trajectory in configuration space"
             return None, None
+
 
         plan_ret.append(["move_joint", traj])
 
@@ -426,11 +426,11 @@ Class for grasp learning.
         filename_wrenches = rospack.get_path('velma_scripts') + '/data/romoco/wrenches_' + graspable_object_name + '.txt'
 
 
-        simulation_only = True
+        simulation_only = False
         if simulation_only:
             time_mult = 5.0
         else:
-            time_mult = 8.0
+            time_mult = 20.0
         m_id = 0
 
 
@@ -529,8 +529,8 @@ Class for grasp learning.
             exit(0)
 
         self.velma.updateTransformations()
-        self.velma.updateAndMoveTool( self.velma.T_W_E, 1.0 )
-        if self.velma.checkStopCondition(2.0):
+        self.velma.updateAndMoveTool( self.velma.T_W_E * PyKDL.Frame(PyKDL.Vector(0,0,0.17)), 5.0 )
+        if self.velma.checkStopCondition(6.0):
             exit(0)
 
         raw_input("Press Enter to continue...")
@@ -619,13 +619,16 @@ Class for grasp learning.
 
         # object destination poses
         T_B_O_trans = PyKDL.Frame(PyKDL.Vector(0,0,0.1)) * current_T_B_O
-        T_B_O_rot = PyKDL.Frame(PyKDL.Vector(0,0,0.1)) * current_T_B_O * PyKDL.Frame(PyKDL.Rotation.RotY(-90.0/180.0*math.pi))
+
+        TR_B_O_rot = (PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi)) * current_T_B_O).M
+        TT_B_O_rot = current_T_B_O.p + PyKDL.Vector(0,0,0.1)
+        T_B_O_rot = PyKDL.Frame(TR_B_O_rot, TT_B_O_rot)
 
         transport_T_B_O = []
         transport_T_B_O.append(current_T_B_O)
 
-        transport_T_B_O.append( T_B_O_rot )   # first variant (lying)
-#        transport_T_B_O.append( T_B_O_trans )   # second variant (standing)
+#        transport_T_B_O.append( T_B_O_rot )   # first variant (lying)
+        transport_T_B_O.append( T_B_O_trans )   # second variant (standing)
 
         #
         # definition of the expected external wrenches for lift-up task for objects c.o.m. in the World frame

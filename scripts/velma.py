@@ -51,6 +51,8 @@ import tf_conversions.posemath as pm
 from tf2_msgs.msg import *
 from controller_manager_msgs.srv import *
 
+import geometry_msgs.msg
+
 import PyKDL
 import math
 from numpy import *
@@ -124,6 +126,9 @@ Class for velma robot.
 #                        self.action_right_trajectory_client.cancel_goal()
 #                    except:
 #                        pass
+
+    def setHeadLookAtPoint(self, pt):
+        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(pt)))
 
     def tactileCallback(self, data):
         max_tactile_value = -1.0
@@ -278,6 +283,8 @@ Class for velma robot.
         rospy.Subscriber('/'+self.prefix+'_hand/BHPressureState', BHPressureState, self.tactileCallback)
         rospy.Subscriber('/'+self.prefix+'_arm/wrench', Wrench, self.wrenchCallback)
         joint_states_listener = rospy.Subscriber('/joint_states', JointState, self.jointStatesCallback)
+
+        self.pub_head_look_at = rospy.Publisher("/head_lookat_pose", geometry_msgs.msg.Pose)
 
     def moveWrist2(self, wrist_frame):
         wrist_pose = pm.toMsg(wrist_frame)

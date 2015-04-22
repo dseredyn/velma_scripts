@@ -308,7 +308,7 @@ class OpenraveInstance:
 # http://openrave.org/docs/latest_stable/openravepy/databases.grasping/#openravepy.databases.grasping.GraspingModel.generatepcg
 #                self.gmodel[target_name].generate(approachrays=approachrays3, forceclosure=False, standoffs=[0.025, 0.05, 0.075])
 #                self.gmodel[target_name].generate(approachrays=approachrays3, friction=0.6, forceclosure=True, standoffs=[0.04, 0.06, 0.07])
-                self.gmodel[target_name].generate(approachrays=approachrays3, friction=0.6, forceclosure=False, standoffs=np.array([0.04, 0.06, 0.07]))
+                self.gmodel[target_name].generate(approachrays=approachrays3, friction=0.6, forceclosure=False, standoffs=np.array([0.04, 0.06])) #, 0.07
                 self.gmodel[target_name].save()
 
                 for body in all_bodies:
@@ -990,19 +990,84 @@ class OpenraveInstance:
             print "planMoveThroughGoals: planning error"
         return traj
 
-    def planMoveForRightArm(self, T_Br_E, q_dest, maxiter=500, verbose_print=False, penalty_threshold=None):
-#        self.robot_rave_update_lock.acquire()
+    def extendAllObjects(self, ext_value):
+        if not hasattr(self, 'removed_bodies'):
+            self.removed_bodies = None
+
+        if self.removed_bodies != None:
+            print "error: extendAllObjects"
+            exit(0)
+
+        all_bodies = self.env.GetBodies()
+        self.removed_bodies = []
+        for body in all_bodies:
+            name = body.GetName()
+            if name != "velma" and len(body.GetLinks()) == 1:
+                self.removed_bodies.append(body)
+                self.env.Remove(body)
+
+        self.added_bodies = []
+        ext_idx = 0
+        for body in self.removed_bodies:
+            for link in body.GetLinks():
+                mesh = link.GetCollisionData()
+
+#            mesh_v_f_map = {}
+#            for face_idx in range(len(mesh.indices)):
+#                face = mesh.indices[face_idx]
+#                for v_idx in face:
+#                    if not v_idx in mesh_v_f_map:
+#                        mesh_v_f_map[v_idx] = [face_idx]
+#                    else:
+#                        mesh_v_f_map[v_idx].append(face_idx)
+
+#            normals = []
+#            for face in mesh.indices:
+#                v0 = mesh.vertices[face[0]]
+#                v1 = mesh.vertices[face[1]]
+#                v2 = mesh.vertices[face[2]]
+#                a = PyKDL.Vector(v1[0], v1[1], v1[2]) - PyKDL.Vector(v0[0], v0[1], v0[2])
+#                b = PyKDL.Vector(v2[0], v2[1], v2[2]) - PyKDL.Vector(v0[0], v0[1], v0[2])
+#                n = a * b
+#                n.Normalize()
+#                normals.append(n)
+
+            for v_idx in range(len(mesh.vertices)):
+                # assume boxes only
+                for dof_idx in range(3):
+                    if mesh.vertices[v_idx][dof_idx] > 0:
+                        mesh.vertices[v_idx][dof_idx] += ext_value
+                    else:
+                        mesh.vertices[v_idx][dof_idx] -= ext_value
+
+            body_ext = RaveCreateKinBody(self.env,'')
+            body_ext.SetName("extended_body_"+str(ext_idx))
+            body_ext.InitFromTrimesh(mesh, True)
+            body_ext.SetTransform(body.GetTransform())
+            self.env.Add(body_ext,True)
+            self.added_bodies.append(body_ext)
+            ext_idx += 1
+
+    def restoreExtendedObjects(self):
+        for body in self.added_bodies:
+            self.env.Remove(body)
+
+        for body in self.removed_bodies:
+            self.env.Add(body,True)
+
+        self.removed_bodies = None
+        self.added_bodies = None
+
+    def planMoveForRightArm(self, T_Br_E, q_dest, maxiter=500, verbose_print=False, penalty_threshold=None, extend_objects=False):
 
         if T_Br_E != None and q_dest == None:
             q_list = self.getBestFinalConfigs(T_Br_E)
             if len(q_list) < 10:
-#                self.robot_rave_update_lock.release()
                 print "planMoveForRightArm: strange pose - a few ik solutions"
                 return None
         elif T_Br_E == None and q_dest != None:
             q_list = [[0.0, q_dest]]
         else:
-#            self.robot_rave_update_lock.release()
             print "planMoveForRightArm: wrong arguments: %s %s"%(T_Br_E, q_dest)
             return None
 
@@ -1017,7 +1082,6 @@ class OpenraveInstance:
             if penalty_threshold != None and penalty > penalty_threshold:
                 return None
 
-#            print penalty
             if penalty > 10000.0:
                 break
 

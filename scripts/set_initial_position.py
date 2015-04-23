@@ -204,6 +204,13 @@ Class for grasp learning.
 
     def spin(self):
 
+        # get an instance of RosPack with the default search paths
+        rospack = rospkg.RosPack()
+
+        # get the file path for rospy_tutorials
+        filname_environment = rospack.get_path('velma_scripts') + '/data/romoco/romoco.env.xml'
+        filname_objectmarker = rospack.get_path('velma_scripts') + '/data/romoco/object_marker.txt'
+
         simulation_only = False
         if simulation_only:
             time_mult = 5.0

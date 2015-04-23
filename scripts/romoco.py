@@ -627,8 +627,8 @@ Class for grasp learning.
         transport_T_B_O = []
         transport_T_B_O.append(current_T_B_O)
 
-#        transport_T_B_O.append( T_B_O_rot )   # first variant (lying)
-        transport_T_B_O.append( T_B_O_trans )   # second variant (standing)
+        transport_T_B_O.append( T_B_O_rot )   # first variant (lying)
+#        transport_T_B_O.append( T_B_O_trans )   # second variant (standing)
 
         #
         # definition of the expected external wrenches for lift-up task for objects c.o.m. in the World frame

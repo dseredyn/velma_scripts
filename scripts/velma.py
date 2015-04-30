@@ -729,6 +729,21 @@ Class for velma robot.
             duration = 0.5
         return duration
 
+    def getMovementTime2(self, T_B_Wd1, T_B_Wd2, max_v_l = 0.1, max_v_r = 0.2):
+        twist = PyKDL.diff(T_B_Wd1, T_B_Wd2, 1.0)
+        v_l = twist.vel.Norm()
+        v_r = twist.rot.Norm()
+        print "v_l: %s   v_r: %s"%(v_l, v_r)
+        f_v_l = v_l/max_v_l
+        f_v_r = v_r/max_v_r
+        if f_v_l > f_v_r:
+            duration = f_v_l
+        else:
+            duration = f_v_r
+        if duration < 0.5:
+            duration = 0.5
+        return duration
+
     def switchToJoint(self):
         self.cartesian_impedance_active = False
         result = False

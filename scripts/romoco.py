@@ -103,7 +103,28 @@ Class for grasp learning.
             return None
         return pm.fromTf(jar_marker)
 
+    def getCameraPoseFake(self):
+        return PyKDL.Frame(PyKDL.Rotation.Quaternion(-0.6041471326857807, 0.7290707942893216, -0.24257326295862056, 0.21123501385869978), PyKDL.Vector(0.274115,-0.000762625,     1.67876) )  # romoco_02
+#        return PyKDL.Frame(PyKDL.Rotation.RotY(135.0/180.0*math.pi), PyKDL.Vector(0.4, 0, 1.4)) * PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi))
+
     def getMarkerPoseFake(self, marker_id, wait = True, timeBack = None):
+
+        if True:  # romoco_02
+            ar_track = [
+            [5,0,0,0,0,-0.168262043609,0.0930374127131,1.01813819229,0.950324481028,-0.0289575235949,0.00394574675416,0.309885904275],
+            [21,0,0,0,0,0.082505708292,0.110761122122,0.603730984018,-0.458504669821,-0.709444231601,-0.0397255592372,0.533745472997],
+            [30,0,0,0,0,0.104154326153,0.0757350473769,0.587008320764,0.861332293804,0.391007810313,-0.113641433205,0.303817702879],
+            [18,0,0,0,0,0.124413927856,0.111452725921,0.599775167445,0.696719708925,0.480876853947,0.5293727524,-0.0557098514612],
+            [19,0,0,0,0,0.123152725863,0.198755505957,0.716141316519,0.700134532901,0.471859046812,0.532229610902,-0.0623884369125],
+            [22,0,0,0,0,0.0797242701158,0.196635593195,0.713926653472,-0.448409835388,-0.710363705627,-0.044302175627,0.540693390462],
+            ]
+            for mk in ar_track:
+                if mk[0] == marker_id:
+                    
+                    return self.getCameraPoseFake() * PyKDL.Frame(PyKDL.Rotation.Quaternion(mk[8], mk[9], mk[10], mk[11]), PyKDL.Vector(mk[5], mk[6], mk[7]) )
+
+            return None
+
 #        T_B_Tm = PyKDL.Frame( PyKDL.Rotation.EulerZYZ(0.1, -0.1, 0.0), PyKDL.Vector(0.55,-0.4,0.9) )
         T_B_Tm = PyKDL.Frame( PyKDL.Rotation.RotZ(90.0/180.0*math.pi), PyKDL.Vector(0.55,-0.2,0.9) )
         T_B_Tbb = PyKDL.Frame( PyKDL.Vector(0.5,-0.8,2.0) )
@@ -126,9 +147,6 @@ Class for grasp learning.
 
     def getCameraPose(self):
         return pm.fromTf(self.listener.lookupTransform('torso_base', 'camera', rospy.Time(0)))
-
-    def getCameraPoseFake(self):
-        return PyKDL.Frame(PyKDL.Rotation.RotY(135.0/180.0*math.pi), PyKDL.Vector(0.4, 0, 1.4)) * PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi))
 
     def poseUpdaterThread(self, args, *args2):
         index = 0
@@ -263,12 +281,13 @@ Class for grasp learning.
                 grasped = True
                 self.openrave.grab(graspable_object_name)
             elif stage[0] == "move_cart":
-                T_B_Wd = stage[1]
-                init_js = self.openrave.getRobotConfigurationRos()
-                traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_Wd)
-                raw_input("Press Enter to visualize the cartesian trajectory...")
-                self.openrave.showTrajectory(3.0, qar_list=traj)
-                self.openrave.updateRobotConfiguration(qar=traj[-1])
+                T_B_Wd_traj = stage[1]
+                for idx in range(len(T_B_Wd_traj[0])):
+                    init_js = self.openrave.getRobotConfigurationRos()
+                    traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_Wd_traj[0][idx])
+                    raw_input("Press Enter to visualize the cartesian trajectory...")
+                    self.openrave.showTrajectory(T_B_Wd_traj[1][idx], qar_list=traj)
+                    self.openrave.updateRobotConfiguration(qar=traj[-1])
             elif stage[0] == "move_gripper":
                 g_shape = stage[1]
                 self.openrave.updateRobotConfigurationRos(g_shape)
@@ -307,13 +326,15 @@ Class for grasp learning.
                 self.velma.switchToCart()
                 # move to the desired position
                 self.velma.updateTransformations()
-                T_B_Wd = stage[1]
-                duration = self.velma.getMovementTime(T_B_Wd, max_v_l=0.1, max_v_r=0.2)
-                raw_input("Press Enter to move the robot in " + str(duration) + " s...")
+                traj = stage[1]
+                print traj
+#                T_B_Wd = stage[1]
+#                duration = self.velma.getMovementTime(T_B_Wd, max_v_l=0.1, max_v_r=0.2)
+                raw_input("Press Enter to move the robot in " + str(traj[1][-1]) + " s...")
                 if self.velma.checkStopCondition():
                     exit(0)
-                self.velma.moveWrist(T_B_Wd, duration, Wrench(Vector3(20,20,20), Vector3(4,4,4)), abort_on_q5_singularity=True, abort_on_q5_q6_self_collision=True)
-                if self.velma.checkStopCondition(duration):
+                self.velma.moveWristTraj(traj[0], traj[1], Wrench(Vector3(20,20,20), Vector3(4,4,4)), abort_on_q5_singularity=True, abort_on_q5_q6_self_collision=True)
+                if self.velma.checkStopCondition(traj[1][-1]):
                     break
             elif stage[0] == "move_gripper":
                 g_shape = stage[1]
@@ -326,7 +347,7 @@ Class for grasp learning.
                 raw_input("Press Enter to change the gripper configuration...")
                 self.velma.move_hand_client(q, t=(3000.0, 3000.0, 3000.0, 3000.0))
 
-    def makePlan(self, graspable_object_name, grasp, T_B_Od, penalty_threshold):
+    def makePlan(self, graspable_object_name, grasp, transport_T_B_O, penalty_threshold):
 
         if self.openrave.checkRobotCollision():
             print "makePlan failed: robot is in collision with environment"
@@ -388,20 +409,45 @@ Class for grasp learning.
         # calculate the destination pose of the end effector
         T_B_O = self.openrave.getPose(graspable_object_name)
         T_E_O = T_B_Ed.Inverse() * T_B_O
-        T_B_Ed = T_B_Od * T_E_O.Inverse()
-        T_B_Wd = T_B_Ed * self.velma.T_E_W
+
+
+        cart_traj = []
+        cart_times = []
+        T_B_Wd1 = T_B_Ed * self.velma.T_E_W
+        print "makePlan:"
+        print T_B_O
+#        print T_B_Wd1
+        time = 0.0
+        for idx in range(1, len(transport_T_B_O)):
+            T_B_Ed = transport_T_B_O[idx] * T_E_O.Inverse()
+            T_B_Wd2 = T_B_Ed * self.velma.T_E_W
+#            print T_B_Wd2
+            print transport_T_B_O[idx]
+            cart_traj.append(T_B_Wd2)
+            time += self.velma.getMovementTime2(T_B_Wd1, T_B_Wd2, max_v_l=0.1, max_v_r=0.2)
+            cart_times.append(time)
+            T_B_Wd1 = T_B_Wd2
+
+        # calculate the destination pose of the end effector
+#        T_B_O = self.openrave.getPose(graspable_object_name)
+#        T_E_O = T_B_Ed.Inverse() * T_B_O
+#        T_B_Ed = T_B_Od * T_E_O.Inverse()
+#        T_B_Wd = T_B_Ed * self.velma.T_E_W
 
         # interpolate trajectory for the second motion (in the cartesian space)
-        init_js = self.openrave.getRobotConfigurationRos()
-        traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_Wd)
-        if traj == None:
-            print "could not plan trajectory in cartesian space"
-            self.openrave.release()
-            self.openrave.updatePose(graspable_object_name, init_T_B_O)
-            self.openrave.updateRobotConfigurationRos(config)
-            return None, None
+        for idx in range(len(cart_traj)):
+            init_js = self.openrave.getRobotConfigurationRos()
+            traj = self.velma_solvers.getCartImpWristTraj(init_js, cart_traj[idx])
+            if traj == None:
+                print "could not plan trajectory in cartesian space: ", str(idx)
+                self.openrave.release()
+                self.openrave.updatePose(graspable_object_name, init_T_B_O)
+                self.openrave.updateRobotConfigurationRos(config)
+                return None, None
+            # start planning from the end of the previous trajectory
+            self.openrave.updateRobotConfiguration(qar=traj[-1])
 
-        plan_ret.append(["move_cart", T_B_Wd])
+        plan_ret.append(["move_cart", [cart_traj, cart_times]])
 
         self.openrave.release()
         self.openrave.updatePose(graspable_object_name, init_T_B_O)
@@ -412,6 +458,7 @@ Class for grasp learning.
 
     def spin(self):
 
+        
         graspable_object_name = "big_box"
 
         # get an instance of RosPack with the default search paths
@@ -421,8 +468,8 @@ Class for grasp learning.
         #rospack.list_pkgs() 
 
         # get the file path for rospy_tutorials
-        filname_environment = rospack.get_path('velma_scripts') + '/data/romoco/romoco.env.xml'
-        filname_objectmarker = rospack.get_path('velma_scripts') + '/data/romoco/object_marker.txt'
+        filename_environment = rospack.get_path('velma_scripts') + '/data/romoco/romoco.env.xml'
+        filename_objectmarker = rospack.get_path('velma_scripts') + '/data/romoco/object_marker.txt'
         filename_wrenches = rospack.get_path('velma_scripts') + '/data/romoco/wrenches_' + graspable_object_name + '.txt'
 
 
@@ -441,7 +488,7 @@ Class for grasp learning.
         # Initialise Openrave
         #
         self.openrave = openraveinstance.OpenraveInstance()
-        self.openrave.startOpenrave(filname_environment)
+        self.openrave.startOpenrave(filename_environment)
 
         self.openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
 
@@ -454,7 +501,7 @@ Class for grasp learning.
 
         self.dyn_obj_markers = {}
 
-        with open(filname_objectmarker, 'r') as f:
+        with open(filename_objectmarker, 'r') as f:
             for line in f:
                 line_s = line.split()
                 obj_name = line_s[0]
@@ -486,6 +533,11 @@ Class for grasp learning.
 
         rospy.sleep(0.5)
         self.velma.updateTransformations()
+
+#        T_W_T = self.velma.T_W_E * PyKDL.Frame(PyKDL.Vector(0,0,0.17))
+#        print T_W_T.M.GetQuaternion()
+#        print T_W_T.p
+#        exit(0)
 
         self.openrave.updateRobotConfigurationRos(self.velma.js_pos)
 
@@ -529,6 +581,7 @@ Class for grasp learning.
             exit(0)
 
         self.velma.updateTransformations()
+#        self.velma.updateAndMoveTool( PyKDL.Frame(), 5.0 )
         self.velma.updateAndMoveTool( self.velma.T_W_E * PyKDL.Frame(PyKDL.Vector(0,0,0.17)), 5.0 )
         if self.velma.checkStopCondition(6.0):
             exit(0)
@@ -611,24 +664,39 @@ Class for grasp learning.
         # transport task specification
         #
 
+#        task_variant = "liftup"
+        task_variant = "rot"
+
         # current object pose
         current_T_B_O = self.openrave.getPose(graspable_object_name)
 
 #        current_T_B_O = current_T_B_O * PyKDL.Frame(PyKDL.Rotation.RotX(45.0/180.0*math.pi))
         #self.openrave.updatePose(graspable_object_name, current_T_B_O)
 
-        # object destination poses
-        T_B_O_trans = PyKDL.Frame(PyKDL.Vector(0,0,0.1)) * current_T_B_O
+        if task_variant == "liftup":
+            # object destination poses
+            T_B_O_trans = PyKDL.Frame(PyKDL.Vector(0,0,0.1)) * current_T_B_O
 
-        TR_B_O_rot = (PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi)) * current_T_B_O).M
-        TT_B_O_rot = current_T_B_O.p + PyKDL.Vector(0,0,0.1)
-        T_B_O_rot = PyKDL.Frame(TR_B_O_rot, TT_B_O_rot)
+            transport_T_B_O = []
+            transport_T_B_O.append(current_T_B_O)
+            transport_T_B_O.append( T_B_O_trans )
+        elif task_variant == "rot":
+            # object destination poses
+            T_B_O_trans = PyKDL.Frame(PyKDL.Vector(0,0,0.05)) * current_T_B_O
+            TR_B_O_rot = (PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi)) * current_T_B_O).M
+            TT_B_O_rot = current_T_B_O.p + PyKDL.Vector(0,0,0.1)
+            T_B_O_rot = PyKDL.Frame(TR_B_O_rot, TT_B_O_rot)
 
-        transport_T_B_O = []
-        transport_T_B_O.append(current_T_B_O)
+            transport_T_B_O = []
+            transport_T_B_O.append(current_T_B_O)
+            transport_T_B_O.append( T_B_O_trans )
+            transport_T_B_O.append( T_B_O_rot )
+        else:
+            print "wrong task: ", task_variant
+            exit(0)
 
-        transport_T_B_O.append( T_B_O_rot )   # first variant (lying)
-#        transport_T_B_O.append( T_B_O_trans )   # second variant (standing)
+        print "transport_T_B_O:"
+        print transport_T_B_O
 
         #
         # definition of the expected external wrenches for lift-up task for objects c.o.m. in the World frame
@@ -657,21 +725,24 @@ Class for grasp learning.
 
 
         # TEST: visualise the quality of all grasps
-#        m_id = 0
-#        self.openrave.generateGWSforAllGrasps(graspable_object_name)
-#        for grasp_idx in range(self.openrave.getGraspsCount(graspable_object_name)):
-#            gws = self.openrave.getGWSforGraspId(graspable_object_name, grasp_idx)
-#            q_min = None
-#            for wr_O in ext_wrenches_O:
-#                q = self.openrave.getQualityMeasure2(gws, wr_O)
-#                if q_min == None or q < q_min:
-#                    q_min = q
-#            grasp = self.openrave.getGrasp(graspable_object_name, grasp_idx)
-#            T_B_E = self.openrave.getGraspTransform(graspable_object_name, grasp)
-#            scale = q_min * 0.1
-#            m_id = self.pub_marker.publishSinglePointMarker(T_B_E * PyKDL.Vector(), m_id, r=0, g=0, b=1, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(scale, scale, scale), T=None)
-#        raw_input(".")
-#        exit(0)
+        if False:
+            m_id = 0
+            m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(), m_id, r=0.2, g=0.2, b=0.2, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.177*2, 0.03*2, 0.03*2), T=current_T_B_O)
+            print "generating GWS for all grasps..."
+            self.openrave.generateGWSforAllGrasps(graspable_object_name)
+            for grasp_idx in range(self.openrave.getGraspsCount(graspable_object_name)):
+                gws = self.openrave.getGWSforGraspId(graspable_object_name, grasp_idx)
+                q_min = None
+                for wr_O in ext_wrenches_O:
+                    q = self.openrave.getQualityMeasure2(gws, wr_O)
+                    if q_min == None or q < q_min:
+                        q_min = q
+                grasp = self.openrave.getGrasp(graspable_object_name, grasp_idx)
+                T_B_E = self.openrave.getGraspTransform(graspable_object_name, grasp)
+                scale = q_min * 0.1
+                m_id = self.pub_marker.publishSinglePointMarker(T_B_E * PyKDL.Vector(), m_id, r=0.6, g=0.6, b=0.6, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(scale, scale, scale), T=None)
+            raw_input(".")
+            exit(0)
 
 
         print "calculating set of possible grasps..."
@@ -704,17 +775,19 @@ Class for grasp learning.
 
         q_max = evaluated_grasps_sorted[0][0]
         print "max quality: %s"%(q_max)
+        print "len(evaluated_grasps_sorted)", len(evaluated_grasps_sorted)
 
         evaluated_plans = []
         penalty_threshold = 1000.0
         while len(evaluated_grasps_sorted) > 0:
             best_grasp_q, best_grasp_idx = evaluated_grasps_sorted.pop(0)
-            if best_grasp_q < 0.95 * q_max:
+            if best_grasp_q < 0.9 * q_max:
+                print best_grasp_q
                 break
 
             grasp = self.openrave.getGrasp(graspable_object_name, best_grasp_idx)
 
-            penalty, plan = self.makePlan(graspable_object_name, grasp, transport_T_B_O[1], penalty_threshold)
+            penalty, plan = self.makePlan(graspable_object_name, grasp, transport_T_B_O, penalty_threshold)
 
             print best_grasp_q, penalty
             if penalty != None:

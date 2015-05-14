@@ -56,8 +56,45 @@ import numpy as np
 import copy
 
 import urdf_parser_py.urdf
-#from urdf_parser_py.urdf import URDF
-from pykdl_utils.kdl_parser import kdl_tree_from_urdf_model
+#from pykdl_utils.kdl_parser import kdl_tree_from_urdf_model
+
+class MoveHandAction(object):
+    # create messages that are used to publish feedback/result
+    _feedback = barrett_hand_controller_srvs.msg.BHMoveFeedback()
+    _result   = barrett_hand_controller_srvs.msg.BHMoveResult()
+
+    def __init__(self, name, robot_state):
+        self.robot_state = robot_state
+        self._action_name = name
+        self._as = actionlib.SimpleActionServer(self._action_name, barrett_hand_controller_srvs.msg.BHMoveAction, execute_cb=self.execute_cb, auto_start = False)
+        self._as.start()
+
+    def execute_cb(self, goal):
+        while True:
+            js_pos = self.robot_state.getJsPos()
+
+            allIdle = True
+            for dof_idx in range(len(goal.q)):
+                joint_name = goal.name[dof_idx]
+                diff = goal.q[dof_idx] - js_pos[joint_name]
+                if abs(diff) > 0.0001:
+                    allIdle = False
+                if abs(diff) > abs(goal.v[dof_idx] * 0.01):
+                    if diff > 0:
+                        diff = goal.v[dof_idx] * 0.01
+                    else:
+                        diff = -goal.v[dof_idx] * 0.01
+                self.robot_state.js.position[ self.robot_state.joint_name_idx_map[joint_name] ] += diff
+
+            self.robot_state.updateJointLimits(self.robot_state.js)
+            self.robot_state.updateMimicJoints(self.robot_state.js)
+
+            if allIdle:
+                break
+            rospy.sleep(0.01)
+
+        self._result.error_code = 0
+        self._as.set_succeeded(self._result)
 
 class MoveImpAction(object):
     # create messages that are used to publish feedback/result
@@ -95,15 +132,9 @@ class MoveToolAction(object):
         # helper variables
         success = True
 
-#        goal.path_tolerance
-#        goal.wrench_constraint
-#        goal.goal_tolerance
-#        goal.trajectory.target_name
-#        goal.trajectory.points[i].twist
         print "MoveCartesianTrajectory ", self._action_name, " points: ", len(goal.trajectory.points)
 
         init_T_B_W = self.robot_state.fk_solver.calculateFk(self.wrist_name, self.robot_state.getJsPos())
-#        init_T_B_T = init_T_B_W * self.robot_state.T_W_T[self.wrist_name]
         init_T_W_T = self.robot_state.T_W_T[self.wrist_name]
 
         current_dest_point_idx = 0
@@ -145,25 +176,21 @@ class MoveToolAction(object):
 
             T_W_Ti = PyKDL.addDelta(prev_T_W_T, diff_T_W_T, f)
 
-#            print T_W_Ti
-#            T_B_Ti = init_T_B_W * T_W_Ti
-
             T_B_Tcmd = self.robot_state.arm_cmd[self.wrist_name]
             T_B_Wi = T_B_Tcmd * T_W_Ti.Inverse()
 
             self.robot_state.T_W_T[self.wrist_name] = T_W_Ti
 
-            q_out = self.robot_state.fk_solver.simulateTrajectory(self.wrist_name, self.robot_state.getJsPos(), T_B_Wi)
-            if q_out == None:
-                self._result.error_code = -3    # PATH_TOLERANCE_VIOLATED
-                self._as.set_aborted(self._result)
-                return
+            if not self.robot_state.joint_impedance_active:
+                q_out = self.robot_state.fk_solver.simulateTrajectory(self.wrist_name, self.robot_state.getJsPos(), T_B_Wi)
+                if q_out == None:
+                    self._result.error_code = -3    # PATH_TOLERANCE_VIOLATED
+                    self._as.set_aborted(self._result)
+                    return
 
-            for i in range(7):
-                joint_name = self.robot_state.fk_solver.ik_joint_state_name[self.wrist_name][i]
-                self.robot_state.js.position[ self.robot_state.joint_name_idx_map[joint_name] ] = q_out[i]
-
-            
+                for i in range(7):
+                    joint_name = self.robot_state.fk_solver.ik_joint_state_name[self.wrist_name][i]
+                    self.robot_state.js.position[ self.robot_state.joint_name_idx_map[joint_name] ] = q_out[i]
 
             # publish the feedback
             self._feedback.header.stamp = time_now
@@ -191,6 +218,10 @@ class MoveJointTrajectory(object):
     def execute_cb(self, goal):
         # helper variables
         success = True
+
+        if not self.robot_state.joint_impedance_active:
+            self._result.error_code = 0
+            self._as.set_succeeded(self._result)
 
         print "MoveJointTrajectory ", self._action_name, " points: ", len(goal.trajectory.points)
 
@@ -276,11 +307,10 @@ class MoveCartesianTrajectory(object):
         # helper variables
         success = True
 
-#        goal.path_tolerance
-#        goal.wrench_constraint
-#        goal.goal_tolerance
-#        goal.trajectory.target_name
-#        goal.trajectory.points[i].twist
+        if self.robot_state.joint_impedance_active:
+            self._result.error_code = 0
+            self._as.set_succeeded(self._result)
+
         print "MoveCartesianTrajectory ", self._action_name, " points: ", len(goal.trajectory.points)
 
         init_T_B_W = self.robot_state.fk_solver.calculateFk(self.wrist_name, self.robot_state.getJsPos())
@@ -465,7 +495,7 @@ class VelmaFake:
         self.T_W_T["right_arm_7_link"] = PyKDL.Frame()
         self.T_W_T["left_arm_7_link"] = PyKDL.Frame()
         self.joint_impedance_active = False
-        self.gripper_cmd = {}
+#        self.gripper_cmd = {}
 
     # conman switch fake service callback
     def handle_switch_controller(self, req):
@@ -481,14 +511,6 @@ class VelmaFake:
         print "ERROR: handle_switch_controller: ", req.start_controllers, req.stop_controllers, req.strictness
 
         return controller_manager_msgs.srv.SwitchControllerResponse(False)
-
-    def handle_move_hand_right(self, req):
-        self.gripper_cmd["right"] = req
-        return barrett_hand_controller_srvs.srv.BHMoveHandResponse(True)
-
-    def handle_move_hand_left(self, req):
-        self.gripper_cmd["left"] = req
-        return barrett_hand_controller_srvs.srv.BHMoveHandResponse(True)
 
     def handle_get_pressure_info_right(self, req):
         res = barrett_hand_controller_srvs.srv.BHGetPressureInfoResponse()
@@ -524,15 +546,17 @@ class VelmaFake:
     def handle_set_median_filter_left(self, req):
         return barrett_hand_controller_srvs.srv.BHSetMedianFilterResponse()
 
+    def sendToolTransform(self, wrist_name):
+        q = self.T_W_T[wrist_name+"_arm_7_link"].M.GetQuaternion()
+        p = self.T_W_T[wrist_name+"_arm_7_link"].p
+        self.br.sendTransform([p[0], p[1], p[2]], [q[0], q[1], q[2], q[3]], rospy.Time.now(), wrist_name+"_arm_tool", wrist_name+"_arm_7_link")
+
     def spin(self):
 
         self.br = tf.TransformBroadcaster()
 
         # conman switch fake service
         rospy.Service('/controller_manager/switch_controller', controller_manager_msgs.srv.SwitchController, self.handle_switch_controller)
-
-        rospy.Service('/right_hand/move_hand', barrett_hand_controller_srvs.srv.BHMoveHand, self.handle_move_hand_right)
-        rospy.Service('/left_hand/move_hand', barrett_hand_controller_srvs.srv.BHMoveHand, self.handle_move_hand_left)
 
         rospy.Service('/right_hand/get_pressure_info', barrett_hand_controller_srvs.srv.BHGetPressureInfo, self.handle_get_pressure_info_right)
         rospy.Service('/left_hand/get_pressure_info', barrett_hand_controller_srvs.srv.BHGetPressureInfo, self.handle_get_pressure_info_left)
@@ -550,6 +574,9 @@ class VelmaFake:
 
         move_joint = MoveJointTrajectory("/spline_trajectory_action_joint", self)
 
+        move_hand = MoveHandAction("/right_hand/move_hand", self)#, "right")
+        move_hand = MoveHandAction("/left_hand/move_hand", self)#, "left")
+
         print "fake Velma interface is running"
         while not rospy.is_shutdown():
             self.publishJointStates()
@@ -558,27 +585,9 @@ class VelmaFake:
             self.br.sendTransform([right_arm_cmd.position.x, right_arm_cmd.position.y, right_arm_cmd.position.z], [right_arm_cmd.orientation.x, right_arm_cmd.orientation.y, right_arm_cmd.orientation.z, right_arm_cmd.orientation.w], rospy.Time.now(), "right_arm_cmd", "torso_base")
             self.br.sendTransform([left_arm_cmd.position.x, left_arm_cmd.position.y, left_arm_cmd.position.z], [left_arm_cmd.orientation.x, left_arm_cmd.orientation.y, left_arm_cmd.orientation.z, left_arm_cmd.orientation.w], rospy.Time.now(), "left_arm_cmd", "torso_base")
 
-            js_pos = self.getJsPos()
-            gripper_name = "right"
-            if gripper_name in self.gripper_cmd:
-                q = [self.gripper_cmd[gripper_name].f1, self.gripper_cmd[gripper_name].f2, self.gripper_cmd[gripper_name].f3, self.gripper_cmd[gripper_name].sp]
-                dq = [self.gripper_cmd[gripper_name].f1_speed, self.gripper_cmd[gripper_name].f2_speed, self.gripper_cmd[gripper_name].f3_speed, self.gripper_cmd[gripper_name].sp_speed]
-                joint_names = [gripper_name+"_HandFingerOneKnuckleTwoJoint", gripper_name+"_HandFingerTwoKnuckleTwoJoint", gripper_name+"_HandFingerThreeKnuckleTwoJoint", gripper_name+"_HandFingerOneKnuckleOneJoint"]
+            self.sendToolTransform("right")
+            self.sendToolTransform("left")
 
-                for dof_idx in range(len(q)):
-                    joint_name = joint_names[dof_idx]
-                    diff = q[dof_idx] - js_pos[joint_name]
-                    if abs(diff) > abs(dq[dof_idx] * 0.01):
-                        if diff > 0:
-                            diff = dq[dof_idx] * 0.01
-                        else:
-                            diff = -dq[dof_idx] * 0.01
-                    self.js.position[ self.joint_name_idx_map[joint_name] ] += diff
-
-            self.updateJointLimits(self.js)
-            self.updateMimicJoints(self.js)
-
-#            self.br.sendTransform([0, 0, 0], [0, 0, 0, 1], rospy.Time.now(), "camera", "torso_base")
             rospy.sleep(0.01)
 
 if __name__ == '__main__':

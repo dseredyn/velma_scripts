@@ -123,7 +123,7 @@ Class for velma robot.
 #                if self.abort_on_q5_q6_self_collision and self.getQ5Q6SpaceSector(self.qar[5], self.qar[6], margin=10.0/180.0*math.pi) < 0 and not self.aborted_on_q5_q6_self_collision:    # self-collision
 #                    try:
 #                        self.aborted_on_q5_q6_self_collision = True
-#                        self.action_right_trajectory_client.cancel_goal()
+#                        self.action_right_cart_traj_client.cancel_goal()
 #                    except:
 #                        pass
 
@@ -205,7 +205,7 @@ Class for velma robot.
         self.prefix="right"
         self.k_error = Wrench(Vector3(1.0, 1.0, 1.0), Vector3(0.5, 0.5, 0.5))
         self.T_B_W = None
-        self.T_W_T = PyKDL.Frame(PyKDL.Vector(0.2,-0.05,0))    # tool transformation
+        self.T_W_T = None #PyKDL.Frame(PyKDL.Vector(0.2,-0.05,0))    # tool transformation
         self.T_W_E = None
         self.T_E_W = None
         self.current_max_wrench = Wrench(Vector3(20, 20, 20), Vector3(20, 20, 20))
@@ -229,10 +229,10 @@ Class for velma robot.
         self.emergency_stop_active = False
 
         # cartesian wrist trajectory for right arm
-        self.action_right_trajectory_client = None
+        self.action_right_cart_traj_client = None
 
         # joint trajectory for right arm
-        self.action_right_joint_client = None
+        self.action_right_joint_traj_client = None
 
         # cartesian tool trajectory for right arm in wrist frame
         self.action_tool_client = actionlib.SimpleActionClient("/" + self.prefix + "_arm/tool_trajectory", CartesianTrajectoryAction)
@@ -242,7 +242,10 @@ Class for velma robot.
         self.action_impedance_client = actionlib.SimpleActionClient("/" + self.prefix + "_arm/cartesian_impedance", CartesianImpedanceAction)
         self.action_impedance_client.wait_for_server()
 
-        self.pub_wrench = rospy.Publisher("/"+self.prefix+"_arm/wrench_stamped", WrenchStamped)
+        self.action_move_hand_client = actionlib.SimpleActionClient("/right_hand/move_hand", BHMoveAction)
+        self.action_move_hand_client.wait_for_server()
+
+#        self.pub_wrench = rospy.Publisher("/"+self.prefix+"_arm/wrench_stamped", WrenchStamped)
 
         self.listener = tf.TransformListener();
         self.br = tf.TransformBroadcaster()
@@ -314,7 +317,7 @@ Class for velma robot.
         Twist()))
         action_trajectory_goal.wrench_constraint = max_wrench
         self.current_max_wrench = max_wrench
-        self.action_right_trajectory_client.send_goal(action_trajectory_goal)
+        self.action_right_cart_traj_client.send_goal(action_trajectory_goal)
 
     def moveWristTraj(self, wrist_frames, times, max_wrench, start_time=0.01, stamp=None, abort_on_q5_singularity = False, abort_on_q5_q6_self_collision=False):
         if not (self.cartesian_impedance_active and not self.joint_impedance_active):
@@ -343,7 +346,7 @@ Class for velma robot.
 
         action_trajectory_goal.wrench_constraint = max_wrench
         self.current_max_wrench = max_wrench
-        self.action_right_trajectory_client.send_goal(action_trajectory_goal)
+        self.action_right_cart_traj_client.send_goal(action_trajectory_goal)
 
     def moveTool(self, wrist_frame, t, stamp=None):
         wrist_pose = pm.toMsg(wrist_frame)
@@ -410,7 +413,7 @@ Class for velma robot.
             goal.path_tolerance.append(JointTolerance(joint_name, position_tol, velocity_tol, acceleration_tol))
         goal.trajectory.header.stamp = rospy.Time.now() + rospy.Duration(0.2)
         self.joint_traj_active = True
-        self.action_right_joint_client.send_goal(goal)
+        self.action_right_joint_traj_client.send_goal(goal)
 
     def moveWristTrajJoint(self, traj, time_mult, max_wrench, start_time=0.01, stamp=None, abort_on_q5_singularity = False, abort_on_q5_q6_self_collision=False):
         if not (not self.cartesian_impedance_active and self.joint_impedance_active):
@@ -456,16 +459,16 @@ Class for velma robot.
             goal.path_tolerance.append(JointTolerance(joint_name, position_tol, velocity_tol, acceleration_tol))
         goal.trajectory.header.stamp = rospy.Time.now() + rospy.Duration(1.0)
         self.joint_traj_active = True
-        self.action_right_joint_client.send_goal(goal)
+        self.action_right_joint_traj_client.send_goal(goal)
 
     def stopArm(self):
-#        if self.action_right_trajectory_client.gh:
-#            self.action_right_trajectory_client.cancel_all_goals()
+#        if self.action_right_cart_traj_client.gh:
+#            self.action_right_cart_traj_client.cancel_all_goals()
 #        if self.action_tool_client.gh:
 #            self.action_tool_client.cancel_all_goals()
 
         try:
-            self.action_right_trajectory_client.cancel_goal()
+            self.action_right_cart_traj_client.cancel_goal()
         except:
             pass
         try:
@@ -494,9 +497,9 @@ Class for velma robot.
                 self.failure_reason = "too_big_wrench"
                 rospy.sleep(1.0)
 
-            if (self.action_right_trajectory_client != None) and (self.action_right_trajectory_client.gh) and ((self.action_right_trajectory_client.get_state()==GoalStatus.REJECTED) or (self.action_right_trajectory_client.get_state()==GoalStatus.ABORTED)):
-                state = self.action_right_trajectory_client.get_state()
-                result = self.action_right_trajectory_client.get_result()
+            if (self.action_right_cart_traj_client != None) and (self.action_right_cart_traj_client.gh) and ((self.action_right_cart_traj_client.get_state()==GoalStatus.REJECTED) or (self.action_right_cart_traj_client.get_state()==GoalStatus.ABORTED)):
+                state = self.action_right_cart_traj_client.get_state()
+                result = self.action_right_cart_traj_client.get_result()
                 self.emergencyStop()
                 print "emergency stop: traj_err: %s ; %s ; max_wrench: %s   %s"%(state, result, self.getMaxWrench(), self.wrench_tab_index)
                 self.failure_reason = "too_big_wrench_trajectory"
@@ -515,13 +518,29 @@ Class for velma robot.
     # ex.
     # q = (120.0/180.0*numpy.pi, 120.0/180.0*numpy.pi, 40.0/180.0*numpy.pi, 180.0/180.0*numpy.pi)
     # robot.move_hand_client("right", q)
-    def move_hand_client(self, q, v=(1.2, 1.2, 1.2, 1.2), t=(2000.0, 2000.0, 2000.0, 2000.0)):
-        rospy.wait_for_service('/' + self.prefix + '_hand/move_hand')
-        try:
-            move_hand = rospy.ServiceProxy('/' + self.prefix + '_hand/move_hand', BHMoveHand)
-            resp1 = move_hand(q[0], q[1], q[2], q[3], v[0], v[1], v[2], v[3], t[0], t[1], t[2], t[3])
-        except rospy.ServiceException, e:
-            print "Service call failed: %s"%e
+#    def move_hand_client(self, q, v=(1.2, 1.2, 1.2, 1.2), t=(2000.0, 2000.0, 2000.0, 2000.0)):
+#        rospy.wait_for_service('/' + self.prefix + '_hand/move_hand')
+#        try:
+#            move_hand = rospy.ServiceProxy('/' + self.prefix + '_hand/move_hand', BHMoveHand)
+#            resp1 = move_hand(q[0], q[1], q[2], q[3], v[0], v[1], v[2], v[3], t[0], t[1], t[2], t[3])
+#        except rospy.ServiceException, e:
+#            print "Service call failed: %s"%e
+
+    def moveHand(self, q, v, t, maxPressure, hold=False):
+        action_goal = BHMoveGoal()
+        action_goal.name = ["right_HandFingerOneKnuckleTwoJoint", "right_HandFingerTwoKnuckleTwoJoint", "right_HandFingerThreeKnuckleTwoJoint", "right_HandFingerOneKnuckleOneJoint"]
+        action_goal.q = q
+        action_goal.v = v
+        action_goal.t = t
+        action_goal.maxPressure = maxPressure
+        if hold == True:
+            action_goal.hold = 1
+        else:
+            action_goal.hold = 0
+        self.action_move_hand_client.send_goal(action_goal)
+
+    def waitForHand(self):
+        self.action_move_hand_client.wait_for_result()        
 
     def hasContact(self, threshold, print_on_false=False):
         if self.T_F_C != None:
@@ -754,9 +773,9 @@ Class for velma robot.
             # '2' is for STRICT
             if self.conmanSwitch(['JntImp', 'TrajectoryGeneratorJoint'], ['CImp', 'PoseIntLeft', 'PoseIntRight'], 2):
                 # joint trajectory for right arm
-                if self.action_right_joint_client == None:
-                    self.action_right_joint_client = actionlib.SimpleActionClient('/spline_trajectory_action_joint', FollowJointTrajectoryAction)
-                    self.action_right_joint_client.wait_for_server()
+                if self.action_right_joint_traj_client == None:
+                    self.action_right_joint_traj_client = actionlib.SimpleActionClient('/spline_trajectory_action_joint', FollowJointTrajectoryAction)
+                    self.action_right_joint_traj_client.wait_for_server()
                 result = True
         except rospy.ROSInterruptException:
             print "rospy.ROSInterruptException"
@@ -780,9 +799,9 @@ Class for velma robot.
             # '2' is for STRICT
             if self.conmanSwitch(['CImp', 'PoseIntLeft', 'PoseIntRight'], ['JntImp', 'TrajectoryGeneratorJoint'], 2):
                 # cartesian wrist trajectory for right arm
-                if self.action_right_trajectory_client == None:
-                    self.action_right_trajectory_client = actionlib.SimpleActionClient("/" + self.prefix + "_arm/cartesian_trajectory", CartesianTrajectoryAction)
-                    self.action_right_trajectory_client.wait_for_server()
+                if self.action_right_cart_traj_client == None:
+                    self.action_right_cart_traj_client = actionlib.SimpleActionClient("/" + self.prefix + "_arm/cartesian_trajectory", CartesianTrajectoryAction)
+                    self.action_right_cart_traj_client.wait_for_server()
                 result = True
 
         except rospy.ROSInterruptException:

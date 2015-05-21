@@ -484,7 +484,25 @@ class VelmaFake:
             j_idx += 1
         return js_pos
 
+    def initTactilePublisher(self):
+        self.pub_tact = {
+        "left":rospy.Publisher('/left_hand/BHPressureState', barrett_hand_controller_srvs.msg.BHPressureState),
+        "right":rospy.Publisher('/right_hand/BHPressureState', barrett_hand_controller_srvs.msg.BHPressureState)}
+        self.tact = {"left":barrett_hand_controller_srvs.msg.BHPressureState(), "right":barrett_hand_controller_srvs.msg.BHPressureState()}
+
+        for gripper_name in self.tact:
+            for i in range(24):
+                self.tact[gripper_name].finger1_tip.append(0)
+                self.tact[gripper_name].finger2_tip.append(0)
+                self.tact[gripper_name].finger3_tip.append(0)
+                self.tact[gripper_name].palm_tip.append(0)
+
+    def publishTactile(self):
+        self.pub_tact["left"].publish(self.tact["left"])
+        self.pub_tact["right"].publish(self.tact["right"])
+
     def __init__(self):
+        self.initTactilePublisher()
         self.initJointStatePublisher()
         self.setInitialJointPosition()
         self.fk_solver = velma_fk_ik.VelmaFkIkSolver()
@@ -512,21 +530,72 @@ class VelmaFake:
 
         return controller_manager_msgs.srv.SwitchControllerResponse(False)
 
-    def handle_get_pressure_info_right(self, req):
+    def getTactileGeometry(self):
+        palm_sensor_center = [
+        [ 22, 15.9, 77.5 ], [ 11, 15.9, 77.5 ], [ 0, 15.9, 77.5 ], [ -11, 15.9, 77.5 ], [ -22, 15.9, 77.5 ],
+        [ 33, 5.3, 77.5 ], [ 22, 5.3, 77.5 ], [ 11, 5.3, 77.5 ], [ 0, 5.3, 77.5 ], [ -11, 5.3, 77.5 ], [ -22, 5.3, 77.5 ], [ -33, 5.3, 77.5 ],
+        [ 33, -5.3, 77.5 ], [ 22, -5.3, 77.5 ], [ 11, -5.3, 77.5 ], [ 0, -5.3, 77.5 ], [ -11, -5.3, 77.5 ], [ -22, -5.3, 77.5 ], [ -33, -5.3, 77.5 ],
+        [ 22, -15.9, 77.5 ], [ 11, -15.9, 77.5 ], [ 0, -15.9, 77.5 ], [ -11, -15.9, 77.5 ], [ -22, -15.9, 77.5 ] ]
+        palm_sensor_halfside1 = [
+        [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ],
+        [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ],
+        [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ],
+        [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ], [ 5, 0, 0 ] ]
+        palm_sensor_halfside2 = [
+        [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ],
+        [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ],
+        [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ],
+        [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ], [ 0, 4.85, 0 ] ]
+        finger_sensor_center = [
+        [ 22.25, -9.5, 5.2 ], [22.25, -9.5, 0 ], [ 22.25, -9.5, -5.2 ],
+        [ 28.25, -9.5, 5.2 ], [ 28.25, -9.5, 0 ], [ 28.25, -9.5, -5.2 ],
+        [ 34.2484, -9.41371, 5.2 ], [ 34.2484, -9.41371, 0 ], [ 34.2484, -9.41371, -5.2 ],
+        [ 40.2349, -9.05695, 5.2 ], [ 40.2349, -9.05695, 0 ], [ 40.2349, -9.05695, -5.2 ],
+        [ 46.1912, -8.35887, 5.2 ], [ 46.1912, -8.35887, 0 ], [ 46.1912, -8.35887, -5.2 ],
+        [ 51.0813, -7.1884, 5.2 ], [ 51.0813, -7.1884, 0 ], [ 51.0813, -7.1884, -5.2 ],
+        [ 53.8108, -5.14222, 5.2 ], [ 53.8108, -5.14222, 0 ], [ 53.8108, -5.14222, -5.2 ],
+        [ 55.4163, -2.13234, 5.2 ], [ 55.4163, -2.13234, 0 ], [ 55.4163, -2.13234, -5.2 ] ]
+        finger_sensor_halfside1 = [
+        [ 2.75, 0, 0 ], [ 2.75, 0, 0 ], [ 2.75, 0, 0 ],
+        [ 2.75, 0, 0 ], [ 2.75, 0, 0 ], [ 2.75, 0, 0 ],
+        [ 2.74837, 0.085096, 0 ], [ 2.74837, 0.085096, 0 ], [ 2.74837, 0.085096, 0 ],
+        [ 2.73902, 0.241919, 0 ], [ 2.73902, 0.241919, 0 ], [ 2.73902, 0.241919, 0 ],
+        [ 2.72073, 0.397956, 0 ], [ 2.72073, 0.397956, 0 ], [ 2.72073, 0.397956, 0 ],
+        [ 1.35885, 0.614231, 0 ], [ 1.35885, 0.614231, 0 ], [ 1.35885, 0.614231, 0 ],
+        [ 0.970635, 1.13209, 0 ], [ 0.970635, 1.13209, 0 ], [ 0.970635, 1.13209, 0 ],
+        [ 0.399575, 1.4367, 0 ], [ 0.399575, 1.4367, 0 ], [ 0.399575, 1.4367, 0 ] ]
+        finger_sensor_halfside2 = [
+        [ 0, 0, 2.35 ], [ 0, 0, 2.35 ], [ 0, 0, 2.35 ],
+        [ 0, 0, 2.35 ], [ 0, 0, 2.35 ], [ 0, 0, 2.35 ],
+        [ 0, 0, 2.35 ], [ 0, 0, 2.35 ], [ 0, 0, 2.35 ],
+        [ 0, 0, 2.35 ], [ 0, 0, 2.35 ], [ 0, 0, 2.35 ],
+        [ 0, 0, 2.35 ], [ 0, 0, 2.35 ], [ 0, 0, 2.35 ],
+        [ 0, 0, 2.35 ], [ 0, 0, 2.35 ], [ 0, 0, 2.35 ],
+        [ 0, 0, 2.35 ], [ 0, 0, 2.35 ], [ 0, 0, 2.35 ],
+        [ 0, 0, 2.35 ], [ 0, 0, 2.35 ], [ 0, 0, 2.35 ] ]
+        return palm_sensor_center, palm_sensor_halfside1, palm_sensor_halfside2, finger_sensor_center, finger_sensor_halfside1, finger_sensor_halfside2
+
+    def handle_get_pressure_info(self):
         res = barrett_hand_controller_srvs.srv.BHGetPressureInfoResponse()
+        pc, p1, p2, fc, f1, f2 = self.getTactileGeometry()
+        sensor_center = [fc, fc, fc, pc]
+        sensor_h1 = [f1, f1, f1, p1]
+        sensor_h2 = [f2, f2, f2, p2]
         for sensor_id in range(4):
             elem = barrett_hand_controller_srvs.msg.BHPressureInfoElement()
             for i in range(24):
-                center = geometry_msgs.msg.Vector3()
-                elem.center.append(center)
-                elem.halfside1.append(center)
-                elem.halfside2.append(center)
-                elem.force_per_unit.append(1.0)
+                elem.center.append( geometry_msgs.msg.Vector3( sensor_center[sensor_id][i][0]*0.001, sensor_center[sensor_id][i][1]*0.001, sensor_center[sensor_id][i][2]*0.001 ) )
+                elem.halfside1.append( geometry_msgs.msg.Vector3( sensor_h1[sensor_id][i][0]*0.001, sensor_h1[sensor_id][i][1]*0.001, sensor_h1[sensor_id][i][2]*0.001 ) )
+                elem.halfside2.append( geometry_msgs.msg.Vector3( sensor_h2[sensor_id][i][0]*0.001, sensor_h2[sensor_id][i][1]*0.001, sensor_h2[sensor_id][i][2]*0.001 ) )
+                elem.force_per_unit.append(1.0/256.0)
             res.info.sensor.append(elem)
         return res
 
+    def handle_get_pressure_info_right(self, req):
+        return self.handle_get_pressure_info()
+
     def handle_get_pressure_info_left(self, req):
-        pass
+        return self.handle_get_pressure_info()
 
     def handle_calibrate_tactile_sensors_right(self, req):
         return barrett_hand_controller_srvs.srv.EmptyResponse()
@@ -587,6 +656,8 @@ class VelmaFake:
 
             self.sendToolTransform("right")
             self.sendToolTransform("left")
+
+            self.publishTactile()
 
             rospy.sleep(0.01)
 

@@ -130,31 +130,38 @@ Class for velma robot.
     def setHeadLookAtPoint(self, pt):
         self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(pt)))
 
-    def tactileCallback(self, data):
-        max_tactile_value = -1.0
-        max_tactile_index = 0
-        max_tactile_finger = 0
-        fingers = [data.finger1_tip, data.finger2_tip, data.finger3_tip]
-        val_sum = 0.0
-        for f in range(0,3):
-            for i in range(0, 24):
-                if fingers[f][i] > max_tactile_value:
-                    max_tactile_value = fingers[f][i]
-                    max_tactile_index = i
-                    max_tactile_finger = f
-        self.tactile_lock.acquire()
-        self.tactile_data_index += 1
-        if self.tactile_data_index >= self.tactile_data_len:
-            self.tactile_data_index = 0
+    def tactileCallback(self, data, hand_name):
+#        max_tactile_value = -1.0
+#        max_tactile_index = 0
+#        max_tactile_finger = 0
+#        fingers = [data.finger1_tip, data.finger2_tip, data.finger3_tip]
+#        val_sum = 0.0
+#        for f in range(0,3):
+#            for i in range(0, 24):
+#                if fingers[f][i] > max_tactile_value:
+#                    max_tactile_value = fingers[f][i]
+#                    max_tactile_index = i
+#                    max_tactile_finger = f
+        self.tactile_lock[hand_name].acquire()
+        self.tactile_data_index[hand_name] += 1
+        if self.tactile_data_index[hand_name] >= self.tactile_data_len:
+            self.tactile_data_index[hand_name] = 0
+        tact_buf_idx = self.tactile_data_index[hand_name]
 
-        self.max_tactile_value = copy.copy(max_tactile_value)
+#        self.max_tactile_value = copy.copy(max_tactile_value)
         # time, finger, max value, contact center
-        self.tactile_data[self.tactile_data_index][0] = copy.copy(data.header.stamp)
-        self.tactile_data[self.tactile_data_index][1] = copy.copy(data.finger1_tip)
-        self.tactile_data[self.tactile_data_index][2] = copy.copy(data.finger2_tip)
-        self.tactile_data[self.tactile_data_index][3] = copy.copy(data.finger3_tip)
-        self.tactile_data[self.tactile_data_index][4] = copy.copy(data.palm_tip)
-        self.tactile_lock.release()
+        self.tactile_data[hand_name][tact_buf_idx][0] = copy.copy(data.header.stamp)
+        self.tactile_data[hand_name][tact_buf_idx][1] = copy.copy(data.finger1_tip)
+        self.tactile_data[hand_name][tact_buf_idx][2] = copy.copy(data.finger2_tip)
+        self.tactile_data[hand_name][tact_buf_idx][3] = copy.copy(data.finger3_tip)
+        self.tactile_data[hand_name][tact_buf_idx][4] = copy.copy(data.palm_tip)
+        self.tactile_lock[hand_name].release()
+
+    def tactileCallbackRight(self, data):
+        self.tactileCallback(data, "right")
+
+    def tactileCallbackLeft(self, data):
+        self.tactileCallback(data, "left")
 
     def getMaxWrench(self):
         wrench = Wrench()
@@ -214,14 +221,20 @@ Class for velma robot.
 
         self.last_contact_time = rospy.Time.now()
 
-        self.tactile_lock = Lock()
+        self.tactile_lock = {"left":Lock(), "right":Lock()}
 
         # for tactile sync
-        self.tactile_data = []
-        self.tactile_data_len = 40
-        self.tactile_data_index = 0
-        for i in range(0, self.tactile_data_len):
-            self.tactile_data.append( [rospy.Time.now(), [], [], [], []] )
+        self.tactile_data = {"left":[], "right":[]}
+        self.tactile_data_len = 120
+        self.tactile_data_index = {"left":0, "right":0}
+        for gripper_name in self.tactile_data:
+            for i in range(0, self.tactile_data_len):
+                self.tactile_data[gripper_name].append( [rospy.Time.now(), [], [], [], []] )
+                for j in range(24):
+                    self.tactile_data[gripper_name][-1][1].append(0)
+                    self.tactile_data[gripper_name][-1][2].append(0)
+                    self.tactile_data[gripper_name][-1][3].append(0)
+                    self.tactile_data[gripper_name][-1][4].append(0)
 
         # for score function
         self.failure_reason = "unknown"
@@ -252,7 +265,7 @@ Class for velma robot.
 
         rospy.sleep(1.0)
         
-        self.max_tactile_value = 0
+#        self.max_tactile_value = 0
 
         self.pressure_info = self.getPressureSensorsInfoClient()
         self.pressure_frames = []
@@ -283,22 +296,28 @@ Class for velma robot.
         for i in range(0,self.wrench_tab_len):
             self.wrench_tab.append( Wrench(Vector3(), Vector3()) )
 
-        rospy.Subscriber('/'+self.prefix+'_hand/BHPressureState', BHPressureState, self.tactileCallback)
+        rospy.Subscriber('/right_hand/BHPressureState', BHPressureState, self.tactileCallbackRight)
+        rospy.Subscriber('/left_hand/BHPressureState', BHPressureState, self.tactileCallbackLeft)
         rospy.Subscriber('/'+self.prefix+'_arm/wrench', Wrench, self.wrenchCallback)
         joint_states_listener = rospy.Subscriber('/joint_states', JointState, self.jointStatesCallback)
 
         self.pub_head_look_at = rospy.Publisher("/head_lookat_pose", geometry_msgs.msg.Pose)
 
+    def action_right_cart_traj_feedback_cb(self, feedback):
+        self.action_right_cart_traj_feedback = copy.deepcopy(feedback)
+
+    def waitForCartEnd(self):
+        self.action_right_cart_traj_client.wait_for_result()
+        return self.action_right_cart_traj_client.get_result(), self.action_right_cart_traj_feedback
+
     def moveWrist2(self, wrist_frame):
         wrist_pose = pm.toMsg(wrist_frame)
         self.br.sendTransform([wrist_pose.position.x, wrist_pose.position.y, wrist_pose.position.z], [wrist_pose.orientation.x, wrist_pose.orientation.y, wrist_pose.orientation.z, wrist_pose.orientation.w], rospy.Time.now(), "dest", "torso_base")
 
-    def moveWrist(self, wrist_frame, t, max_wrench, start_time=0.01, stamp=None, abort_on_q5_singularity = False, abort_on_q5_q6_self_collision=False):
+    def moveWrist(self, wrist_frame, t, max_wrench, start_time=0.01, stamp=None, path_tol=None):
         if not (self.cartesian_impedance_active and not self.joint_impedance_active):
             print "FATAL ERROR: moveWrist"
             exit(0)
-        self.abort_on_q5_q6_self_collision = abort_on_q5_q6_self_collision
-        self.aborted_on_q5_q6_self_collision = False
 
         self.joint_traj_active = False
         # we are moving the tool, so: T_B_Wd*T_W_T
@@ -316,8 +335,11 @@ Class for velma robot.
         wrist_pose,
         Twist()))
         action_trajectory_goal.wrench_constraint = max_wrench
+        if path_tol != None:
+            action_trajectory_goal.path_tolerance.position = geometry_msgs.msg.Vector3( path_tol[0].x(), path_tol[0].y(), path_tol[0].z() )
+            action_trajectory_goal.path_tolerance.rotation = geometry_msgs.msg.Vector3( path_tol[1].x(), path_tol[1].y(), path_tol[1].z() )
         self.current_max_wrench = max_wrench
-        self.action_right_cart_traj_client.send_goal(action_trajectory_goal)
+        self.action_right_cart_traj_client.send_goal(action_trajectory_goal, feedback_cb = self.action_right_cart_traj_feedback_cb)
 
     def moveWristTraj(self, wrist_frames, times, max_wrench, start_time=0.01, stamp=None, abort_on_q5_singularity = False, abort_on_q5_q6_self_collision=False):
         if not (self.cartesian_impedance_active and not self.joint_impedance_active):
@@ -606,11 +628,68 @@ Class for velma robot.
 #        pose = self.listener.lookupTransform('torso_base', 'camera', rospy.Time(0))
 #        self.T_B_C = pm.fromTf(pose)
 
+    def getContactPointsInFrame(self, threshold, frame_name, hand_prefix):
+        self.tactile_lock[hand_prefix].acquire()
+        latest_index = copy.copy(self.tactile_data_index[hand_prefix])
+        self.tactile_lock[hand_prefix].release()
+
+        tactile_frames_names = [
+        '/'+hand_prefix+'_HandFingerOneKnuckleThreeLink',
+        '/'+hand_prefix+'_HandFingerTwoKnuckleThreeLink',
+        '/'+hand_prefix+'_HandFingerThreeKnuckleThreeLink',
+        '/'+hand_prefix+'_HandPalmLink']
+        contacts = []
+        forces = []
+
+        pressure_frames = [self.pressure_frames, self.pressure_frames, self.pressure_frames, self.palm_pressure_frames]
+        for tact_idx in range(len(tactile_frames_names)):
+            tact_name = tactile_frames_names[tact_idx]
+            for buf_prev_idx in range(20, self.tactile_data_len-2):
+                buf_idx = latest_index - buf_prev_idx
+#                buf_idx_prev = buf_idx - 1
+                if buf_idx < 0:
+                    buf_idx += self.tactile_data_len
+#                if buf_idx_prev < 0:
+#                    buf_idx_prev += self.tactile_data_len
+
+                time = self.tactile_data[hand_prefix][buf_idx][0]
+                tactile_data = self.tactile_data[hand_prefix][buf_idx][tact_idx+1]
+
+                if self.listener.canTransform('torso_base', tact_name, time) and self.listener.canTransform('torso_base', frame_name, time):
+                    T_B_F = pm.fromTf(self.listener.lookupTransform('torso_base', tact_name, time))
+                    T_B_R = pm.fromTf(self.listener.lookupTransform('torso_base', frame_name, time))
+                    T_R_B = T_B_R.Inverse()
+                    for i in range(0, len(pressure_frames[tact_idx])):
+#                        print "i"
+                        neighbourhood_ok = True
+                        # check the time neighbourhood
+                        for buf_neigh in range(-19, 19):
+                            buf_neigh_idx = buf_idx+buf_neigh
+                            if buf_neigh_idx < 0:
+                                buf_neigh_idx += self.tactile_data_len
+                            elif buf_neigh_idx >= self.tactile_data_len:
+                                buf_neigh_idx -= self.tactile_data_len
+#                            print buf_neigh_idx
+#                            print self.tactile_data[hand_prefix][0][1]
+                            if self.tactile_data[hand_prefix][buf_neigh_idx][tact_idx+1][i] < threshold:
+#                            if self.tactile_data[hand_prefix][0][1][0] < threshold:
+                                neighbourhood_ok = False
+                                break
+                        if neighbourhood_ok:#tactile_data[i] > threshold:
+#                            contacts.append( T_R_B * T_B_F * pressure_frames[tact_idx][i] * PyKDL.Vector() )
+                            h1 = self.pressure_info.sensor[tact_idx].halfside1[i]
+                            h2 = self.pressure_info.sensor[tact_idx].halfside2[i]
+                            contacts.append( (T_R_B * T_B_F * pressure_frames[tact_idx][i], PyKDL.Vector(h1.x, h1.y, h1.z).Norm(), PyKDL.Vector(h2.x, h2.y, h2.z).Norm()) )
+                    break
+
+        return contacts
+
+    # there is a lot of bugs in this function!
     def getContactPoints(self, threshold, f1=True, f2=True, f3=True, palm=True):
-        self.tactile_lock.acquire()
+        self.tactile_lock["right"].acquire()
         index = copy.copy(self.tactile_data_index)
         max_value = copy.copy(self.max_tactile_value)
-        self.tactile_lock.release()
+        self.tactile_lock["right"].release()
 
         contacts = []
         forces = []
@@ -737,7 +816,7 @@ Class for velma robot.
         twist = PyKDL.diff(self.T_B_W, T_B_Wd, 1.0)
         v_l = twist.vel.Norm()
         v_r = twist.rot.Norm()
-        print "v_l: %s   v_r: %s"%(v_l, v_r)
+#        print "v_l: %s   v_r: %s"%(v_l, v_r)
         f_v_l = v_l/max_v_l
         f_v_r = v_r/max_v_r
         if f_v_l > f_v_r:

@@ -67,7 +67,7 @@ class MarkerPublisher:
     def __init__(self):
         self.pub_marker = rospy.Publisher('/velma_markers', MarkerArray)
 
-    def publishSinglePointMarker(self, pt, i, r=1, g=0, b=0, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.005, 0.005, 0.005), T=None):
+    def publishSinglePointMarker(self, pt, i, r=1, g=0, b=0, a=1, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.005, 0.005, 0.005), T=None):
         m = MarkerArray()
         marker = Marker()
         marker.header.frame_id = frame_id
@@ -83,7 +83,7 @@ class MarkerPublisher:
         else:
             marker.pose = Pose( Point(pt.x(),pt.y(),pt.z()), Quaternion(0,0,0,1) )
         marker.scale = scale
-        marker.color = ColorRGBA(r,g,b,1)#0.5)
+        marker.color = ColorRGBA(r,g,b,a)
         m.markers.append(marker)
         self.pub_marker.publish(m)
         return i+1
@@ -626,7 +626,6 @@ def sampleMesh_old(vertices, indices, sample_dist, pt_list, radius):
         return points_ret
 
 def estPlane(points_in):
-#    print "estPlane: %s"%(len(points_in))
     mean_pt = PyKDL.Vector()
     for p in points_in:
         mean_pt += p
@@ -666,6 +665,26 @@ def estPlane(points_in):
     nz.Normalize()
 
     return PyKDL.Frame(PyKDL.Rotation(nx,ny,nz), mean_pt)
+
+def reducePointsSet(points_in, min_dist):
+    points_out = []
+    for pt in points_in:
+        similar = False
+        for c in points_out:
+            if (c[0]-pt).Norm() < min_dist:
+                similar = True
+                c.append(pt)
+                break
+        if not similar:
+            points_out.append( [pt] )
+
+    for idx in range(len(points_out)):
+        mean_pt = PyKDL.Vector()
+        for pt in points_out[idx]:
+            mean_pt += pt
+        mean_pt = mean_pt / len(points_out[idx])
+        points_out[idx] = mean_pt
+    return points_out
 
 def sampleMeshUnitTest(vertices, indices, pub_marker):
     points = sampleMesh(vertices, indices, 0.002, [PyKDL.Vector(0.00,0,0.00)], 0.04)

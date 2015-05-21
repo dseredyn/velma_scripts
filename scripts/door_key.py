@@ -148,72 +148,6 @@ Class for grasp learning.
     def getCameraPose(self):
         return pm.fromTf(self.listener.lookupTransform('torso_base', 'camera', rospy.Time(0)))
 
-    def poseUpdaterThread(self, args, *args2):
-        index = 0
-        z_limit = 0.3
-        while not rospy.is_shutdown():
-            rospy.sleep(0.1)
-
-            if self.allow_update_objects_pose == None or not self.allow_update_objects_pose:
-                continue
-            for obj_name in self.dyn_obj_markers:
-                obj = self.dyn_obj_markers[obj_name]
-                visible_markers_Br_Co = []
-                visible_markers_weights_ori = []
-                visible_markers_weights_pos = []
-                visible_markers_idx = []
-                for marker in obj:#.markers:
-                    T_Br_M = self.getMarkerPose(marker[0], wait = False, timeBack = 0.3)
-                    if T_Br_M != None and self.velma != None:
-                        T_B_C = self.getCameraPose()
-                        T_C_M = T_B_C.Inverse() * T_Br_M
-                        v = T_C_M * PyKDL.Vector(0,0,1) - T_C_M * PyKDL.Vector()
-                        if v.z() > -z_limit:
-                            continue
-                        # v.z() is in range (-1.0, -0.3)
-                        weight = ((-v.z()) - z_limit)/(1.0-z_limit)
-                        if weight > 1.0 or weight < 0.0:
-                            print "error: weight==%s"%(weight)
-                        T_Co_M = marker[1]
-                        T_Br_Co = T_Br_M * T_Co_M.Inverse()
-                        visible_markers_Br_Co.append(T_Br_Co)
-                        visible_markers_weights_ori.append(1.0-weight)
-                        visible_markers_weights_pos.append(weight)
-                        visible_markers_idx.append(marker[0])
-                if len(visible_markers_Br_Co) > 0:
-#                    if obj.name == "object":
-#                        print "vis: %s"%(visible_markers_idx)
-#                        print "w_o: %s"%(visible_markers_weights_ori)
-#                        print "w_p: %s"%(visible_markers_weights_pos)
-
-                    # first calculate mean pose without weights
-                    R_B_Co = velmautils.meanOrientation(visible_markers_Br_Co)[1]
-                    p_B_Co = velmautils.meanPosition(visible_markers_Br_Co)
-                    T_B_Co = PyKDL.Frame(copy.deepcopy(R_B_Co.M), copy.deepcopy(p_B_Co))
-                    distances = []
-                    for m_idx in range(0, len(visible_markers_Br_Co)):
-                        diff = PyKDL.diff(T_B_Co, visible_markers_Br_Co[m_idx])
-                        distances.append( [diff, m_idx] )
-                    Br_Co_list = []
-                    weights_ori = []
-                    weights_pos = []
-                    for d in distances:
-                        if d[0].vel.Norm() > 0.04 or d[0].rot.Norm() > 15.0/180.0*math.pi:
-                            continue
-                        Br_Co_list.append( visible_markers_Br_Co[d[1]] )
-                        weights_ori.append( visible_markers_weights_ori[d[1]] )
-                        weights_pos.append( visible_markers_weights_pos[d[1]] )
-
-                    if len(Br_Co_list) > 0:
-                        R_B_Co = velmautils.meanOrientation(Br_Co_list, weights=weights_ori)[1]
-                        p_B_Co = velmautils.meanPosition(Br_Co_list, weights=weights_pos)
-#                        obj.updatePose( PyKDL.Frame(copy.deepcopy(R_B_Co.M), copy.deepcopy(p_B_Co)) )
-                        self.openrave.updatePose(obj_name, T_Br_Co)
-
-            index += 1
-            if index >= 100:
-                index = 0
-
     def allowUpdateObjects(self):
         self.allow_update_objects_pose = True
 
@@ -456,12 +390,166 @@ Class for grasp learning.
 
         return penalty, plan_ret
 
+    def poseUpdaterThread(self, args, *args2):
+        while not rospy.is_shutdown():
+            self.pub_marker.publishConstantMeshMarker("package://velma_scripts/data/meshes/klucz_gerda_binary.stl", 0, r=1, g=0, b=0, scale=1.0, frame_id='right_HandPalmLink', namespace='key', T=self.T_E_O)
+            self.pub_marker.publishSinglePointMarker(self.key_endpoint_O, 1, r=1, g=1, b=1, a=0.5, namespace='key', frame_id='right_HandPalmLink', m_type=Marker.SPHERE, scale=Vector3(0.01, 0.01, 0.01), T=self.T_E_O)
+            self.pub_marker.publishSinglePointMarker(self.T_O_H*PyKDL.Vector(), 2, r=1, g=1, b=0, a=0.5, namespace='key', frame_id='right_HandPalmLink', m_type=Marker.SPHERE, scale=Vector3(0.015, 0.015, 0.015), T=self.T_E_O)
+            self.pub_marker.publishVectorMarker(self.T_E_O*self.key_endpoint_O, self.T_E_O*(self.key_endpoint_O+self.key_up_O*0.05), 3, 1, 0, 0, frame='right_HandPalmLink', namespace='key', scale=0.001)
+            self.pub_marker.publishVectorMarker(self.T_E_O*self.key_endpoint_O, self.T_E_O*(self.key_endpoint_O+self.key_axis_O*0.05), 4, 0, 1, 0, frame='right_HandPalmLink', namespace='key', scale=0.001)
+
+            m_id = 0
+            for pt in self.points:
+#                m_id = self.pub_marker.publishSinglePointMarker(pt, m_id, r=1, g=1, b=1, a=1, namespace='hand', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
+                m_id = self.pub_marker.publishSinglePointMarker(pt, m_id, r=1, g=1, b=1, a=1, namespace='hand', frame_id='right_HandPalmLink', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
+
+            rospy.sleep(0.1)
+
+    def pointsCollectorThread(self, point_list, frame_name, gripper_name):
+        m_id = 0
+        while not rospy.is_shutdown() and self.collect_points:
+            points = self.velma.getContactPointsInFrame(300, frame_name, gripper_name)
+            for pt in points:
+#                point_list.append(pt)
+                m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(), m_id, r=1, g=1, b=0, a=1, namespace='default', frame_id='torso_link2', m_type=Marker.CUBE, scale=Vector3(pt[1]*2, pt[2]*2, 0.001), T=pt[0])
+            rospy.sleep(0.1)
+
     def spin(self):
+        simulation_only = False
 
         print "creating interface for Velma..."
         # create the interface for Velma robot
         self.velma = Velma()
         print "done."
+
+        m_id = 0
+        self.pub_marker.eraseMarkers(0,3000, frame_id='world')
+
+        # key and grasp parameters
+        self.T_O_H = PyKDL.Frame(PyKDL.Vector(-0.0215,0,0))
+        self.T_H_O = self.T_O_H.Inverse()
+        self.T_E_H = PyKDL.Frame(PyKDL.Vector(0,-0.017,0.115))
+        self.T_E_O = self.T_E_H * PyKDL.Frame(PyKDL.Rotation.RotZ(-130.0/180.0*math.pi) * PyKDL.Rotation.RotY(-20.0/180.0*math.pi) * PyKDL.Rotation.RotX(-30.0/180.0*math.pi)) * self.T_H_O
+        self.key_axis_O = PyKDL.Vector(1,0,0)
+        self.key_up_O = PyKDL.Vector(0,1,0)
+        self.key_endpoint_O = PyKDL.Vector(0.039,0,0)
+
+        # test
+        self.points = []
+
+        # start thread for updating key position in rviz
+        thread.start_new_thread(self.poseUpdaterThread, (None,1))
+
+        hv = [1.2, 1.2, 1.2, 1.2]
+        ht = [3000, 3000, 3000, 3000]
+        # set gripper configuration
+        if False:
+            self.velma.moveHand([0.0, 0.0, 0.0, 1.1437360754475339], hv, ht, 500, True)
+            rospy.sleep(3)
+            self.velma.moveHand([0.0, 2.3174461354903535, 0.0, 1.1437360754475339], hv, ht, 500, True)
+            rospy.sleep(3)
+            self.velma.moveHand([2.0177062895374993, 2.3174461354903535, 0.0, 1.1437360754475339], hv, ht, 500, True)
+            rospy.sleep(3)
+            self.velma.moveHand([2.0177062895374993, 2.3174461354903535, 1.7038538203360971, 1.1437360754475339], hv, ht, 500, True)
+            rospy.sleep(3)
+
+        # test
+#        print "right hand"
+#        for i in range(0, 100):
+#            self.points = self.points + self.velma.getContactPointsInFrame(100, 'torso_base', "right")
+#            rospy.sleep(0.1)
+
+#        print "left hand"
+#        for i in range(0, 100):
+#            self.points = self.points + self.velma.getContactPointsInFrame(100, 'torso_base', "left")
+#            rospy.sleep(0.1)
+
+#        print "points: %s"%(len(self.points))
+#        while not rospy.is_shutdown():
+#            rospy.sleep(1)
+#        exit(0)
+
+        if False:
+            print "collecting contact points with the door..."
+            door_points = []
+
+            if simulation_only:
+                sim_contacts = [PyKDL.Vector(0.9,0.2, 1.0), PyKDL.Vector(0.9,-0.1, 1.1), PyKDL.Vector(0.9,0.0, 1.3)]
+                for sim_c in sim_contacts:
+                    for i in range(random.randint(3,20)):
+                        door_points.append( sim_c + PyKDL.Vector(random.gauss(0.0, 0.001), random.gauss(0.0, 0.01), random.gauss(0.0, 0.01)) )
+            else:
+                self.collect_points = True
+                thread.start_new_thread(self.pointsCollectorThread, (door_points,'torso_base', 'left'))
+                raw_input("Press ENTER to stop collecting contacts...")
+                self.collect_points = False
+                rospy.sleep(0.5)
+
+            for pt in door_points:
+                m_id = self.pub_marker.publishSinglePointMarker(pt, m_id, r=1, g=1, b=1, a=1, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
+
+            print "done."
+            rospy.sleep(0.1)
+
+            # reduce the contact points set and visualise
+            door_points = velmautils.reducePointsSet(door_points, 0.05)
+            for pt in door_points:
+                m_id = self.pub_marker.publishSinglePointMarker(pt, m_id, r=1, g=0, b=0, a=1, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
+            rospy.sleep(0.1)
+
+            # estimate the door plane
+            T_B_D = velmautils.estPlane(door_points)
+
+            # visualise the door plane
+            m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(), m_id, r=1, g=0, b=0, a=0.5, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(1.0, 1.0, 0.003), T=T_B_D)
+
+        print "collecting contact points with the lock.."
+        lock_points = []
+        if simulation_only:
+            sim_lock_hole = PyKDL.Vector(0.9-0.0036,0.2, 1.3)
+            for i in range(400):
+                    pt = PyKDL.Vector(random.gauss(0.0, 0.001), random.gauss(0.0, 0.01), random.gauss(0.0, 0.01))
+                    if pt.Norm() > 0.008:
+                        lock_points.append( sim_lock_hole + pt )
+        else:
+            self.collect_points = True
+            thread.start_new_thread(self.pointsCollectorThread, (lock_points,'torso_link2', 'left'))
+            raw_input("Press ENTER to stop collecting contacts...")
+            self.collect_points = False
+            rospy.sleep(0.5)
+        print "done."
+        for pt in lock_points:
+            m_id = self.pub_marker.publishSinglePointMarker(pt, m_id, r=1, g=1, b=0, a=1, namespace='default', frame_id='torso_link2', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
+        rospy.sleep(0.1)
+
+        print "collecting contact points with the key end..."
+        key_points_E = []
+        key_points_B = []
+        if simulation_only:
+            sim_key_error_O = PyKDL.Vector(-0.002, 0.001, 0.001)
+            for i in range(200):
+                    pt = sim_key_error_O + PyKDL.Vector(random.gauss(0.0, 0.001), random.gauss(0.0, 0.002), random.gauss(0.0, 0.002))
+                    key_points_E.append( self.T_E_O * (self.key_endpoint_O + pt) )
+        else:
+            self.collect_points = True
+#            thread.start_new_thread(self.pointsCollectorThread, (key_points_E,'right_HandPalmLink', 'left'))
+            thread.start_new_thread(self.pointsCollectorThread, (key_points_B,'torso_link2', 'left'))
+            raw_input("Press ENTER to stop collecting contacts...")
+            self.collect_points = False
+            rospy.sleep(0.5)
+        for pt in key_points_B:
+            m_id = self.pub_marker.publishSinglePointMarker(pt, m_id, r=0, g=1, b=1, a=1, namespace='default', frame_id='torso_link2', m_type=Marker.SPHERE, scale=Vector3(0.001, 0.001, 0.001), T=None)
+        print "done."
+        rospy.sleep(0.1)
+#        self.points = key_points_E
+
+#        print len(contacts)
+#        for pt in contacts:
+#            m_id = self.pub_marker.publishSinglePointMarker(pt, m_id, r=0, g=0, b=1, a=1, namespace='default', frame_id='right_HandPalmLink', m_type=Marker.SPHERE, scale=Vector3(0.01, 0.01, 0.01), T=None)
+
+        while not rospy.is_shutdown():
+            rospy.sleep(1)
+        exit(0)
 
         hv = [1.2, 1.2, 1.2, 1.2]
         ht = [3000, 3000, 3000, 3000]
@@ -475,6 +563,9 @@ Class for grasp learning.
             rospy.sleep(3)
             self.velma.moveHand([2.0177062895374993, 2.3174461354903535, 1.7038538203360971, 1.1437360754475339], hv, ht, 500, True)
             rospy.sleep(3)
+
+        exit(0)
+        
 
         # change the tool - the safe way
         print "switching to joint impedance..."
@@ -533,7 +624,7 @@ Class for grasp learning.
         print "setting stiffness to bigger value"
         k_low_2 = Wrench(Vector3(10.0, 10.0, 10.0), Vector3(5, 5, 5))
         self.velma.moveImpedance(k_low_2, 2.0)
-        if self.velma.checkStopCondition(2.5):
+        if self.velma.checkStopCondition(2.1):
             exit(0)
         print "done."
 
@@ -542,7 +633,7 @@ Class for grasp learning.
         print "setting stiffness to bigger value"
         k_low_3 = Wrench(Vector3(50.0, 50.0, 50.0), Vector3(25, 25, 25))
         self.velma.moveImpedance(k_low_3, 2.0)
-        if self.velma.checkStopCondition(2.5):
+        if self.velma.checkStopCondition(2.1):
             exit(0)
         print "done."
 
@@ -550,7 +641,7 @@ Class for grasp learning.
         print "setting stiffness to bigger value"
         k_low_4 = Wrench(Vector3(500.0, 500.0, 500.0), Vector3(250, 250, 250))
         self.velma.moveImpedance(k_low_4, 2.0)
-        if self.velma.checkStopCondition(2.5):
+        if self.velma.checkStopCondition(2.1):
             exit(0)
         print "done."
 
@@ -558,7 +649,7 @@ Class for grasp learning.
         print "setting stiffness to bigger value"
         k_big = Wrench(Vector3(2000.0, 2000.0, 2000.0), Vector3(300, 300, 300))
         self.velma.moveImpedance(k_big, 2.0)
-        if self.velma.checkStopCondition(2.5):
+        if self.velma.checkStopCondition(2.1):
             exit(0)
         print "done."
 
@@ -948,7 +1039,7 @@ Class for grasp learning.
 
 if __name__ == '__main__':
 
-    rospy.init_node('grasp_leanring')
+    rospy.init_node('door_key')
 
     global br
     pub_marker = velmautils.MarkerPublisher()

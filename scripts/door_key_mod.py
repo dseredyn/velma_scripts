@@ -282,8 +282,7 @@ Class for grasp learning.
                     return sum(gr_values) / len(gr_values)
 
                 all_visited = True
-                min_ex = None #(-1, -1, 1000.0)
-#                extrapolated_cells = []
+                min_ex = None
                 # get the cell with the smallest extrapolated score or the cell with no extrapolated score
                 for x_idx in range(len(ori_map)):
                     for y_idx in range(len(ori_map[x_idx])):
@@ -293,12 +292,76 @@ Class for grasp learning.
                                 ex = extrapolate(ori_map, x_idx, y_idx)
                                 if min_ex == None or ex < min_ex[2]:
                                     min_ex = (x_idx, y_idx, ex)
-#                                extrapolated_cells.append( (x_idx, y_idx, ex) )
                 if min_ex == None:
                     min_ex = (x_start, y_start, 0.0)
                 if all_visited:
                     return None
                 return min_ex
+
+    def getNextOri(self, ori_map, current_x, current_y):
+                def getBestOri(ori_map):
+                    best = None
+                    for x_idx in range(len(ori_map)):
+                        for y_idx in range(len(ori_map[x_idx])):
+                            if ori_map[x_idx][y_idx][2] == True:
+                                if best == None or ori_map[x_idx][y_idx][1] > best[0]:
+                                    best = (ori_map[x_idx][y_idx][1], x_idx, y_idx)
+                    return best
+
+                candidates = []
+                if current_x > 0:
+                    if ori_map[current_x-1][current_y][2] == False:
+                        candidates.append( (current_x-1, current_y) )
+                        candidates.append( (current_x-1, current_y) )
+                        candidates.append( (current_x-1, current_y) )
+                    candidates.append( (current_x-1, current_y) )
+                if current_x < len(ori_map)-1:
+                    if ori_map[current_x+1][current_y][2] == False:
+                        candidates.append( (current_x+1, current_y) )
+                        candidates.append( (current_x+1, current_y) )
+                        candidates.append( (current_x+1, current_y) )
+                    candidates.append( (current_x+1, current_y) )
+                if current_y > 0:
+                    if ori_map[current_x][current_y-1][2] == False:
+                        candidates.append( (current_x, current_y-1) )
+                        candidates.append( (current_x, current_y-1) )
+                        candidates.append( (current_x, current_y-1) )
+                    candidates.append( (current_x, current_y-1) )
+                if current_y < len(ori_map[0])-1:
+                    if ori_map[current_x][current_y+1][2] == False:
+                        candidates.append( (current_x, current_y+1) )
+                        candidates.append( (current_x, current_y+1) )
+                        candidates.append( (current_x, current_y+1) )
+                    candidates.append( (current_x, current_y+1) )
+
+                best = getBestOri(ori_map)
+                if best == None or (best[1] == current_x and best[2] == current_y) or best[0] < ori_map[current_x][current_y][1] + 0.0002:
+                    idx = random.randint(0, len(candidates)-1)
+                    return candidates[idx]
+
+                dx = best[1]-current_x
+                dy = best[2]-current_y
+                if abs(dx) > abs(dy):
+                    if dx > 0:
+                        return (current_x+1, current_y)
+                    else:
+                        return (current_x-1, current_y)
+                else:
+                    if dy > 0:
+                        return (current_x, current_y+1)
+                    else:
+                        return (current_x, current_y-1)
+
+                return None
+
+    def getBestOri(self, ori_map):
+        min_ori = None
+        for x_idx in range(len(ori_map)):
+            for y_idx in range(len(ori_map[x_idx])):
+                if ori_map[x_idx][y_idx][2] == True:
+                    if min_ori == None or min_ori[2] > ori_map[x_idx][y_idx][1]:
+                        min_ori = (x_idx, y_idx, ori_map[x_idx][y_idx][1])
+        return min_ori
 
     def oriGradientDescendUnitTest(self):
         ori_map = self.initOriMap(10, 10, -10.0/180.0*math.pi, 10.0/180.0*math.pi, -10.0/180.0*math.pi, 10.0/180.0*math.pi)
@@ -398,7 +461,7 @@ Class for grasp learning.
             print "done."
 
             print "identifying the parameters of tool in..."
-            wait_time = 10
+            wait_time = 20
             for i in range(wait_time):
                 print "%s s"%(wait_time-i)
                 rospy.sleep(1.0)
@@ -421,8 +484,8 @@ Class for grasp learning.
             print "self.key_endpoint_O = PyKDL.Vector(%s, %s, %s)"%(self.key_endpoint_O[0], self.key_endpoint_O[1], self.key_endpoint_O[2])
             print "done."
         else:
-#            self.key_endpoint_O = PyKDL.Vector(-0.00182366451349, -0.00167574544205, 0.232087970438)
-            self.key_endpoint_O = PyKDL.Vector(-0.00125930463356, -0.00445182316801, 0.233737531253)
+#            self.key_endpoint_O = PyKDL.Vector(-0.00248664992634, -6.7348683886e-05, 0.232163117525)
+            self.key_endpoint_O = PyKDL.Vector(0.000256401261281, -0.000625166847342, 0.232297442735)
  
         k_high = Wrench(Vector3(1000.0, 1000.0, 1000.0), Vector3(150, 150, 150))
         max_force = 10.0
@@ -433,6 +496,10 @@ Class for grasp learning.
         path_tol2 = (PyKDL.Vector(max_force2/k_high.force.x, max_force2/k_high.force.y, max_force2/k_high.force.z), PyKDL.Vector(max_torque2/k_high.torque.x, max_torque2/k_high.torque.y, max_torque2/k_high.torque.z))
         path_tol3 = (PyKDL.Vector(max_force/k_high.force.x, max_force/k_high.force.y, max_force2/k_high.force.z), PyKDL.Vector(max_torque/k_high.torque.x, max_torque/k_high.torque.y, max_torque/k_high.torque.z))
         print "path tolerance:", path_tol
+
+#        k_hole_in = Wrench(Vector3(1000.0, 500.0, 500.0), Vector3(200, 200, 200))
+        k_hole_in = Wrench(Vector3(100.0, 1000.0, 1000.0), Vector3(50, 5, 5))
+        path_tol_in = (PyKDL.Vector(max_force2/k_hole_in.force.x, max_force2/k_hole_in.force.y, max_force2/k_hole_in.force.z), PyKDL.Vector(max_torque2/k_hole_in.torque.x, max_torque2/k_hole_in.torque.y, max_torque2/k_hole_in.torque.z))
 
         if False:
             k_increase = [
@@ -485,7 +552,30 @@ Class for grasp learning.
 
         else:
 #            self.T_B_O_nearHole = PyKDL.Frame(PyKDL.Rotation.Quaternion(0.697525674378, -0.00510212356955, 0.715527762697, 0.0381041038336), PyKDL.Vector(0.528142123375, 0.0071159410235, 1.31300679435))
-            self.T_B_O_nearHole = PyKDL.Frame(PyKDL.Rotation.Quaternion(0.699716675653, -0.0454110538496, 0.709529999372, 0.0700113561626), PyKDL.Vector(0.546491646893, -0.101297899801, 1.30959887442))
+#            self.T_B_O_nearHole = PyKDL.Frame(PyKDL.Rotation.Quaternion(0.699716675653, -0.0454110538496, 0.709529999372, 0.0700113561626), PyKDL.Vector(0.546491646893, -0.101297899801, 1.30959887442))
+            self.T_B_O_nearHole = PyKDL.Frame(PyKDL.Rotation.Quaternion(0.71891504857, -0.0529880479354, 0.691118088949, 0.0520500417212), PyKDL.Vector(0.883081316461, -0.100813768303, 0.95381559114))
+
+        k_increase = [
+        Wrench(Vector3(10.0, 10.0, 10.0), Vector3(5, 5, 5)),
+        Wrench(Vector3(50.0, 50.0, 50.0), Vector3(25, 25, 25)),
+        Wrench(Vector3(250.0, 250.0, 250.0), Vector3(100, 100, 100)),
+        k_high
+        ]
+
+        for k in k_increase:
+            raw_input("Press Enter to set bigger stiffness...")
+            self.velma.updateTransformations()
+            T_B_Wd = self.velma.T_B_W
+            time = self.velma.getMovementTime(T_B_Wd, max_v_l = 0.02, max_v_r = 0.04)
+            print "moving the wrist to the current pose in " + str(time) + " s..."
+            self.velma.moveWrist(T_B_Wd, time, Wrench(Vector3(40,40,40), Vector3(14,14,14)))
+            rospy.sleep(time)
+            print "done."
+            print "setting stiffness to bigger value"
+            self.velma.moveImpedance(k, 1.0)
+            if self.velma.checkStopCondition(1.1):
+                exit(0)
+            print "done."
 
         if True:
             print "probing the door..."
@@ -598,7 +688,7 @@ Class for grasp learning.
             T_O_Od3 = PyKDL.Frame(self.key_axis_O * 5.0/k_high.force.z)
             self.velma.updateTransformations()
             T_B_Wref = self.velma.T_B_W
-            print "moving the wrist to the current pose to reduce..."
+            print "moving the wrist to the current pose to reduce tension..."
             T_B_Wd = self.velma.T_B_W * self.velma.T_W_E * self.T_E_O * T_O_Od3 * self.T_E_O.Inverse() * self.velma.T_W_E.Inverse()
             time = self.velma.getMovementTime(T_B_Wd, max_v_l = 0.02, max_v_r = 0.04)
             raw_input("Press ENTER to movie the wrist in " + str(time) + " s...")
@@ -609,6 +699,12 @@ Class for grasp learning.
                 print "unexpected high contact force", feedback
                 exit(0)
 
+            print "setting stiffness to bigger value"
+            self.velma.moveImpedance(k_hole_in, 1.0)
+            if self.velma.checkStopCondition(1.1):
+                exit(0)
+            print "done."
+
             self.velma.updateTransformations()
 
             # calculate the fixed lock frame T_B_L
@@ -618,35 +714,112 @@ Class for grasp learning.
             penetration_axis_L = PyKDL.Vector(0, 0, 1)
 
             # generate orientations map
-            ori_map = self.initOriMap(15, 15, -10.0/180.0*math.pi, 10.0/180.0*math.pi, -10.0/180.0*math.pi, 10.0/180.0*math.pi)
+#            ori_map = self.initOriMap(20, 20, -4.0/180.0*math.pi, 4.0/180.0*math.pi, -4.0/180.0*math.pi, 4.0/180.0*math.pi)
 
+#            ori_map_vis_offset = (0.03, -0.1)
+#            for xi in range(len(ori_map)):
+#                for yi in range(len(ori_map[xi])):
+#                    n = ori_map[xi][yi][0] * PyKDL.Vector(0,0,0.02)
+#                    m_id = self.pub_marker.publishVectorMarker(T_B_L * PyKDL.Vector(0.01*xi+ori_map_vis_offset[0], 0.01*yi+ori_map_vis_offset[1], 0), T_B_L * (PyKDL.Vector(0.01*xi+ori_map_vis_offset[0], 0.01*yi+ori_map_vis_offset[1], 0)+n), m_id, 1, 0, 0, frame='torso_base', namespace='default', scale=0.001)
+#                    rospy.sleep(0.001)
+
+            # get current contact point
+            contact_B = self.velma.T_B_W * self.velma.T_W_E * self.T_E_O * self.key_endpoint_O
+            contact_L = T_B_L.Inverse() * contact_B
+            contact_max_depth_L = PyKDL.dot(contact_L, penetration_axis_L)
+            contact_depth_L = contact_max_depth_L
+            prev_contact_depth_L = contact_depth_L
+            deepest_contact_L = copy.deepcopy(contact_L)
+            m_id = self.pub_marker.publishSinglePointMarker(contact_B, m_id, r=1, g=0, b=0, a=1, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
+
+            central_point_L = PyKDL.Vector()
+
+            force_key_axis = 17.0
+            force_key_up = 10.0
+            force_key_side = 10.0
+
+            spiral_hole = self.generateSpiral(0.05, 0.005)
+
+            xi = 7
+            yi = 7
+            explore_mode = "get_new"
             while True:
-                ex = self.getCandidateOri(ori_map, 7, 7)
-                if ex == None:
-                    exit(0)
-                xi, yi, score = ex
-                TR_L_Od = ori_map[xi][yi][0]
-#                diff = PyKDL.diff(PyKDL.Frame(), ori_map[x][y][0])
-#                score_real = diff.rot.Norm()
-
-                T_B_L * TR_L_Od
-
-                T_B_Wd = T_B_Wref * self.velma.T_W_E * self.T_E_O * PyKDL.Frame(self.key_endpoint_O) * central_ori_ref_T_O_O * T_O_Od * PyKDL.Frame(-self.key_endpoint_O + self.key_axis_O * (key_end_depth+force/k_high.force.z)) * self.T_E_O.Inverse() * self.velma.T_W_E.Inverse()
-                time = self.velma.getMovementTime(T_B_Wd, max_v_l = 0.1, max_v_r = 0.1)
-                raw_input("Press ENTER to movie the wrist in " + str(time) + " s...")
-                self.velma.moveWrist(T_B_Wd, time, Wrench(Vector3(40,40,40), Vector3(14,14,14)), path_tol=path_tol3)
-                status, feedback = self.velma.waitForCartEnd()
-                print "status", status
+                # desired position of the key end
                 self.velma.updateTransformations()
-                contact_B = self.velma.T_B_W * self.velma.T_W_E * self.T_E_O * self.key_endpoint_O
-                contact_points_B.append(contact_B)
-                m_id = self.pub_marker.publishSinglePointMarker(contact_B, m_id, r=1, g=0, b=0, a=1, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
+
+                T_B_Ocurrent = self.velma.T_B_W * self.velma.T_W_E * self.T_E_O * PyKDL.Frame(self.key_axis_O * (force_key_axis/k_hole_in.force.x))
+                diff_B = PyKDL.diff(T_B_Ocurrent, self.T_B_O_nearHole)
+                rot_diff_Ocurrent = PyKDL.Frame(T_B_Ocurrent.Inverse().M) * diff_B.rot
 
 
-                ori_map[xi][yi][2] = True
-                ori_map[xi][yi][1] = score_real
+                T_B_W_shake = []
+                for pt in spiral_hole:
+                    T_B_Od_shake = T_B_Ocurrent * PyKDL.Frame(PyKDL.Rotation.RotZ(rot_diff_Ocurrent.z()-6.0/180.0*math.pi), self.key_up_O * pt[0] + self.key_side_O * pt[1])
+                    T_B_W_shake.append(T_B_Od_shake * self.T_E_O.Inverse() * self.velma.T_W_E.Inverse())
+                    T_B_Od_shake = T_B_Ocurrent * PyKDL.Frame(PyKDL.Rotation.RotZ(rot_diff_Ocurrent.z()+6.0/180.0*math.pi), self.key_up_O * pt[0] + self.key_side_O * pt[1])
+                    T_B_W_shake.append(T_B_Od_shake * self.T_E_O.Inverse() * self.velma.T_W_E.Inverse())
+
+                print "shaking..."
+                for T_B_W in T_B_W_shake:
+                    time = self.velma.getMovementTime(T_B_W, max_v_l = 0.4, max_v_r = 0.4)
+#                    self.velma.moveWrist2(T_B_W * self.velma.T_W_T)
+#                    raw_input("Press ENTER to movie the wrist in " + str(time) + " s...")
+                    self.velma.moveWrist(T_B_W, 0.5, Wrench(Vector3(40,40,40), Vector3(14,14,14)), path_tol=path_tol_in)
+                    status1, feedback = self.velma.waitForCartEnd()
+                    print "status", status1
+
+                    self.velma.updateTransformations()
+                    contact_B = self.velma.T_B_W * self.velma.T_W_E * self.T_E_O * self.key_endpoint_O
+                    m_id = self.pub_marker.publishSinglePointMarker(contact_B, m_id, r=1, g=0, b=0, a=1, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
+
+                    contact_L = T_B_L.Inverse() * contact_B
+                    contact_depth_L = PyKDL.dot(contact_L, penetration_axis_L)
+
+                    if contact_depth_L > contact_max_depth_L+0.0001:
+                        deepest_contact_L = copy.deepcopy(contact_L)
+                        contact_max_depth_L = contact_depth_L
+                        print "contact_depth_L: %s"%(contact_depth_L)
+                        explore_mode = "push"
+                        break
+                    if status1.error_code != 0:
+                        break
+                print "done."
+
+                score = contact_depth_L - prev_contact_depth_L
+                prev_contact_depth_L = contact_depth_L
+
+                if status1.error_code != 0:
+                    break
+
+#                m_id = self.pub_marker.publishSinglePointMarker(T_B_L * PyKDL.Vector(0.01*xi+ori_map_vis_offset[0], 0.01*yi+ori_map_vis_offset[1], score), m_id, r=0, g=0, b=1, a=0.5, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
+#                m_id = self.pub_marker.publishSinglePointMarker(T_B_L * PyKDL.Vector(0.01*xi+ori_map_vis_offset[0], 0.01*yi+ori_map_vis_offset[1], ori_map[xi][yi][1]), m_id, r=0, g=1, b=0, a=0.5, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
 
             exit(0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -706,7 +879,6 @@ Class for grasp learning.
                     angle = 1.0/180.0*math.pi
                     deepest_contact = contact_depth
 
-                # check if the key is in the hole
                 if status.error_code != 0:
                     self.velma.updateTransformations()
                     T_O_Od5 = PyKDL.Frame(self.key_axis_O * 5.0/k_high.force.z)

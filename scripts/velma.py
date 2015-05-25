@@ -823,8 +823,8 @@ Class for velma robot.
             duration = f_v_l
         else:
             duration = f_v_r
-        if duration < 0.5:
-            duration = 0.5
+        if duration < 0.2:
+            duration = 0.2
         return duration
 
     def getMovementTime2(self, T_B_Wd1, T_B_Wd2, max_v_l = 0.1, max_v_r = 0.2):

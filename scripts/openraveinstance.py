@@ -182,6 +182,8 @@ class OpenraveInstance:
         if env_file != None:
             self.env.Load(env_file)
 
+#        self.env.GetCollisionChecker().SetCollisionOptions(4)
+
     def setCamera(self, cam_pos, target_pos):
             cam_z = target_pos - cam_pos
             focalDistance = cam_z.Norm()
@@ -250,6 +252,15 @@ class OpenraveInstance:
         body = RaveCreateKinBody(self.env,'')
         body.SetName(name)
         body.InitFromBoxes(numpy.array([[0,0,0,0.5*x_size,0.5*y_size,0.5*z_size]]),True)
+        self.env.Add(body,True)
+
+    def addTrimesh(self, name, vertices, faces):
+        body = RaveCreateKinBody(self.env,'')
+        body.SetName(name)
+        mesh = TriMesh()
+        mesh.vertices = copy.deepcopy(vertices)
+        mesh.indices = copy.deepcopy(faces)
+        body.InitFromTrimesh(mesh, True)
         self.env.Add(body,True)
 
     def addCBeam(self, name, w, h, l, t):
@@ -382,6 +393,7 @@ class OpenraveInstance:
                 self.gmodel[target_name].init(friction=0.6,avoidlinks=[])
                 print 'grasping model initialised'
                 print 'computing approach rays...'
+
                 approachrays3 = self.gmodel[target_name].computeBoxApproachRays(delta=0.03,normalanglerange=0.0) #201, directiondelta=0.2)
 #                print approachrays3.shape
 #                print approachrays3[0]

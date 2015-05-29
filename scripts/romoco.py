@@ -62,6 +62,7 @@ from openravepy import *
 from optparse import OptionParser
 from openravepy.misc import OpenRAVEGlobalArguments
 import velmautils
+import surfaceutils
 import openraveinstance
 import itertools
 import operator
@@ -512,11 +513,16 @@ Class for grasp learning.
         #
         rospack = rospkg.RosPack()
         self.openrave = openraveinstance.OpenraveInstance()
-        self.openrave.startOpenraveURDF(env_file=filename_environment, collision='pqp')
+        self.openrave.startOpenraveURDF(env_file=filename_environment, collision='ode')
         self.openrave.readRobot(xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro', srdf_uri=rospack.get_path('velma_description') + '/robots/velma.srdf')
 #        self.openrave.startOpenrave(filename_environment)
 
         self.openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
+
+        vertices, faces = surfaceutils.readStl(rospack.get_path('velma_scripts')+"/data/romoco/big_box_ascii.stl", scale=1.0)
+        print vertices
+        print faces
+        self.openrave.addTrimesh("big_box", vertices, faces)
 
         #
         # Initialise dynamic objects and their marker information
@@ -652,7 +658,7 @@ Class for grasp learning.
 
         self.disallowUpdateObjects()
 
-        self.openrave.prepareGraspingModule(graspable_object_name, force_load=False)
+        self.openrave.prepareGraspingModule(graspable_object_name, force_load=True)
 
         try:
             print "trying to read wrenches for each grasp from file"

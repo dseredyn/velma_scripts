@@ -87,7 +87,6 @@ class TestOrURDF:
 #        (options, leftargs) = parser.parse_args()
 #        options._collision = "fcl"
 #        env = OpenRAVEGlobalArguments.parseAndCreate(options,defaultviewer=True)
-#        env.GetCollisionChecker().SetCollisionOptions(4)
 #        xacro_uri = "package://velma_description/robots/velma.urdf.xacro"
 #        srdf_uri = "package://velma_description/robots/velma.srdf"
 
@@ -112,120 +111,101 @@ class TestOrURDF:
 #        for joint in openrave.robot_rave.GetJoints():
 #            print joint
 
-        tab2=[
-        [-0.397855401039,-2.90307354927],
-        [2.12894010544,-2.90307354927],
-        [2.12043237686,-1.87363839149],
-        [1.92475450039,-1.43123674393],
-        [0.77621114254,-1.39720571041],
-        [0.350824713707,-1.00585031509],
-        [0.401871085167,-0.571956157684],
-        [0.810242056847,0.414940297604],
-        [1.34622907639,0.942419290543],
-        [2.11192464828,1.01898884773],
-        [2.12894010544,2.8906891346],
-        [-0.814733862877,2.8906891346],
-        [-1.22310483456,2.27813267708],
-        [-2.21850919724,2.29514837265],
-        [-2.22701668739,-1.32063627243],
-        [-1.81013822556,-1.66945314407],
-        [-0.814733862877,-1.73751521111],
-        [-0.423378348351,-2.09483933449],
-        ]
+        # TEST: wrist joints collision
+        if False:
+            tab2=[
+            [-0.397855401039,-2.90307354927],
+            [2.12894010544,-2.90307354927],
+            [2.12043237686,-1.87363839149],
+            [1.92475450039,-1.43123674393],
+            [0.77621114254,-1.39720571041],
+            [0.350824713707,-1.00585031509],
+            [0.401871085167,-0.571956157684],
+            [0.810242056847,0.414940297604],
+            [1.34622907639,0.942419290543],
+            [2.11192464828,1.01898884773],
+            [2.12894010544,2.8906891346],
+            [-0.814733862877,2.8906891346],
+            [-1.22310483456,2.27813267708],
+            [-2.21850919724,2.29514837265],
+            [-2.22701668739,-1.32063627243],
+            [-1.81013822556,-1.66945314407],
+            [-0.814733862877,-1.73751521111],
+            [-0.423378348351,-2.09483933449],
+            ]
 
-        m_id = 0
+            m_id = 0
 
-        for pt in tab2:
-            m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(pt[0],pt[1],0.1), m_id, r=0, g=0, b=1, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.1, 0.1, 0.1), T=None)
+            for pt in tab2:
+                m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(pt[0],pt[1],0.1), m_id, r=0, g=0, b=1, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.1, 0.1, 0.1), T=None)
 
-        lim5_lo, lim5_up = openrave.robot_rave.GetJoint("right_arm_5_joint").GetLimits()
-        lim6_lo, lim6_up = openrave.robot_rave.GetJoint("right_arm_6_joint").GetLimits()
-        for q5 in np.linspace(lim5_lo[0], lim5_up[0], 20):
-            for q6 in np.linspace(lim6_lo[0], lim6_up[0], 20):
-                conf = {
-                "right_arm_5_joint":q5,
-                "right_arm_6_joint":q6,
-                }
-                openrave.updateRobotConfigurationRos(conf)
+            lim5_lo, lim5_up = openrave.robot_rave.GetJoint("right_arm_5_joint").GetLimits()
+            lim6_lo, lim6_up = openrave.robot_rave.GetJoint("right_arm_6_joint").GetLimits()
+            for q5 in np.linspace(lim5_lo[0], lim5_up[0], 20):
+                for q6 in np.linspace(lim6_lo[0], lim6_up[0], 20):
+                    conf = {
+                    "right_arm_5_joint":q5,
+                    "right_arm_6_joint":q6,
+                    }
+                    openrave.updateRobotConfigurationRos(conf)
+                    openrave.env.UpdatePublishedBodies()
+                    report = CollisionReport()
+                    if openrave.robot_rave.CheckSelfCollision(report):
+                        m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(q5,q6,0), m_id, r=1, g=0, b=0, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.1, 0.1, 0.1), T=None)
+                    else:
+                        m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(q5,q6,0), m_id, r=0, g=1, b=0, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.1, 0.1, 0.1), T=None)
+                    rospy.sleep(0.01)
+
+            raw_input(".")
+            exit(0)
+
+        if False:
+            for link in openrave.robot_rave.GetLinks():
+                geoms = link.GetGeometries()
+                print "geoms:", len(geoms)
+                col_geoms = link.GetGroupNumGeometries("collision")
+                print "col_geoms:", col_geoms
+                vis_geoms = link.GetGroupNumGeometries("visual")
+                print "vis_geoms:", vis_geoms
+                print link, link.GetCollisionData()
+                for g in geoms:
+                    info = g.GetInfo()
+                    print "   geom", g.GetType()
+                    print "      mesh_collision", info._meshcollision
+                    if len(info._meshcollision.vertices) > 0:
+                        x = info._meshcollision.vertices[0][0]
+                        y = info._meshcollision.vertices[0][1]
+                        z = info._meshcollision.vertices[0][2]
+                        print "      mesh_collision", math.sqrt(x*x+y*y+z*z)
+                    print "      modifable", info._bModifiable
+                    print "      render", info._filenamerender
+                    print "      coll", info._filenamecollision
+
+        # TEST: collision
+        if False:
+            sphere = RaveCreateKinBody(openrave.env,'')
+            sphere.SetName("sphere")
+            sphere.InitFromSpheres(numpy.array([[0,0,0,0.1]]),True)
+            openrave.env.Add(sphere,True)
+            x = -0.3
+            while True:
+                tr = self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(x,0.8,1.9)))
+                sphere.SetTransform(tr)
                 openrave.env.UpdatePublishedBodies()
                 report = CollisionReport()
-                if openrave.robot_rave.CheckSelfCollision(report):
-                    m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(q5,q6,0), m_id, r=1, g=0, b=0, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.1, 0.1, 0.1), T=None)
+                ret = openrave.env.CheckCollision(sphere, report)
+                if report.plink1 == None:
+                    print None
                 else:
-                    m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(q5,q6,0), m_id, r=0, g=1, b=0, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.1, 0.1, 0.1), T=None)
-                rospy.sleep(0.01)
-
-        raw_input(".")
-        exit(0)
-
-        for link in openrave.robot_rave.GetLinks():
-            geoms = link.GetGeometries()
-            print "geoms:", len(geoms)
-            col_geoms = link.GetGroupNumGeometries("collision")
-            print "col_geoms:", col_geoms
-            vis_geoms = link.GetGroupNumGeometries("visual")
-            print "vis_geoms:", vis_geoms
-            print link, link.GetCollisionData()
-            for g in geoms:
-                info = g.GetInfo()
-                print "   geom", g.GetType()
-                print "      mesh_collision", info._meshcollision
-                if len(info._meshcollision.vertices) > 0:
-                    x = info._meshcollision.vertices[0][0]
-                    y = info._meshcollision.vertices[0][1]
-                    z = info._meshcollision.vertices[0][2]
-                    print "      mesh_collision", math.sqrt(x*x+y*y+z*z)
-                print "      modifable", info._bModifiable
-                print "      render", info._filenamerender
-                print "      coll", info._filenamecollision
-
-        sphere = RaveCreateKinBody(openrave.env,'')
-        sphere.SetName("sphere")
-        sphere.InitFromSpheres(numpy.array([[0,0,0,0.1]]),True)
-        openrave.env.Add(sphere,True)
-
-        mj = openrave.robot_rave.GetJoint("right_HandFingerOneKnuckleThreeJoint")
-        print "mimic", mj.IsMimic(), mj.GetMimicEquation()
-
-        ji = openrave.robot_rave.GetJoint("right_HandFingerOneKnuckleTwoJoint").GetDOFIndex()
-        openrave.robot_rave.SetDOFValues([1.5], [ji])
-
-        with openrave.robot_rave.GetEnv():
-                # stop rendering the non-gripper links
-                for link in openrave.robot_rave.GetLinks():
-                    if link not in openrave.robot_rave.GetActiveManipulator().GetChildLinks():
-                        link.Enable(False)
-#                        print "hiding:", link.GetName()
-#                        for geom in link.GetGeometries():
-#                            print "   geom", geom
-#                            print geom.IsVisible()
-#                            geom.SetDraw(False)
-#                            print geom.IsVisible()
-                openrave.env.UpdatePublishedBodies()
+                    print report.plink1.GetParent().GetName(), report.plink2.GetName() 
+#                    print "   ", report.vLinkColliding
+                    for link1, link2 in report.vLinkColliding:
+                        print "   ", link1.GetParent().GetName(), link2.GetName()
+#                    print report.plink1.GetParent().GetName(), report.plink2.GetParent().GetName() 
                 raw_input(".")
+                x += 0.005
 
-        exit(0)
-
-
-        x = -0.3
-        while True:
-            tr = self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(x,0.8,1.9)))
-            sphere.SetTransform(tr)
-            openrave.env.UpdatePublishedBodies()
-            report = CollisionReport()
-            ret = openrave.env.CheckCollision(sphere, report)
-            if report.plink1 == None:
-                print None
-            else:
-                print report.plink1.GetParent().GetName(), report.plink2.GetName() 
-#                print "   ", report.vLinkColliding
-                for link1, link2 in report.vLinkColliding:
-                    print "   ", link1.GetParent().GetName(), link2.GetName()
-#                print report.plink1.GetParent().GetName(), report.plink2.GetParent().GetName() 
-            raw_input(".")
-            x += 0.005
-
-        exit(0)
+            exit(0)
 
 # CollisionOptions:
 # CO_Distance = 1, ///< Compute distance measurements, this is usually slow and not all checkers support it.
@@ -240,47 +220,46 @@ class TestOrURDF:
 # CO_AllLinkCollisions = 0x20, ///< if set then all the link collisions will be returned inside CollisionReport::vLinkColliding. Collision is slower because more pairs have to be checked.
 # CO_AllGeometryContacts = 0x40, ///< if set, then will return the contacts of all the colliding geometries. This option can be very slow.
 
-        box = RaveCreateKinBody(env,'')
-        box.SetName("box")
-        box.InitFromBoxes(numpy.array([[0,0,0,0.1,0.1,0.1]]),True)
-        env.Add(box,True)
+        if True:
+            openrave.env.GetCollisionChecker().SetCollisionOptions(4)
 
-        sphere = RaveCreateKinBody(env,'')
-        sphere.SetName("sphere")
-        sphere.InitFromSpheres(numpy.array([[0,0,0,0.1]]),True)
-        env.Add(sphere,True)
+            box = RaveCreateKinBody(openrave.env,'')
+            box.SetName("box")
+            box.InitFromBoxes(numpy.array([[0,0,0,0.1,0.1,0.1]]),True)
+            openrave.env.Add(box,True)
 
-        transforms = [
-        self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(0,0,0.198))),
-        self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(0,0,-0.198))),
-        self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(0,0.198,0))),
-        self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(0,-0.198,0))),
-        self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(0.198,0,0))),
-        self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(-0.198,0,0)))
-        ]
+            sphere = RaveCreateKinBody(openrave.env,'')
+            sphere.SetName("sphere")
+            sphere.InitFromSpheres(numpy.array([[0,0,0,0.1]]),True)
+            openrave.env.Add(sphere,True)
 
-        for tr in transforms:
-            print "transform", tr
-            sphere.SetTransform(tr)
-            env.UpdatePublishedBodies()
+            transforms = [
+            self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(0,0,0.198))),
+            self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(0,0,-0.198))),
+            self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(0,0.198,0))),
+            self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(0,-0.198,0))),
+            self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(0.198,0,0))),
+            self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(-0.198,0,0)))
+            ]
 
-            report = CollisionReport()
-            ret = env.CheckCollision(box, report)
-            print report.plink1.GetParent().GetName(), report.plink2.GetParent().GetName() 
-            print report.contacts[0]
+            for tr in transforms:
+                print "transform", tr
+                sphere.SetTransform(tr)
+                openrave.env.UpdatePublishedBodies()
 
-            ret = env.CheckCollision(sphere, report)
-#            print ret
-#            print report
-            print report.plink1.GetParent().GetName(), report.plink2.GetParent().GetName() 
-            print report.contacts[0]
+                report = CollisionReport()
+                ret = openrave.env.CheckCollision(box, report)
+                print report.plink1.GetParent().GetName(), report.plink2.GetParent().GetName() 
+                print report.contacts[0]
 
-        raw_input(".")
+                ret = openrave.env.CheckCollision(sphere, report)
+#                print ret
+#                print report
+                print report.plink1.GetParent().GetName(), report.plink2.GetParent().GetName() 
+                print report.contacts[0]
 
-        exit(0)
-
-
-
+            raw_input(".")
+            exit(0)
 
 if __name__ == '__main__':
 

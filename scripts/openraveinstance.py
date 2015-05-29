@@ -26,22 +26,22 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import roslib
-roslib.load_manifest('barrett_hand_controller')
+roslib.load_manifest('velma_scripts')
 
 import rospy
 import tf
 
-import ar_track_alvar_msgs.msg
-from ar_track_alvar_msgs.msg import *
+#import ar_track_alvar_msgs.msg
+#from ar_track_alvar_msgs.msg import *
 from std_msgs.msg import *
 from sensor_msgs.msg import *
 from geometry_msgs.msg import *
-from barrett_hand_controller_srvs.msg import *
-from barrett_hand_controller_srvs.srv import *
-from cartesian_trajectory_msgs.msg import *
+#from barrett_hand_controller_srvs.msg import *
+#from barrett_hand_controller_srvs.srv import *
+#from cartesian_trajectory_msgs.msg import *
 from visualization_msgs.msg import *
-import actionlib
-from actionlib_msgs.msg import *
+#import actionlib
+#from actionlib_msgs.msg import *
 from threading import RLock
 
 import tf
@@ -61,6 +61,7 @@ from openravepy.misc import OpenRAVEGlobalArguments
 import velmautils
 import operator
 import random
+import subprocess
 
 class OpenraveInstance:
 
@@ -94,6 +95,93 @@ class OpenraveInstance:
         self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
         self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
 
+#    def readGripper(self
+
+    def readRobot(self, xacro_uri=None, urdf_uri=None, srdf_uri=None, env_file=None, collision=None):
+        if (xacro_uri == None and urdf_uri == None) or (xacro_uri != None and urdf_uri != None):
+            # TODO: exception
+            print "ERROR: startOpenraveURDF:", xacro_uri, urdf_uri
+            return
+
+        if xacro_uri != None:
+            subprocess.call(["rosrun", "xacro", "xacro", "-o", "/tmp/velma.urdf", xacro_uri])
+            urdf_uri = "/tmp/velma.urdf"
+
+        if srdf_uri == None:
+            srdf_uri = ''
+
+        if not hasattr(self, 'urdf_module') or self.urdf_module == None:
+            self.urdf_module = RaveCreateModule(self.env, 'urdf')
+        name = self.urdf_module.SendCommand('load ' + urdf_uri + ' ' + srdf_uri)
+
+        self.robot_rave = self.env.GetRobot(name)
+        self.env.Remove(self.robot_rave)
+
+        mimic_joints = [
+        ("right_HandFingerTwoKnuckleOneJoint", "right_HandFingerOneKnuckleOneJoint*1.0", "|right_HandFingerOneKnuckleOneJoint 1.0", ""),
+        ("right_HandFingerOneKnuckleThreeJoint", "right_HandFingerOneKnuckleTwoJoint*0.33333", "|right_HandFingerOneKnuckleTwoJoint 0.33333", ""),
+        ("right_HandFingerTwoKnuckleThreeJoint", "right_HandFingerTwoKnuckleTwoJoint*0.33333", "|right_HandFingerTwoKnuckleTwoJoint 0.33333", ""),
+        ("right_HandFingerThreeKnuckleThreeJoint", "right_HandFingerThreeKnuckleTwoJoint*0.33333", "|right_HandFingerThreeKnuckleTwoJoint 0.33333", ""),
+        ("left_HandFingerTwoKnuckleOneJoint", "left_HandFingerOneKnuckleOneJoint*1.0", "|left_HandFingerOneKnuckleOneJoint 1.0", ""),
+        ("left_HandFingerOneKnuckleThreeJoint", "left_HandFingerOneKnuckleTwoJoint*0.33333", "|left_HandFingerOneKnuckleTwoJoint 0.33333", ""),
+        ("left_HandFingerTwoKnuckleThreeJoint", "left_HandFingerTwoKnuckleTwoJoint*0.33333", "|left_HandFingerTwoKnuckleTwoJoint 0.33333", ""),
+        ("left_HandFingerThreeKnuckleThreeJoint", "left_HandFingerThreeKnuckleTwoJoint*0.33333", "|left_HandFingerThreeKnuckleTwoJoint 0.33333", ""),
+        ]
+        for mimic in mimic_joints:
+            mj = self.robot_rave.GetJoint(mimic[0])
+            mj.SetMimicEquations(0, mimic[1], mimic[2], mimic[3])
+
+        self.env.Add(self.robot_rave)
+
+        base_link = self.robot_rave.GetLink("torso_base")
+        self.T_World_Br = self.OpenraveToKDL(base_link.GetTransform())
+        self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
+        if not self.ikmodel.load():
+            self.ikmodel.autogenerate()
+
+        self.manipulator_dof_indices_map = {}
+        self.lower_lim = {}
+        self.upper_lim = {}
+        manipulators = self.robot_rave.GetManipulators()
+        for man in manipulators:
+            man_name = man.GetName()
+            man.SetClosingDirection( (1,0,1,1) )
+            print "manipulator:", man_name
+            self.manipulator_dof_indices_map[man_name] = man.GetArmIndices()
+            self.lower_lim[man_name], self.upper_lim[man_name] = self.robot_rave.GetDOFLimits(self.manipulator_dof_indices_map[man_name])
+
+        self.minimumgoalpaths = 1
+        plannername = "BiRRT"
+        self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
+        self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
+
+#        self.joint_name_dof_map = {}
+#        for joint in openrave.robot_rave.GetJoints():
+#            self.joint_name_dof_map[joint.GetName()] = joint.GetDOFIndex()
+
+#        self.dof_ranges = {}
+#        self.dof_ranges["head"] = (openrave.robot_rave.GetJoint("head_pan_joint").GetDOFIndex(), openrave.robot_rave.GetJoint("head_tilt_joint").GetDOFIndex() )
+#left_HandFingerOneKnuckleOneJoint
+#left_HandFingerOneKnuckleTwoJoint
+#left_HandFingerThreeKnuckleTwoJoint
+#left_HandFingerTwoKnuckleTwoJoint
+#        self.dof_ranges["left_hand"] = (openrave.robot_rave.GetJoint("head_pan_joint").GetDOFIndex(), openrave.robot_rave.GetJoint("head_tilt_joint").GetDOFIndex() )
+#        for joint in openrave.robot_rave.GetJoints():
+
+
+
+    def startOpenraveURDF(self, env_file=None, collision=None):
+
+        parser = OptionParser(description='Openrave Velma interface')
+        OpenRAVEGlobalArguments.addOptions(parser)
+        (options, leftargs) = parser.parse_args()
+        if collision != None:
+            options._collision = collision
+        self.env = OpenRAVEGlobalArguments.parseAndCreate(options,defaultviewer=True)
+
+        if env_file != None:
+            self.env.Load(env_file)
+
     def setCamera(self, cam_pos, target_pos):
             cam_z = target_pos - cam_pos
             focalDistance = cam_z.Norm()
@@ -108,14 +196,12 @@ class OpenraveInstance:
             self.env.GetViewer().SetCamera(self.KDLToOpenrave(cam_T), focalDistance)
 
     def updateRobotConfigurationRos(self, js_pos):
-
         dof_values = self.robot_rave.GetDOFValues()
         for dof_idx in range(self.robot_rave.GetDOF()):
             joint = self.robot_rave.GetJointFromDOFIndex(dof_idx)
             joint_name = joint.GetName()
             if joint_name in js_pos:
                 dof_values[dof_idx] = js_pos[joint_name]
-
         self.robot_rave.SetDOFValues(dof_values)
 
     def getRobotConfigurationRos(self):
@@ -130,6 +216,7 @@ class OpenraveInstance:
 
     def updateRobotConfiguration(self, qt=None, qal=None, qhl=None, qar=None, qhr=None):
         dof_values = self.robot_rave.GetDOFValues()
+        print "len(dof_values)", len(dof_values)
         if qt == None:
             qt = dof_values[0:2]
         if qal == None:
@@ -281,7 +368,7 @@ class OpenraveInstance:
         if not target_name in self.gmodel.keys():
             target = self.env.GetKinBody(target_name)
             self.gmodel[target_name] = databases.grasping.GraspingModel(self.robot_rave,target)
-            self.gmodel[target_name].numthreads = 4
+#            self.gmodel[target_name].numthreads = 4
             if force_load or not self.gmodel[target_name].load():
               with self.env:
                 print "removing all other objects"
@@ -308,7 +395,14 @@ class OpenraveInstance:
 # http://openrave.org/docs/latest_stable/openravepy/databases.grasping/#openravepy.databases.grasping.GraspingModel.generatepcg
 #                self.gmodel[target_name].generate(approachrays=approachrays3, forceclosure=False, standoffs=[0.025, 0.05, 0.075])
 #                self.gmodel[target_name].generate(approachrays=approachrays3, friction=0.6, forceclosure=True, standoffs=[0.04, 0.06, 0.07])
-                self.gmodel[target_name].generate(approachrays=approachrays3, friction=0.6, forceclosure=False, standoffs=np.array([0.04, 0.06])) #, 0.07
+
+                with self.robot_rave.GetEnv():
+                  # stop rendering the non-gripper links
+                  for link in self.robot_rave.GetLinks():
+                    if link not in self.robot_rave.GetActiveManipulator().GetChildLinks():
+                        link.Enable(False)
+                  self.gmodel[target_name].generate(approachrays=approachrays3, friction=0.6, forceclosure=False, standoffs=np.array([0.04, 0.06])) #, 0.07
+
                 self.gmodel[target_name].save()
 
                 for body in all_bodies:
@@ -404,62 +498,74 @@ class OpenraveInstance:
     def getGraspStandoff(self, target_name, grasp):
         return grasp[self.gmodel[target_name].graspindices.get('igraspstandoff')]
 
-    def showTrajectory(self, time, qt_list=None, qar_list=None, qal_list=None, qhr_list=None, qhl_list=None):
-        length = 0
-        if qt_list != None:
-            length = len(qt_list)
-        elif qar_list != None:
-            length = len(qar_list)
-        elif qal_list != None:
-            length = len(qal_list)
-        elif qhr_list != None:
-            length = len(qhr_list)
-        elif qhl_list != None:
-            length = len(qhl_list)
+#    def updateRobotConfigurationRos(self, js_pos):
+#        dof_values = self.robot_rave.GetDOFValues()
+#        for dof_idx in range(self.robot_rave.GetDOF()):
+#            joint = self.robot_rave.GetJointFromDOFIndex(dof_idx)
+#            joint_name = joint.GetName()
+#            if joint_name in js_pos:
+#                dof_values[dof_idx] = js_pos[joint_name]
+#        self.robot_rave.SetDOFValues(dof_values)
+
+    def showTrajectory(self, joint_names, time, traj):#qt_list=None, qar_list=None, qal_list=None, qhr_list=None, qhl_list=None):
+        length = len(traj)
+#        if qt_list != None:
+#            length = len(qt_list)
+#        elif qar_list != None:
+#            length = len(qar_list)
+#        elif qal_list != None:
+#            length = len(qal_list)
+#        elif qhr_list != None:
+#            length = len(qhr_list)
+#        elif qhl_list != None:
+#            length = len(qhl_list)
         if length < 1:
             return None
         time_d = time / length
         report = CollisionReport()
         first_collision = None
-#        self.robot_rave_update_lock.acquire()
         with self.robot_rave.CreateRobotStateSaver():
             with self.env:
-                for i in range(0, length):
+                for i in range(length):
                     self.robot_rave.GetController().Reset(0)
-                    dof_values = self.robot_rave.GetDOFValues()
-                    if qt_list == None:
-                        qt = dof_values[0:2]
-                    else:
-                        qt = qt_list[i]
-                    if qal_list == None:
-                        qal = dof_values[2:9]
-                    else:
-                        qal = qal_list[i]
-                    if qhl_list == None:
-                        qhl = dof_values[9:13]
-                    else:
-                        qhl = qhl_list[i]
-                    if qar_list == None:
-                        qar = dof_values[13:20]
-                    else:
-                        qar = qar_list[i]
-                    if qhr_list == None:
-                        qhr = dof_values[20:24]
-                    else:
-                        qhr = qhr_list[i]
-                    dof_values = list(qt) + list(qal) + list(qhl) + list(qar) + list(qhr)
-                    self.robot_rave.SetDOFValues(dof_values)
+#                    dof_values = self.robot_rave.GetDOFValues()
+#                    if qt_list == None:
+#                        qt = dof_values[0:2]
+#                    else:
+#                        qt = qt_list[i]
+#                    if qal_list == None:
+#                        qal = dof_values[2:9]
+#                    else:
+#                        qal = qal_list[i]
+#                    if qhl_list == None:
+#                        qhl = dof_values[9:13]
+#                    else:
+#                        qhl = qhl_list[i]
+#                    if qar_list == None:
+#                        qar = dof_values[13:20]
+#                    else:
+#                        qar = qar_list[i]
+#                    if qhr_list == None:
+#                        qhr = dof_values[20:24]
+#                    else:
+#                        qhr = qhr_list[i]
+#                    dof_values = list(qt) + list(qal) + list(qhl) + list(qar) + list(qhr)
+#                    self.robot_rave.SetDOFValues(dof_values)
+
+                    conf = {}
+                    for qi in range(len(joint_names)):
+                        conf[joint_names[qi]] = traj[i][qi]
+                    self.updateRobotConfigurationRos(conf)
                     if time_d > 0.0:
                         self.env.UpdatePublishedBodies()
                     check = self.env.CheckCollision(self.robot_rave, report)
-                    if first_collision == None and report.numCols > 0:
+                    if first_collision == None and check:
                         first_collision = i
                         print "first collision at step %s"%(i)
-                    elif report.numCols > 0:
+                    elif check:
                         print "collision at step %s"%(i)
                     if time_d > 0.0:
                         rospy.sleep(time_d)
-#        self.robot_rave_update_lock.release()
         return first_collision
 
     def getMesh(self, name):
@@ -623,6 +729,12 @@ class OpenraveInstance:
         return hand_config, contacts_ret_O, normals_O
 
     def generateWrenchesforAllGrasps(self, graspable_object_name):
+        with self.robot_rave.GetEnv():
+            # stop rendering the non-gripper links
+            for link in self.robot_rave.GetLinks():
+                if link not in self.robot_rave.GetActiveManipulator().GetChildLinks():
+                    link.Enable(False)
+
             if not hasattr(self, 'wrenches_map') or self.wrenches_map == None:
                 self.wrenches_map = {}
 
@@ -1180,9 +1292,12 @@ class OpenraveInstance:
             print "duration: %s"%(traj.GetDuration())
         return pos, vel, acc, tim, q_traj, penalty
 
-    def checkRobotCollision(self):
+    def checkRobotCollision(self, print_report=False):
         report = CollisionReport()
         if self.env.CheckCollision(self.robot_rave, report):
+            if print_report:
+                for link1, link2 in report.vLinkColliding:
+                    print "%s.%s   colliding with    %s.%s"%(link1.GetParent().GetName(), link1.GetName(), link2.GetParent().GetName(), link2.GetName())
             return True
 
         return False
@@ -1222,6 +1337,7 @@ class OpenraveInstance:
         current_T_B_O = self.getPose(target_name)
 
         valid_indices = range(self.getGraspsCount(target_name))
+        print "grasps count", self.getGraspsCount(target_name)
 
         # eliminate the colliding grasps
 #        valid_indices = self.generateGrasps(target_name, show=False, checkcollision=True, checkik=False, checkgrasper=False)

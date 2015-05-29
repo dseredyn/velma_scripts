@@ -26,17 +26,17 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import roslib
-roslib.load_manifest('barrett_hand_controller')
+roslib.load_manifest('velma_scripts')
 
 import rospy
 import tf
 
-import ar_track_alvar_msgs.msg
-from ar_track_alvar_msgs.msg import *
+#import ar_track_alvar_msgs.msg
+#from ar_track_alvar_msgs.msg import *
 from std_msgs.msg import *
 from sensor_msgs.msg import *
 from geometry_msgs.msg import *
-from cartesian_trajectory_msgs.msg import *
+#from cartesian_trajectory_msgs.msg import *
 from visualization_msgs.msg import *
 
 import tf

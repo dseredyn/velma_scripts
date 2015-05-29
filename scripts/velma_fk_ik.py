@@ -26,7 +26,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import roslib
-roslib.load_manifest('barrett_hand_controller')
+roslib.load_manifest('velma_scripts')
 
 import PyKDL
 

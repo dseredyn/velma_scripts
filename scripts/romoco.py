@@ -271,8 +271,15 @@ Class for grasp learning.
                 traj = stage[1]
                 raw_input("Press Enter to visualize the joint trajectory...")
                 duration = math.fsum(traj[3])
-                self.openrave.showTrajectory(duration * 5.0, qar_list=traj[4])
-                self.openrave.updateRobotConfiguration(qar=traj[0][-1])
+                joint_names = []
+                for qi in range(7):
+                    joint_names.append( "right_arm_"+str(qi)+"_joint" )
+                self.openrave.showTrajectory(joint_names, duration * 5.0, traj[4])
+#                self.openrave.updateRobotConfiguration(qar=traj[0][-1])
+                qar = {}
+                for qi in range(len(traj[0][-1])):
+                    qar["right_arm_"+str(qi)+"_joint"] = traj[0][-1][qi]
+                self.openrave.updateRobotConfigurationRos(qar)
             elif stage[0] == "grasp":
                 graspable_object_name = stage[1]
 #                grasp = stage[2]
@@ -286,8 +293,15 @@ Class for grasp learning.
                     init_js = self.openrave.getRobotConfigurationRos()
                     traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_Wd_traj[0][idx])
                     raw_input("Press Enter to visualize the cartesian trajectory...")
-                    self.openrave.showTrajectory(T_B_Wd_traj[1][idx], qar_list=traj)
-                    self.openrave.updateRobotConfiguration(qar=traj[-1])
+                    joint_names = []
+                    for qi in range(7):
+                        joint_names.append( "right_arm_"+str(qi)+"_joint" )
+                    self.openrave.showTrajectory(joint_names, T_B_Wd_traj[1][idx], traj)
+#                    self.openrave.updateRobotConfiguration(qar=traj[-1])
+                    qar = {}
+                    for qi in range(len(traj[-1])):
+                        qar["right_arm_"+str(qi)+"_joint"] = traj[-1][qi]
+                    self.openrave.updateRobotConfigurationRos(qar)
             elif stage[0] == "move_gripper":
                 g_shape = stage[1]
                 self.openrave.updateRobotConfigurationRos(g_shape)
@@ -349,7 +363,7 @@ Class for grasp learning.
 
     def makePlan(self, graspable_object_name, grasp, transport_T_B_O, penalty_threshold):
 
-        if self.openrave.checkRobotCollision():
+        if self.openrave.checkRobotCollision(print_report=True):
             print "makePlan failed: robot is in collision with environment"
             return None, None
 
@@ -371,7 +385,7 @@ Class for grasp learning.
 
         self.openrave.updateRobotConfigurationRos(preshape)
 
-        if self.openrave.checkRobotCollision():
+        if self.openrave.checkRobotCollision(print_report=True):
             print "makePlan failed: robot is in collision with environment after gripper preshape execution"
             return None, None
 
@@ -391,7 +405,11 @@ Class for grasp learning.
         penalty = traj[5]
 
         # start planning from the end of the previous trajectory
-        self.openrave.updateRobotConfiguration(qar=traj[0][-1])
+#        self.openrave.updateRobotConfiguration(qar=traj[0][-1])
+        qar = {}
+        for qi in range(len(traj[0][-1])):
+            qar["right_arm_"+str(qi)+"_joint"] = traj[0][-1][qi]
+        self.openrave.updateRobotConfigurationRos(qar)
 
         # grab the body
         self.openrave.grab(graspable_object_name)
@@ -445,7 +463,12 @@ Class for grasp learning.
                 self.openrave.updateRobotConfigurationRos(config)
                 return None, None
             # start planning from the end of the previous trajectory
-            self.openrave.updateRobotConfiguration(qar=traj[-1])
+#            self.openrave.updateRobotConfiguration(qar=traj[-1])
+            qar = {}
+            for qi in range(len(traj[-1])):
+                qar["right_arm_"+str(qi)+"_joint"] = traj[-1][qi]
+            self.openrave.updateRobotConfigurationRos(qar)
+
 
         plan_ret.append(["move_cart", [cart_traj, cart_times]])
 
@@ -473,7 +496,7 @@ Class for grasp learning.
         filename_wrenches = rospack.get_path('velma_scripts') + '/data/romoco/wrenches_' + graspable_object_name + '.txt'
 
 
-        simulation_only = False
+        simulation_only = True
         if simulation_only:
             time_mult = 5.0
         else:
@@ -487,8 +510,11 @@ Class for grasp learning.
         #
         # Initialise Openrave
         #
+        rospack = rospkg.RosPack()
         self.openrave = openraveinstance.OpenraveInstance()
-        self.openrave.startOpenrave(filename_environment)
+        self.openrave.startOpenraveURDF(env_file=filename_environment, collision='pqp')
+        self.openrave.readRobot(xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro', srdf_uri=rospack.get_path('velma_description') + '/robots/velma.srdf')
+#        self.openrave.startOpenrave(filename_environment)
 
         self.openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
 

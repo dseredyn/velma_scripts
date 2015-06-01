@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<launch>
+<!--  <group>-->
+<!--           <remap from="/camera/depth_registered/points" to="/head_kinect/depth_registered/points"/>-->
+<!--           <param name="robot_description" command="$(find xacro)/xacro.py '$(find velma_description)/robots/velma.urdf.xacro'" />-->
+           <!-- upload robot description -->
+<!--           <include file="$(find freenect_launch)/launch/examples/freenect-registered-xyzrgb.launch">
+              <arg name="name" value="head_kinect" />
+           </include>
+-->
+
+
+    <include file="$(find freenect_launch)/launch/freenect.launch">
+      <arg name="camera" value="head_kinect" />
+      <arg name="depth_registration" default="true" />
+<!--      <arg name="processing_constellation_file"
+        value="$(find freenect_launch)/launch/examples/includes/produce-xyzrgb.launch" />-->
+    </include>
+      <!-- supply appropriate processing constellation -->
+<!--      <arg name="processing_constellation_file"
+        value="$(find freenect_launch)/launch/examples/includes/produce-xyzrgb.launch" />
+      <arg name="depth_registration" default="true" />-->
+<!--      <arg name="name" value="head_kinect" />-->
+<!--  </group>-->
+</launch>
+

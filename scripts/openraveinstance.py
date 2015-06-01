@@ -184,6 +184,14 @@ class OpenraveInstance:
 
 #        self.env.GetCollisionChecker().SetCollisionOptions(4)
 
+    def runOctomap(self):
+#        RaveSetDebugLevel(Level_Debug)
+#        RaveLoadPlugin('or_octomap')
+#        RaveLoadPlugin('or_octomap_checker')
+        self.or_octomap = RaveCreateSensorSystem(self.env, "or_octomap")
+        out = self.or_octomap.SendCommand("Enable")
+        self.or_octomap_checker = RaveCreateCollisionChecker(self.env, "or_octomap_checker")
+
     def setCamera(self, cam_pos, target_pos):
             cam_z = target_pos - cam_pos
             focalDistance = cam_z.Norm()

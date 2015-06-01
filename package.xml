@@ -16,6 +16,7 @@
 
   <run_depend>openrave</run_depend>
   <run_depend>openrave_catkin</run_depend>
+  <run_depend>freenect_launch</run_depend>
   <run_depend>rtt</run_depend>
   <run_depend>rtt_ros</run_depend>
   <run_depend>rtt_rosnode</run_depend> 

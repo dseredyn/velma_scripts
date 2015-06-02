@@ -1,6 +1,5 @@
 <?xml version="1.0"?>
 <launch>
-
 	<!-- upload robot description -->
 	<include file="$(find velma_description)/launch/upload_robot.launch" />
 

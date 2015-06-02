@@ -1,6 +1,5 @@
 <?xml version="1.0"?>
 <launch>
-
 	<!-- upload robot description -->
 	<include file="$(find velma_description)/launch/upload_robot.launch" />
 
@@ -12,25 +11,6 @@
                   name="velma_robot"
                   pkg="velma_scripts" type="velma_fake.py">
                 </node>
-
-                <node
-                  name="right_arm_markers"
-                  pkg="velma_controller" type="arm_markers.py"
-                  args="right --">
-                </node>
-
-                <node
-                  name="left_arm_markers"
-                  pkg="velma_controller" type="arm_markers.py"
-                  args="left --">
-                </node>
 	</group>
-
-<!--	<group>
-		<machine name="pc2" address="$(arg pc2)" env-loader="$(find velma_machine)/velma_env.sh" default="true" />-->
-		<!-- start sensors -->
-<!--		<include file="$(find velma_bringup)/launch/components/head_sensors.launch" />
-	</group>-->
-
 </launch>
 

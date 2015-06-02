@@ -65,7 +65,7 @@ import velma_fk_ik
 
 class MarkerPublisher:
     def __init__(self):
-        self.pub_marker = rospy.Publisher('/velma_markers', MarkerArray)
+        self.pub_marker = rospy.Publisher('/velma_markers', MarkerArray, queue_size=1000)
 
     def publishSinglePointMarker(self, pt, i, r=1, g=0, b=0, a=1, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.005, 0.005, 0.005), T=None):
         m = MarkerArray()

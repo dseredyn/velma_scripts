@@ -93,48 +93,66 @@ class TestOrOctomap:
 
         sphere = RaveCreateKinBody(openrave.env,'')
         sphere.SetName("sphere")
-        sphere.InitFromSpheres(numpy.array([[0,0,0,0.1]]),True)
+        sphere.InitFromSpheres(numpy.array([[0,0,0,0.05]]),True)
         openrave.env.Add(sphere,True)
 
+        # test the collision checker for octomap
+        if True:
+            raw_input("Press ENTER to continue...")
+
+            ob = openrave.env.GetKinBody("_OCTOMAP_MAP_")
+            cc = openrave.env.GetCollisionChecker()
+
+            m_id = 0
+            for x in np.linspace(0,1.5,30):
+                for y in np.linspace(-1,1,40):
+                    for z in np.linspace(1,2,20):
+#                        print x,y,z
+                        tr = self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(x,y,z)))
+                        sphere.SetTransform(tr)
+                        openrave.env.UpdatePublishedBodies()
+                        report = CollisionReport()
+                        ret = cc.CheckCollision(sphere, report)
+#                        ret = openrave.env.CheckCollision(ob, report)
+#                        print ret
+                        if ret:
+                            m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(x,y,z), m_id, r=1, g=0, b=0, a=1, namespace='default', frame_id='world', m_type=Marker.SPHERE, scale=Vector3(0.1, 0.1, 0.1), T=None)
+
+                        continue
+                        if report.plink1 == None:
+                            print None
+                        else:
+                            print report.plink1.GetParent().GetName(), report.plink2.GetName() 
+#                            print "   ", report.vLinkColliding
+                            for link1, link2 in report.vLinkColliding:
+                                print "   ", link1.GetParent().GetName(), link2.GetName()
+#                            print report.plink1.GetParent().GetName(), report.plink2.GetParent().GetName() 
+
+        exit(0)
+
         self.pub_head_look_at = rospy.Publisher("/head_lookat_pose", geometry_msgs.msg.Pose)
+
+        raw_input("Press ENTER to look around...")
+
+#        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(0.2,-0.5,1))))
+#        raw_input("Press ENTER to exit...")
+
+#        exit(0)
         raw_input("Press ENTER to look around...")
         self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,2))))
         raw_input("Press ENTER to look around...")
-        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(0,1,2))))
+        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(0.2,1,2))))
         raw_input("Press ENTER to look around...")
-        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(0,1,1.2))))
+        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(0.2,1,1.2))))
         raw_input("Press ENTER to look around...")
         self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.2))))
         raw_input("Press ENTER to look around...")
-        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(0,-1,1.2))))
+        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(0.2,-1,1.2))))
         raw_input("Press ENTER to look around...")
-        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(0,-1,2))))
+        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(0.2,-1,2))))
         raw_input("Press ENTER to look around...")
         self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,2))))
 
-        ob = openrave.env.GetKinBody("_OCTOMAP_MAP_")
-        cc = openrave.env.GetCollisionChecker()
-
-        for x in np.linspace(-2,2,10):
-            for y in np.linspace(-2,2,10):
-                for z in np.linspace(0,2,10):
-                    print x,y,z
-                    tr = self.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(x,y,z)))
-                    sphere.SetTransform(tr)
-                    openrave.env.UpdatePublishedBodies()
-                    report = CollisionReport()
-                    ret = cc.CheckCollision(sphere, report)
-#                    ret = openrave.env.CheckCollision(ob, report)
-                    print ret
-                    continue
-                    if report.plink1 == None:
-                        print None
-                    else:
-                        print report.plink1.GetParent().GetName(), report.plink2.GetName() 
-#                        print "   ", report.vLinkColliding
-                        for link1, link2 in report.vLinkColliding:
-                            print "   ", link1.GetParent().GetName(), link2.GetName()
-#                        print report.plink1.GetParent().GetName(), report.plink2.GetParent().GetName() 
 
 
         raw_input(".")

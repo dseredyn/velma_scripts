@@ -193,15 +193,15 @@ class TestOrOctomap:
         dof_names = [
         "head_pan_joint",
         "head_tilt_joint",
-#        "left_arm_0_joint",
-#        "left_arm_1_joint",
+        "left_arm_0_joint",
+        "left_arm_1_joint",
 #        "left_arm_2_joint",
 #        "left_arm_3_joint",
 #        "left_arm_4_joint",
 #        "left_arm_5_joint",
 #        "left_arm_6_joint",
-#        "right_arm_0_joint",
-#        "right_arm_1_joint",
+        "right_arm_0_joint",
+        "right_arm_1_joint",
 #        "right_arm_2_joint",
 #        "right_arm_3_joint",
 #        "right_arm_4_joint",
@@ -276,21 +276,27 @@ class TestOrOctomap:
         #
         def RRTstar(openrave, dof_limits, dof_indices):
             ETA = 10.0/180.0*math.pi
-            gamma = 5.0
+            gamma = 0.1
             d = len(dof_indices)
             
             def Distance(q1, q2):
                 q_diff = q1 - q2
                 return math.sqrt( np.dot(q_diff, q_diff) )
 
-            def SampleFree(openrave, dof_indices, dof_limits):
+            def SampleFree(openrave, dof_indices, dof_limits, best_q, start_q, shortest_path_len):
+                if best_q != None and random.uniform(0,1) < 0.05:
+                    return best_q
                 while True:
-                    q_rand = []
+                    q_rand_list = []
                     for i in range(len(dof_limits)):
-                        q_rand.append( random.uniform(dof_limits[i][0]+0.01, dof_limits[i][1]-0.01) )
-
+                        q_rand_list.append( random.uniform(dof_limits[i][0]+0.01, dof_limits[i][1]-0.01) )
+                    q_rand = np.array(q_rand_list)
+                    if best_q != None:
+                        dist = Distance(q_rand, start_q) + Distance(q_rand, best_q)
+                        if dist > shortest_path_len:
+                            continue
                     if isStateValid(openrave, q_rand, dof_indices):
-                        return np.array(q_rand)
+                        return q_rand
 
             def Nearest(V, q):
                 q_near = None
@@ -319,12 +325,19 @@ class TestOrOctomap:
                         result.append(vi)
                 return result
 
-            def Cost(q1, q2):
+            def CostLine(q1, q2):
                 return Distance(q1, q2)
+
+            def Cost(V, E, q_idx):
+                if not q_idx in E:
+                    return 0.0
+                parent_idx = E[q_idx]
+                cost = CostLine(V[parent_idx], V[q_idx]) + Cost(V, E, parent_idx)
+                return cost
 
             def CollisionFree(openrave, q1, q2, dof_indices):
                 dist = Distance(q1,q2)
-                steps = int(dist / (2.0/180.0*math.pi))
+                steps = int(dist / (10.0/180.0*math.pi))
                 if steps < 1:
                     steps = 1
                 for i in range(steps):
@@ -333,11 +346,21 @@ class TestOrOctomap:
                         return False
                 return True
 
-            def Parent(E, q_idx):
-                for q_p_idx in E:
-                    if q_idx in E[q_p_idx]:
-                        return q_p_idx
-                return None
+            def GetPath(V, E, q_idx):
+                if not q_idx in E:
+                    return [q_idx]
+                parent_idx = E[q_idx]
+                q_list = GetPath(V, E, parent_idx)
+                q_list.append(q_idx)
+                return q_list
+
+            def DrawPath(V, E, q_idx):
+                if not q_idx in E:
+                    return 0
+                parent_idx = E[q_idx]
+                m_id = DrawPath(V, E, parent_idx)
+                m_id = self.pub_marker.publishVectorMarker(PyKDL.Vector(V[parent_idx][0], V[parent_idx][1], V[parent_idx][2]), PyKDL.Vector(V[q_idx][0], V[q_idx][1], V[q_idx][2]), m_id, 1, 0, 0, frame='world', namespace='shortest_path', scale=0.02)
+                return m_id
 
             if debug:
                 edge_ids = {}
@@ -345,15 +368,15 @@ class TestOrOctomap:
 
             shortest_path_len = None
             best_vis = 0
+            best_q = None
+            best_q_idx = None
             V_vis = []
             V = []
-            cost = {}
             E = {}
             q_init = openrave.robot_rave.GetDOFValues(dof_indices)
             V.append(np.array(q_init))
-            cost[0] = 0.0
-            for k in range(10000):
-                q_rand = SampleFree(openrave, dof_indices, dof_limits)
+            for k in range(4500):
+                q_rand = SampleFree(openrave, dof_indices, dof_limits, best_q, q_init, shortest_path_len)
                 q_nearest_idx = Nearest(V, q_rand)
                 q_nearest = V[q_nearest_idx]
                 q_new = Steer(q_nearest, q_rand)
@@ -365,62 +388,68 @@ class TestOrOctomap:
                     V.append(q_new)
                     q_new_idx = len(V) - 1
                     q_min_idx = q_nearest_idx
-                    c_min = cost[q_nearest_idx] + Cost(q_nearest, q_new)
+                    c_min = Cost(V, E, q_nearest_idx) + CostLine(q_nearest, q_new)
                     for q_near_idx in q_near_idx_list:
                         q_near = V[q_near_idx]
-                        if CollisionFree(openrave, q_near, q_new, dof_indices) and cost[q_near_idx] + Cost(q_near, q_new) < c_min:
+                        if CollisionFree(openrave, q_near, q_new, dof_indices) and Cost(V, E, q_near_idx) + CostLine(q_near, q_new) < c_min:
                             q_min_idx = q_near_idx
-                            c_min = cost[q_near_idx] + Cost(q_near, q_new)
+                            c_min = Cost(V, E, q_near_idx) + CostLine(q_near, q_new)
 
-                    if not q_min_idx in E:
-                        E[q_min_idx] = []
-                    E[q_min_idx].append( q_new_idx )
+                    E[q_new_idx] = q_min_idx
+
                     if debug:
                         edge_ids[(q_min_idx, q_new_idx)] = edge_id
                         self.pub_marker.publishVectorMarker(PyKDL.Vector(V[q_min_idx][0], V[q_min_idx][1], V[q_min_idx][2]), PyKDL.Vector(V[q_new_idx][0], V[q_new_idx][1], V[q_new_idx][2]), edge_id, 0, 1, 0, frame='world', namespace='edges', scale=0.01)
                         edge_id += 1
-                    cost[q_new_idx] = cost[q_min_idx] + Cost(V[q_min_idx], q_new)
 
                     for q_near_idx in q_near_idx_list:
                         q_near = V[q_near_idx]
-                        if CollisionFree(openrave, q_new, q_near, dof_indices) and cost[q_new_idx] + Cost(q_new, q_near) < cost[q_near_idx]:
-                            q_parent_idx = Parent(E, q_near_idx)
-#                            print E
-                            if q_parent_idx == None:
-                                print "BUG: %s"%(q_near_idx)
-                            E[q_parent_idx].remove(q_near_idx)
+                        if CollisionFree(openrave, q_new, q_near, dof_indices) and Cost(V, E, q_new_idx) + CostLine(q_new, q_near) < Cost(V, E, q_near_idx):
+                            # Parent()
+                            q_parent_idx = E[q_near_idx]
                             print "rem: %s  %s"%(q_parent_idx, q_near_idx)
 
                             edge_id_del = None
                             if debug:
                                 edge_id_del = edge_ids[(q_parent_idx, q_near_idx)]
-#                                del edge_ids[(q_parent_idx, q_near_idx)]
-
-                            if not q_new_idx in E:
-                                E[q_new_idx] = []
-                            E[q_new_idx].append(q_near_idx)
+                            E[q_near_idx] = q_new_idx
                             if debug:
                                 edge_ids[(q_new_idx, q_near_idx)] = edge_id_del
                                 self.pub_marker.publishVectorMarker(PyKDL.Vector(V[q_new_idx][0], V[q_new_idx][1], V[q_new_idx][2]), PyKDL.Vector(V[q_near_idx][0], V[q_near_idx][1], V[q_near_idx][2]), edge_id_del, 0, 1, 0, frame='world', namespace='edges', scale=0.01)
-                            cost[q_new_idx] = cost[q_near_idx] + Cost(q_near, q_new)
 
-#                    m_id = self.pub_marker.publishVectorMarker(PyKDL.Vector(V[q_near[1]][0], V[q_near[1]][1], V[q_near[1]][2]), PyKDL.Vector(q_new[0], q_new[1], q_new[2]), m_id, 0, 1, 0, frame='world', namespace='kinect_head_rays', scale=0.01)
                     vis = getVisibility(openrave, vis_bodies, q=q_new, dof_indices=dof_indices)
                     if vis > best_vis:
                         best_vis = vis
-                        shortest_path_len = cost[q_new_idx]
+                        best_q = q_new
+                        best_q_idx = q_new_idx
+                        shortest_path_len = Cost(V, E, q_new_idx)
+                        self.pub_marker.eraseMarkers(0, 200, frame_id='torso_base', namespace='shortest_path')
+                        DrawPath(V, E, q_new_idx)
                         print " %s  vis %s, shortest_path: %s"%(k, vis, shortest_path_len)
                     elif vis == best_vis and best_vis > 0:
-                        if shortest_path_len == None or shortest_path_len > cost[q_new_idx]:
-                            shortest_path_len = cost[q_new_idx]
+                        if shortest_path_len == None or shortest_path_len > Cost(V, E, q_new_idx):
+                            best_q = q_new
+                            best_q_idx = q_new_idx
+                            shortest_path_len = Cost(V, E, q_new_idx)
+                            self.pub_marker.eraseMarkers(0, 200, frame_id='torso_base', namespace='shortest_path')
+                            DrawPath(V, E, q_new_idx)
                         print " %s  vis %s, shortest_path: %s"%(k, vis, shortest_path_len)
 
-#                        V_vis.append(q_new)
-#                    raw_input(".")
-            for q in V_vis:
-                openrave.robot_rave.SetDOFValues(q, dof_indices)
-                openrave.env.UpdatePublishedBodies()
+            path = GetPath(V, E, best_q_idx)
+            print path
+
+            traj = []
+            for q_idx in path:
+                traj.append(V[q_idx])
+
+            while True:
                 raw_input(".")
+                openrave.showTrajectory(dof_names, 10.0, traj)
+            
+#            for q in V_vis:
+#                openrave.robot_rave.SetDOFValues(q, dof_indices)
+#                openrave.env.UpdatePublishedBodies()
+#                raw_input(".")
 
         RRTstar(openrave, dof_limits, dof_indices)
 

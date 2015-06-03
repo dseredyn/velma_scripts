@@ -216,8 +216,105 @@ class TestOrOctomap:
         "left_arm_6_joint",
         ]
 
+        dof_indices_torso = []
+        dof_limits_torso = []
+        for joint_name in dof_names_torso:
+            joint = openrave.robot_rave.GetJoint(joint_name)
+            dof_indices_torso.append( joint.GetDOFIndex() )
+            lim_lo, lim_up = joint.GetLimits()
+            dof_limits_torso.append( (lim_lo[0], lim_up[0]) )
 
-#        return
+        dof_indices_left_arm = []
+        dof_limits_left_arm = []
+        for joint_name in dof_names_left_arm:
+            joint = openrave.robot_rave.GetJoint(joint_name)
+            dof_indices_left_arm.append( joint.GetDOFIndex() )
+            lim_lo, lim_up = joint.GetLimits()
+            dof_limits_left_arm.append( (lim_lo[0], lim_up[0]) )
+
+        # for planning torso movement disable arms links
+        disabled_links_torso = [
+        "calib_left_arm_base_link",
+        "calib_right_arm_base_link",
+        "left_HandFingerOneKnuckleOneLink",
+        "left_HandFingerOneKnuckleThreeLink",
+        "left_HandFingerOneKnuckleTwoLink",
+        "left_HandFingerThreeKnuckleThreeLink",
+        "left_HandFingerThreeKnuckleTwoLink",
+        "left_HandFingerTwoKnuckleOneLink",
+        "left_HandFingerTwoKnuckleThreeLink",
+        "left_HandFingerTwoKnuckleTwoLink",
+        "left_HandPalmLink",
+        "left_arm_2_link",
+        "left_arm_3_link",
+        "left_arm_4_link",
+        "left_arm_5_link",
+        "left_arm_6_link",
+        "left_arm_7_link",
+        "left_gripper_calib_link",
+        "left_gripper_calib_link1",
+        "left_gripper_calib_link2",
+        "left_gripper_mount_link",
+        "left_hand_camera_link",
+        "left_hand_camera_optical_frame",
+        "right_HandFingerOneKnuckleOneLink",
+        "right_HandFingerOneKnuckleThreeLink",
+        "right_HandFingerOneKnuckleTwoLink",
+        "right_HandFingerThreeKnuckleThreeLink",
+        "right_HandFingerThreeKnuckleTwoLink",
+        "right_HandFingerTwoKnuckleOneLink",
+        "right_HandFingerTwoKnuckleThreeLink",
+        "right_HandFingerTwoKnuckleTwoLink",
+        "right_HandPalmLink",
+        "right_arm_2_link",
+        "right_arm_3_link",
+        "right_arm_4_link",
+        "right_arm_5_link",
+        "right_arm_6_link",
+        "right_arm_7_link",
+        "right_gripper_calib_link",
+        "right_gripper_calib_link1",
+        "right_gripper_calib_link2",
+        "right_gripper_mount_link",
+        "torso_base",
+        "torso_link0",
+        ]
+
+        # for planning left arm movement disable right arm links
+        disabled_links_left_arm = [
+        "calib_right_arm_base_link",
+        "right_HandFingerOneKnuckleOneLink",
+        "right_HandFingerOneKnuckleThreeLink",
+        "right_HandFingerOneKnuckleTwoLink",
+        "right_HandFingerThreeKnuckleThreeLink",
+        "right_HandFingerThreeKnuckleTwoLink",
+        "right_HandFingerTwoKnuckleOneLink",
+        "right_HandFingerTwoKnuckleThreeLink",
+        "right_HandFingerTwoKnuckleTwoLink",
+        "right_HandPalmLink",
+        "right_arm_2_link",
+        "right_arm_3_link",
+        "right_arm_4_link",
+        "right_arm_5_link",
+        "right_arm_6_link",
+        "right_arm_7_link",
+        "right_gripper_calib_link",
+        "right_gripper_calib_link1",
+        "right_gripper_calib_link2",
+        "right_gripper_mount_link",
+        ]
+
+        # planning for torso
+        for link in openrave.robot_rave.GetLinks():
+            if link.GetName() in disabled_links_torso:
+                link.Enable(False)
+            else:
+                link.Enable(True)
+
+        # TODO
+
+
+        return
 
         dof_names = [
         "head_pan_joint",
@@ -414,6 +511,10 @@ class TestOrOctomap:
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenraveURDF(env_file=rospack.get_path('velma_scripts') + '/data/key/vis_test.env.xml')
         openrave.readRobot(xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro', srdf_uri=rospack.get_path('velma_description') + '/robots/velma.srdf')
+
+#        for link in openrave.robot_rave.GetLinks():
+#            print link.GetName()
+#        exit(0)
 
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
 

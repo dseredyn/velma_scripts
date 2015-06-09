@@ -212,7 +212,7 @@ class TestOrOctomap:
             return self.transformationWorldFromEllipse_ * np.transpose(np.matrix(sphere)) + np.transpose(np.matrix(self.xCentre_));
 
         def setTransverseDiameter(self, transverseDiameter):
-            if transverseDiameter < self.minTransverseDiameter_:
+            if transverseDiameter+0.001 < self.minTransverseDiameter_:
                 print "ERROR: setTransverseDiameter:", transverseDiameter, " <", self.minTransverseDiameter_
             #    std::cout << transverseDiameter << " < " << minTransverseDiameter_ << std::endl;
             #    throw Exception("Transverse diameter cannot be less than the distance between the foci.");
@@ -223,7 +223,7 @@ class TestOrOctomap:
                 #isTransformUpToDate_ = false;
 
             # Store
-            self.transverseDiameter_ = transverseDiameter
+            self.transverseDiameter_ = transverseDiameter+0.001
 
             # Update the transform
             self.updateTransformation()
@@ -447,34 +447,31 @@ class TestOrOctomap:
             
             def Distance(q1, q2):
                 return np.linalg.norm(q1-q2)
-#                q_diff = q1 - q2
-#                return math.sqrt( np.dot(q_diff, q_diff) )
 
-            def GetPath(V, E, q_idx):
+            def GetPath(E, q_idx):
                 if not q_idx in E:
                     return [q_idx]
                 parent_idx = E[q_idx]
-                q_list = GetPath(V, E, parent_idx)
+                q_list = GetPath(E, parent_idx)
                 q_list.append(q_idx)
                 return q_list
 
             def SampleFree(openrave, dof_indices, dof_limits, best_q, start_q, shortest_path_len, best_q_idx, V, E):
-                search_near_goal = False
+                search_near_path = False
 
                 if best_q_idx != None and random.uniform(0,1) < 0.1:
-                    path = GetPath(V, E, best_q_idx)
-                    p_idx = random.randint(0, len(path)-1)
-                    search_near_q = V[path[p_idx]]
-                    search_near_goal = True
+                    path = GetPath(E, best_q_idx)
+#                    print "path", path
+#                    print "p_idx", p_idx
+                    search_near_path = True
 
-#                if best_q != None and random.uniform(0,1) < 0.05:
-#                    search_near_goal = True
-#                    return best_q
                 tries = 0
                 while True:
                     tries += 1
-                    if search_near_goal:
+                    if search_near_path:
                         q_rand_list = []
+                        p_idx = random.randint(0, len(path)-1)
+                        search_near_q = V[path[p_idx]]
                         for i in range(len(dof_limits)):
                             lim_lo = max(dof_limits[i][0], search_near_q[i]-20.0/180.0*math.pi)
                             lim_up = min(dof_limits[i][1], search_near_q[i]+20.0/180.0*math.pi)
@@ -500,28 +497,13 @@ class TestOrOctomap:
                         if outside_bounds:
                             continue
 
-#                        start_dist_2 = 0.0
-#                        goal_dist_2 = 0.0
-#                        q_rand_list = []
-#                        for i in range(len(dof_limits)):
-#                            qi_rand = random.uniform(dof_limits[i][0]+0.01, dof_limits[i][1]-0.01)
-#                            q_rand_list.append( qi_rand )
-#                            start_dist_2 += (qi_rand-start_q)*(qi_rand-start_q)
-#                            goal_dist_2 += (qi_rand-best_q)*(qi_rand-best_q)
-#                            if math.sqrt()
-#                        q_rand = np.array(q_rand_list)
-
-#                    if best_q != None:
-#                        dist = Distance(q_rand, start_q) + Distance(q_rand, best_q)
-#                        if dist > shortest_path_len:
-#                            continue
                     if isStateValid(openrave, q_rand, dof_indices):
-                        print "SampleFree:", tries #, "self.phs", self.phs == None
+                        print "SampleFree:", tries
                         return q_rand
 
             def Nearest(V, q):
                 q_near = None
-                for vi in range(len(V)):
+                for vi in V:
                     dist = Distance(q_rand, V[vi])
                     if q_near == None or dist < q_near[0]:
                         q_near = (dist, vi)
@@ -539,10 +521,7 @@ class TestOrOctomap:
 
             def Near(V, q, near_dist):
                 result = []
-                for vi in range(len(V)):
-#                    diff = V[vi]-q
-#                    dist = np.linalg(V[vi]-q) #math.sqrt( np.dot(diff, diff) )
-#                    if dist < near_dist:
+                for vi in V:
                     if Distance(q, V[vi]) < near_dist:
                         result.append(vi)
                 return result
@@ -586,23 +565,27 @@ class TestOrOctomap:
             for lim in dof_limits:
                 rrt_switch += (lim[1] - lim[0]) * (lim[1] - lim[0]) / 4.0
 
-            rrt_switch = math.sqrt(rrt_switch)
-#            rrt_switch = 0.0
+#            rrt_switch = math.sqrt(rrt_switch)
+            rrt_switch = 0.0
             print "rrt_switch", rrt_switch
 
             self.phs = None
 
             shortest_path_len = None
+            shortest_path_len_prev = None
             best_vis = 0
             best_q = None
             best_q_idx = None
             V_vis = []
-            V = []
+#            V = []
+            V = {}
             E = {}
             goal_V_ids = []
             q_init = openrave.robot_rave.GetDOFValues(dof_indices)
             self.q_init = np.array(q_init)
-            V.append(np.array(q_init))
+#            V.append(np.array(q_init))
+            q_new_idx = 0
+            V[0] = np.array(q_init)
             for k in range(10000):
                 q_rand = SampleFree(openrave, dof_indices, dof_limits, best_q, q_init, shortest_path_len, best_q_idx, V, E)
                 q_nearest_idx = Nearest(V, q_rand)
@@ -627,7 +610,6 @@ class TestOrOctomap:
                         cost_q_near_idx_list.append( (Cost(V, E, q_near_idx) + CostLine(q_near, q_new), q_near_idx) ) 
 
                     sorted_cost_q_near_idx_list = sorted(cost_q_near_idx_list, key=operator.itemgetter(0))
-#                    print sorted_cost_q_near_idx_list
 
                     for (new_cost, q_near_idx) in sorted_cost_q_near_idx_list:
                         q_near = V[q_near_idx]
@@ -650,10 +632,12 @@ class TestOrOctomap:
 #                                q_min_idx = q_near_idx
 #                                c_min = new_cost
 
-                    if c_min > 40.0:
+                    if shortest_path_len != None and c_min > shortest_path_len:
                         continue
-                    V.append(q_new)
-                    q_new_idx = len(V) - 1
+#                    V.append(q_new)
+#                    q_new_idx = len(V) - 1
+                    q_new_idx += 1
+                    V[q_new_idx] = q_new
                     E[q_new_idx] = q_min_idx
 
                     if debug:
@@ -732,11 +716,23 @@ class TestOrOctomap:
 #                                else:
                                 self.phs.setTransverseDiameter(shortest_path_len)
 
+                    if shortest_path_len_prev != shortest_path_len:
+                        rem_nodes = []
+                        for vi in V:
+                            if Cost(V, E, vi) > shortest_path_len:
+                                rem_nodes.append(vi)
+                        print "removing nodes:", len(rem_nodes)
+                        for vi in rem_nodes:
+                            del V[vi]
+                            self.pub_marker.eraseMarkers(edge_ids[(E[vi], vi)], edge_ids[(E[vi], vi)]+1, frame_id='torso_base', namespace='edges')
+                            if vi in goal_V_ids:
+                                goal_V_ids.remove(vi)
+                        shortest_path_len_prev = shortest_path_len
 #                    if shortest_path_len != None and shortest_path_len < 3.2:
 #                        break
                     if self.stop_planning:
                         break
-            path = GetPath(V, E, best_q_idx)
+            path = GetPath(E, best_q_idx)
             print path
 
             traj = []

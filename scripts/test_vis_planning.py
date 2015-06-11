@@ -376,6 +376,10 @@ class TestOrOctomap:
         "torso_0_joint",
 #        "torso_1_joint",
         ]
+        arms_dof = [
+        [2,3,4,5],
+        [6,7,8,9],
+        ]
 
         dof_indices = []
         dof_limits = []
@@ -458,12 +462,19 @@ class TestOrOctomap:
 
             def SampleFree(openrave, dof_indices, dof_limits, best_q, start_q, shortest_path_len, best_q_idx, V, E):
                 search_near_path = False
+                search_for_one_arm = False
 
-                if best_q_idx != None and random.uniform(0,1) < 0.1:
+                random_0_1 = random.uniform(0,1)
+                if best_q_idx != None and random_0_1 < 0.05:
                     path = GetPath(E, best_q_idx)
-#                    print "path", path
-#                    print "p_idx", p_idx
                     search_near_path = True
+                elif random_0_1 < 0.2:
+                    arm_id = random.randint(0,1)
+                    search_for_one_arm = True
+                    # get one node
+                    v_idx = random.choice(V.keys())#random.randint(0, len(V)-1)
+
+                search_for_one_arm = False
 
                 tries = 0
                 while True:
@@ -473,10 +484,18 @@ class TestOrOctomap:
                         p_idx = random.randint(0, len(path)-1)
                         search_near_q = V[path[p_idx]]
                         for i in range(len(dof_limits)):
-                            lim_lo = max(dof_limits[i][0], search_near_q[i]-20.0/180.0*math.pi)
-                            lim_up = min(dof_limits[i][1], search_near_q[i]+20.0/180.0*math.pi)
+                            lim_lo = max(dof_limits[i][0], search_near_q[i]-10.0/180.0*math.pi)
+                            lim_up = min(dof_limits[i][1], search_near_q[i]+10.0/180.0*math.pi)
                             q_rand_list.append( random.uniform(lim_lo, lim_up) )
+#                            q_rand_list.append( search_near_q[i] )
+#                        q_rand_list[random.randint(0, len(dof_limits)-1)] += random.uniform(-20.0/180.0*math.pi, 20.0/180.0*math.pi)
                         q_rand = np.array(q_rand_list)
+                    elif search_for_one_arm:
+                        q_rand = V[v_idx]
+                        for dof_idx in arms_dof[arm_id]:
+                            lim_lo = max(dof_limits[dof_idx][0], q_rand[dof_idx]-5.0/180.0*math.pi)
+                            lim_up = min(dof_limits[dof_idx][1], q_rand[dof_idx]+5.0/180.0*math.pi)
+                            q_rand[dof_idx] = random.uniform(lim_lo, lim_up)
                     elif best_q == None or self.phs == None:
                         q_rand_list = []
                         for i in range(len(dof_limits)):
@@ -495,16 +514,26 @@ class TestOrOctomap:
                                 break
 
                         if outside_bounds:
+                            if tries > 2000:
+                                print "disabling phs..."
+#                                raw_input("Press ENTER to continue...")
+                                rrt_switch = 0.9 * shortest_path_len
+                                self.phs = None
                             continue
 
                     if isStateValid(openrave, q_rand, dof_indices):
-                        print "SampleFree:", tries
+#                        print "SampleFree:", tries
                         return q_rand
+
+            def CostLine(q1, q2):
+                cost = Distance(q1, q2)# * (np.linalg.norm(q1-self.q_init) + np.linalg.norm(q2-self.q_init)) * 0.5
+                return cost
 
             def Nearest(V, q):
                 q_near = None
                 for vi in V:
-                    dist = Distance(q_rand, V[vi])
+                    dist = Distance(q, V[vi])
+#                    dist = CostLine(q, V[vi])
                     if q_near == None or dist < q_near[0]:
                         q_near = (dist, vi)
                 return q_near[1]
@@ -526,28 +555,38 @@ class TestOrOctomap:
                         result.append(vi)
                 return result
 
-            def CostLine(q1, q2):
-                cost = Distance(q1, q2) * (np.linalg.norm(q1-self.q_init) + np.linalg.norm(q2-self.q_init)) * 0.5
-                return cost
-
             def Cost(V, E, q_idx):
                 if not q_idx in E:
                     return 0.0
                 parent_idx = E[q_idx]
+                if not parent_idx in V:
+                    print "not parent_idx in V: %s"%(parent_idx)
+                if not q_idx in V:
+                    print "not q_idx in V: %s"%(q_idx)
                 cost = CostLine(V[parent_idx], V[q_idx]) + Cost(V, E, parent_idx)
                 return cost
 
-            def CollisionFree(openrave, q1, q2, dof_indices):
+            def CollisionFree(openrave, q1, q2, dof_indices, return_closest_q=False):
                 dist = max(abs(q1-q2))
 #                dist = Distance(q1,q2)
                 steps = int(dist / (10.0/180.0*math.pi))
                 if steps < 2:
                     steps = 2
-                for i in range(1, steps-1):
-                    t = float(i)/float(steps)
-                    if not isStateValid(openrave, q1 * (1.0-t) + q2 * t, dof_indices):
-                        return False
-                return True
+                last_valid_q = None
+                for i in range(1, steps):
+#                    print "CollisionFree i: %s / %s"%(i, steps-1)
+                    t = float(i)/float(steps-1)
+                    current_q = q1 * (1.0-t) + q2 * t
+                    if not isStateValid(openrave, current_q, dof_indices):
+                        if return_closest_q:
+                            return last_valid_q 
+                        else:
+                            return False
+                    last_valid_q = current_q
+                if return_closest_q:
+                    return q2
+                else:
+                    return True
 
             def DrawPath(V, E, q_idx):
                 if not q_idx in E:
@@ -565,8 +604,8 @@ class TestOrOctomap:
             for lim in dof_limits:
                 rrt_switch += (lim[1] - lim[0]) * (lim[1] - lim[0]) / 4.0
 
-#            rrt_switch = math.sqrt(rrt_switch)
-            rrt_switch = 0.0
+            rrt_switch = math.sqrt(rrt_switch)
+#            rrt_switch = 0.0
             print "rrt_switch", rrt_switch
 
             self.phs = None
@@ -577,27 +616,43 @@ class TestOrOctomap:
             best_q = None
             best_q_idx = None
             V_vis = []
-#            V = []
             V = {}
             E = {}
             goal_V_ids = []
             q_init = openrave.robot_rave.GetDOFValues(dof_indices)
             self.q_init = np.array(q_init)
-#            V.append(np.array(q_init))
             q_new_idx = 0
             V[0] = np.array(q_init)
-            for k in range(10000):
+            for k in range(100000):
+                time = []
+                time.append( rospy.Time.now() )
                 q_rand = SampleFree(openrave, dof_indices, dof_limits, best_q, q_init, shortest_path_len, best_q_idx, V, E)
+                time.append( rospy.Time.now() )
                 q_nearest_idx = Nearest(V, q_rand)
+                time.append( rospy.Time.now() )
                 q_nearest = V[q_nearest_idx]
                 q_new = Steer(q_nearest, q_rand)
-                if CollisionFree(openrave, q_nearest, q_new, dof_indices):
+                col_free = CollisionFree(openrave, q_nearest, q_new, dof_indices)
+#                q_new = CollisionFree(openrave, q_nearest, q_new, dof_indices, return_closest_q=True)
+#                col_free = (q_new != None)
+                time.append( rospy.Time.now() )
+                if col_free:
+
+                    if not isStateValid(openrave, q_new, dof_indices):
+                        print "ERROR: invalid q_new"
+                        exit(0)
+                        
+                    if shortest_path_len != None and CostLine(self.q_init, q_new) > shortest_path_len:
+                        continue
+
 #                    near_dist = gamma*math.log(len(V))/len(V)
                     near_dist = 120.0/180.0*math.pi#min(gamma*math.pow(math.log(len(V))/len(V), 1.0/d), ETA)
 #                    print k, near_dist
 #                    near_dist = min(gamma*math.log(len(V))/len(V), ETA)
                     q_near_idx_list = Near(V, q_new, near_dist)
 #                    print "q_near_idx_list", len(q_near_idx_list)
+
+                    time.append( rospy.Time.now() )
 
                     # sort the neighbours
                     cost_q_near_idx_list = []
@@ -611,6 +666,8 @@ class TestOrOctomap:
 
                     sorted_cost_q_near_idx_list = sorted(cost_q_near_idx_list, key=operator.itemgetter(0))
 
+                    time.append( rospy.Time.now() )
+
                     for (new_cost, q_near_idx) in sorted_cost_q_near_idx_list:
                         q_near = V[q_near_idx]
                         if CollisionFree(openrave, q_near, q_new, dof_indices):
@@ -618,8 +675,7 @@ class TestOrOctomap:
                             c_min = new_cost
                             break
 
-#                    V.append(q_new)
-#                    q_new_idx = len(V) - 1
+                    time.append( rospy.Time.now() )
 
                     # without sorting
 #                    q_min_idx = q_nearest_idx
@@ -632,22 +688,23 @@ class TestOrOctomap:
 #                                q_min_idx = q_near_idx
 #                                c_min = new_cost
 
-                    if shortest_path_len != None and c_min > shortest_path_len:
-                        continue
-#                    V.append(q_new)
-#                    q_new_idx = len(V) - 1
+#                    if shortest_path_len != None and c_min > shortest_path_len:
+#                        continue
                     q_new_idx += 1
                     V[q_new_idx] = q_new
                     E[q_new_idx] = q_min_idx
+                    print "len(V) len(E)", len(V), len(E)
 
                     if debug:
                         edge_ids[(q_min_idx, q_new_idx)] = edge_id
                         self.pub_marker.publishVectorMarker(PyKDL.Vector(V[q_min_idx][0], V[q_min_idx][1], V[q_min_idx][2]), PyKDL.Vector(V[q_new_idx][0], V[q_new_idx][1], V[q_new_idx][2]), edge_id, 0, 1, 0, frame='world', namespace='edges', scale=0.01)
                         edge_id += 1
 
+                    time.append( rospy.Time.now() )
+
                     for q_near_idx in q_near_idx_list:
                         q_near = V[q_near_idx]
-                        if CollisionFree(openrave, q_new, q_near, dof_indices) and Cost(V, E, q_new_idx) + CostLine(q_new, q_near) < Cost(V, E, q_near_idx):
+                        if Cost(V, E, q_new_idx) + CostLine(q_new, q_near) < Cost(V, E, q_near_idx) and CollisionFree(openrave, q_new, q_near, dof_indices):
                             # Parent()
                             q_parent_idx = E[q_near_idx]
                             print "rem: %s  %s"%(q_parent_idx, q_near_idx)
@@ -660,7 +717,11 @@ class TestOrOctomap:
                                 edge_ids[(q_new_idx, q_near_idx)] = edge_id_del
                                 self.pub_marker.publishVectorMarker(PyKDL.Vector(V[q_new_idx][0], V[q_new_idx][1], V[q_new_idx][2]), PyKDL.Vector(V[q_near_idx][0], V[q_near_idx][1], V[q_near_idx][2]), edge_id_del, 0, 1, 0, frame='world', namespace='edges', scale=0.01)
 
+                    time.append( rospy.Time.now() )
+
                     vis = getVisibility(openrave, vis_bodies, q=q_new, dof_indices=dof_indices)
+                    time.append( rospy.Time.now() )
+
                     if vis > best_vis:
                         goal_V_ids = [q_new_idx]
                         best_vis = vis
@@ -686,6 +747,7 @@ class TestOrOctomap:
                         if shortest_path_len == None or shortest_path_len > Cost(V, E, q_new_idx):
                             best_q = q_new
                             best_q_idx = q_new_idx
+                            shortest_path_len_old = shortest_path_len
                             shortest_path_len = Cost(V, E, q_new_idx)
 
                             if shortest_path_len > rrt_switch:
@@ -699,14 +761,39 @@ class TestOrOctomap:
 
                             self.pub_marker.eraseMarkers(0, 200, frame_id='torso_base', namespace='shortest_path')
                             DrawPath(V, E, q_new_idx)
-                        print " %s  vis %s, shortest_path: %s"%(k, vis, shortest_path_len)
+                            print " %s  vis %s, shortest_path: %s   delta: %s"%(k, vis, shortest_path_len, shortest_path_len_old - shortest_path_len)
+
+#                    # process the tree nodes
+#                    changes = 0
+#                    costs_V = []
+#                    for vi in V:
+#                        cost = Cost(V, E, vi)
+#                        costs_V.append( (cost, vi) )
+#                    sorted_costs_V = sorted(costs_V, key=operator.itemgetter(0))
+#                    for idx1 in range(1, len(sorted_costs_V)):
+#                        cost, vi = sorted_costs_V[idx1]
+#                        parent_idx = E[idx1]
+#                        for idx2 in range(idx1):
+#                            new_cost = Cost(V, E, idx2) + CostLine(V[idx2], V[idx1])
+#                            if cost > new_cost and CollisionFree(openrave, V[idx2], V[idx1], dof_indices):
+#                                if debug:
+#                                    edge_id_del = edge_ids[(parent_idx, idx1)]
+#                                E[idx1] = idx2
+#                                if debug:
+#                                    edge_ids[(idx2, idx1)] = edge_id_del
+#                                    self.pub_marker.publishVectorMarker(PyKDL.Vector(V[idx2][0], V[idx2][1], V[idx2][2]), PyKDL.Vector(V[idx1][0], V[idx1][1], V[idx1][2]), edge_id_del, 0, 1, 0, frame='world', namespace='edges', scale=0.01)
+#                                changes += 1
+#                    print "changes", changes
 
                     for goal_idx in goal_V_ids:
                         goal_cost = Cost(V, E, goal_idx)
                         if shortest_path_len > goal_cost:
                             best_q_idx = goal_idx
+                            best_q = V[best_q_idx]
                             shortest_path_len =  goal_cost
                             print "*********** found better goal:", shortest_path_len
+                            self.pub_marker.eraseMarkers(0, 200, frame_id='torso_base', namespace='shortest_path')
+                            DrawPath(V, E, best_q_idx)
                             if shortest_path_len > rrt_switch:
                                 self.phs = None
                             else:
@@ -716,22 +803,54 @@ class TestOrOctomap:
 #                                else:
                                 self.phs.setTransverseDiameter(shortest_path_len)
 
-                    if shortest_path_len_prev != shortest_path_len:
+                    if True and shortest_path_len_prev != shortest_path_len:
                         rem_nodes = []
                         for vi in V:
-                            if Cost(V, E, vi) > shortest_path_len:
+                            if CostLine(self.q_init, V[vi]) > shortest_path_len:
+#                            if Cost(V, E, vi) > shortest_path_len:
                                 rem_nodes.append(vi)
                         print "removing nodes:", len(rem_nodes)
                         for vi in rem_nodes:
                             del V[vi]
                             self.pub_marker.eraseMarkers(edge_ids[(E[vi], vi)], edge_ids[(E[vi], vi)]+1, frame_id='torso_base', namespace='edges')
+                            del E[vi]
                             if vi in goal_V_ids:
                                 goal_V_ids.remove(vi)
                         shortest_path_len_prev = shortest_path_len
+                        while True:
+                          orphan_nodes = []
+                          for vi in E:
+                              if (not vi in rem_nodes) and (E[vi] in rem_nodes):
+                                  orphan_nodes.append(vi)
+                          print "orphan_nodes", len(orphan_nodes)
+                          rem_nodes = orphan_nodes
+                          if len(rem_nodes) == 0:
+                              break
+#                          print "removing nodes:", len(rem_nodes)
+                          for vi in rem_nodes:
+                              del V[vi]
+                              self.pub_marker.eraseMarkers(edge_ids[(E[vi], vi)], edge_ids[(E[vi], vi)]+1, frame_id='torso_base', namespace='edges')
+                              del E[vi]
+                              if vi in goal_V_ids:
+                                  goal_V_ids.remove(vi)
+
+
 #                    if shortest_path_len != None and shortest_path_len < 3.2:
 #                        break
                     if self.stop_planning:
                         break
+                    time.append( rospy.Time.now() )
+
+#                    t_diff = []
+#                    for ti in range(len(time)-1):
+#                        t_diff.append( (time[ti+1] - time[ti]).to_sec() )
+#                    print "noncol", t_diff
+#                else:
+#                    t_diff = []
+#                    for ti in range(len(time)-1):
+#                        t_diff.append( (time[ti+1] - time[ti]).to_sec() )
+#                    print "col   ", t_diff
+
             path = GetPath(E, best_q_idx)
             print path
 
@@ -809,6 +928,8 @@ class TestOrOctomap:
 
         openrave.updateRobotConfigurationRos(self.velma.js_pos)
 
+        raw_input("Press ENTER to continue...")
+        
         self.planVis(openrave)
 
         raw_input("Press ENTER to exit...")

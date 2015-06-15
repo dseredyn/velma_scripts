@@ -104,7 +104,7 @@ class OpenraveInstance:
             return
 
         if xacro_uri != None:
-            subprocess.call(["rosrun", "xacro", "xacro", "-o", "/tmp/velma.urdf", xacro_uri])
+            subprocess.call(["rosrun", "xacro", "xacro", "-o", "/tmp/velma.urdf", xacro_uri, "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=true"])
             urdf_uri = "/tmp/velma.urdf"
 
         if srdf_uri == None:

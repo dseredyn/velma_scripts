@@ -73,11 +73,9 @@ class TestOrOctomap:
             for i in range(n):
                 vec[i] = random.uniform(-r, r)
             break
-#            if np.linalg.norm(vec) <= r:
-#                break
 
         return vec
-        
+
     class ProlateHyperspheroid:
 
         def updateRotation(self):
@@ -252,6 +250,7 @@ class TestOrOctomap:
     def planVis(self, openrave):
       with openrave.env:
         debug = True
+        update_published_bodies = False
         m_id = 0
 
         if debug:
@@ -296,7 +295,8 @@ class TestOrOctomap:
             if q != None and dof_indices != None:
                 current_q = openrave.robot_rave.GetDOFValues(dof_indices)
                 openrave.robot_rave.SetDOFValues(q, dof_indices)
-                openrave.env.UpdatePublishedBodies()
+                if update_published_bodies:
+                    openrave.env.UpdatePublishedBodies()
 
             for body in vis_bodies:
                 openrave.env.Add( body )
@@ -335,7 +335,8 @@ class TestOrOctomap:
 
             if q != None and dof_indices != None:
                 openrave.robot_rave.SetDOFValues(current_q, dof_indices)
-                openrave.env.UpdatePublishedBodies()
+                if update_published_bodies:
+                    openrave.env.UpdatePublishedBodies()
 
             return rays_hit
 
@@ -343,13 +344,16 @@ class TestOrOctomap:
             is_valid = True
             current_q = openrave.robot_rave.GetDOFValues(dof_indices)
             openrave.robot_rave.SetDOFValues(q, dof_indices)
-            openrave.env.UpdatePublishedBodies()
+            if update_published_bodies:
+                openrave.env.UpdatePublishedBodies()
             report1 = CollisionReport()
             report2 = CollisionReport()
- 	    if openrave.robot_rave.CheckSelfCollision(report1) or openrave.env.CheckCollision(openrave.robot_rave, report2):
+ 	    if openrave.env.CheckCollision(openrave.robot_rave, report2) or openrave.robot_rave.CheckSelfCollision(report1):
+# 	    if openrave.env.CheckCollision(openrave.robot_rave, report2):
                 is_valid = False
             openrave.robot_rave.SetDOFValues(current_q, dof_indices)
-            openrave.env.UpdatePublishedBodies()
+            if update_published_bodies:
+                openrave.env.UpdatePublishedBodies()
             return is_valid
 
         # test visibility
@@ -438,7 +442,8 @@ class TestOrOctomap:
 #                    raw_input(".")
             for q in V_vis:
                 openrave.robot_rave.SetDOFValues(q, dof_indices)
-                openrave.env.UpdatePublishedBodies()
+                if update_published_bodies:
+                    openrave.env.UpdatePublishedBodies()
                 raw_input(".")
 
         #
@@ -460,9 +465,24 @@ class TestOrOctomap:
                 q_list.append(q_idx)
                 return q_list
 
+            def CostLine(q1, q2):
+                cost = Distance(q1, q2) * (np.linalg.norm(q1-self.q_init) + np.linalg.norm(q2-self.q_init)) * 0.5
+                return cost
+
+            def uniformInBall2(r, center, limits):
+                while True:
+                    n = len(limits)
+                    vec = np.empty(n)
+                    for i in range(n):
+                        lo_limit = max(limits[i][0], center[i]-r)
+                        up_limit = min(limits[i][1], center[i]+r)
+                        vec[i] = random.uniform(lo_limit, up_limit)
+                    if CostLine(center, vec) <= r:
+                        return vec
+
             def SampleFree(openrave, dof_indices, dof_limits, best_q, start_q, shortest_path_len, best_q_idx, V, E):
                 search_near_path = False
-                search_for_one_arm = False
+#                search_for_one_arm = False
 
                 random_0_1 = random.uniform(0,1)
                 if best_q_idx != None and random_0_1 < 0.05:
@@ -470,11 +490,11 @@ class TestOrOctomap:
                     search_near_path = True
                 elif random_0_1 < 0.2:
                     arm_id = random.randint(0,1)
-                    search_for_one_arm = True
+#                    search_for_one_arm = True
                     # get one node
-                    v_idx = random.choice(V.keys())#random.randint(0, len(V)-1)
+                    v_idx = random.choice(V.keys())
 
-                search_for_one_arm = False
+#                search_for_one_arm = False
 
                 tries = 0
                 while True:
@@ -490,17 +510,20 @@ class TestOrOctomap:
 #                            q_rand_list.append( search_near_q[i] )
 #                        q_rand_list[random.randint(0, len(dof_limits)-1)] += random.uniform(-20.0/180.0*math.pi, 20.0/180.0*math.pi)
                         q_rand = np.array(q_rand_list)
-                    elif search_for_one_arm:
-                        q_rand = V[v_idx]
-                        for dof_idx in arms_dof[arm_id]:
-                            lim_lo = max(dof_limits[dof_idx][0], q_rand[dof_idx]-5.0/180.0*math.pi)
-                            lim_up = min(dof_limits[dof_idx][1], q_rand[dof_idx]+5.0/180.0*math.pi)
-                            q_rand[dof_idx] = random.uniform(lim_lo, lim_up)
+#                    elif search_for_one_arm:
+#                        q_rand = V[v_idx]
+#                        for dof_idx in arms_dof[arm_id]:
+#                            lim_lo = max(dof_limits[dof_idx][0], q_rand[dof_idx]-5.0/180.0*math.pi)
+#                            lim_up = min(dof_limits[dof_idx][1], q_rand[dof_idx]+5.0/180.0*math.pi)
+#                            q_rand[dof_idx] = random.uniform(lim_lo, lim_up)
                     elif best_q == None or self.phs == None:
-                        q_rand_list = []
-                        for i in range(len(dof_limits)):
-                            q_rand_list.append( random.uniform(dof_limits[i][0]+0.01, dof_limits[i][1]-0.01) )
-                        q_rand = np.array(q_rand_list)
+                        if shortest_path_len == None:
+                            q_rand_list = []
+                            for i in range(len(dof_limits)):
+                                q_rand_list.append( random.uniform(dof_limits[i][0]+0.01, dof_limits[i][1]-0.01) )
+                            q_rand = np.array(q_rand_list)
+                        else:
+                            q_rand = uniformInBall2(shortest_path_len, start_q, dof_limits)
                     else:
                         sphere = self.uniformInBall(1.0, len(dof_indices))
                         # Transform to the PHS
@@ -525,15 +548,10 @@ class TestOrOctomap:
 #                        print "SampleFree:", tries
                         return q_rand
 
-            def CostLine(q1, q2):
-                cost = Distance(q1, q2)# * (np.linalg.norm(q1-self.q_init) + np.linalg.norm(q2-self.q_init)) * 0.5
-                return cost
-
             def Nearest(V, q):
                 q_near = None
                 for vi in V:
                     dist = Distance(q, V[vi])
-#                    dist = CostLine(q, V[vi])
                     if q_near == None or dist < q_near[0]:
                         q_near = (dist, vi)
                 return q_near[1]
@@ -604,8 +622,8 @@ class TestOrOctomap:
             for lim in dof_limits:
                 rrt_switch += (lim[1] - lim[0]) * (lim[1] - lim[0]) / 4.0
 
-            rrt_switch = math.sqrt(rrt_switch)
-#            rrt_switch = 0.0
+#            rrt_switch = math.sqrt(rrt_switch)
+            rrt_switch = 0.0
             print "rrt_switch", rrt_switch
 
             self.phs = None
@@ -645,8 +663,9 @@ class TestOrOctomap:
                     if shortest_path_len != None and CostLine(self.q_init, q_new) > shortest_path_len:
                         continue
 
+                    near_dist = 120.0/180.0*math.pi
 #                    near_dist = gamma*math.log(len(V))/len(V)
-                    near_dist = 120.0/180.0*math.pi#min(gamma*math.pow(math.log(len(V))/len(V), 1.0/d), ETA)
+#min(gamma*math.pow(math.log(len(V))/len(V), 1.0/d), ETA)
 #                    print k, near_dist
 #                    near_dist = min(gamma*math.log(len(V))/len(V), ETA)
                     q_near_idx_list = Near(V, q_new, near_dist)

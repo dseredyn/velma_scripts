@@ -255,8 +255,12 @@ Class for velma robot.
         self.action_impedance_client = actionlib.SimpleActionClient("/" + self.prefix + "_arm/cartesian_impedance", CartesianImpedanceAction)
         self.action_impedance_client.wait_for_server()
 
-        self.action_move_hand_client = actionlib.SimpleActionClient("/right_hand/move_hand", BHMoveAction)
-        self.action_move_hand_client.wait_for_server()
+        self.action_move_hand_client = {}
+        self.action_move_hand_client["right"] = actionlib.SimpleActionClient("/right_hand/move_hand", BHMoveAction)
+        self.action_move_hand_client["right"].wait_for_server()
+        self.action_move_hand_client["left"] = actionlib.SimpleActionClient("/left_hand/move_hand", BHMoveAction)
+        self.action_move_hand_client["left"].wait_for_server()
+
 
 #        self.pub_wrench = rospy.Publisher("/"+self.prefix+"_arm/wrench_stamped", WrenchStamped)
 
@@ -548,9 +552,9 @@ Class for velma robot.
 #        except rospy.ServiceException, e:
 #            print "Service call failed: %s"%e
 
-    def moveHand(self, q, v, t, maxPressure, hold=False):
+    def moveHand(self, q, v, t, maxPressure, hold=False, prefix="right"):
         action_goal = BHMoveGoal()
-        action_goal.name = ["right_HandFingerOneKnuckleTwoJoint", "right_HandFingerTwoKnuckleTwoJoint", "right_HandFingerThreeKnuckleTwoJoint", "right_HandFingerOneKnuckleOneJoint"]
+        action_goal.name = [prefix+"_HandFingerOneKnuckleTwoJoint", prefix+"_HandFingerTwoKnuckleTwoJoint", prefix+"_HandFingerThreeKnuckleTwoJoint", prefix+"_HandFingerOneKnuckleOneJoint"]
         action_goal.q = q
         action_goal.v = v
         action_goal.t = t
@@ -559,10 +563,22 @@ Class for velma robot.
             action_goal.hold = 1
         else:
             action_goal.hold = 0
-        self.action_move_hand_client.send_goal(action_goal)
+        self.action_move_hand_client[prefix].send_goal(action_goal)
 
-    def waitForHand(self):
-        self.action_move_hand_client.wait_for_result()        
+    def moveHandLeft(self, q, v, t, maxPressure, hold=False):
+        self.moveHand(q, v, t, maxPressure, hold=hold, prefix="left")
+
+    def moveHandRight(self, q, v, t, maxPressure, hold=False):
+        self.moveHand(q, v, t, maxPressure, hold=hold, prefix="right")
+
+    def waitForHand(self, prefix="right"):
+        self.action_move_hand_client[prefix].wait_for_result()        
+
+    def waitForHandLeft(self):
+        self.waitForHand(prefix="left")
+
+    def waitForHandRight(self):
+        self.waitForHand(prefix="right")
 
     def hasContact(self, threshold, print_on_false=False):
         if self.T_F_C != None:

@@ -437,7 +437,11 @@ class VelmaFake:
         ["right_HandFingerThreeKnuckleThreeJoint", "right_HandFingerThreeKnuckleTwoJoint", 0.33333333, 0.0],
         ["right_HandFingerOneKnuckleThreeJoint", "right_HandFingerOneKnuckleTwoJoint", 0.33333333, 0.0],
         ["right_HandFingerTwoKnuckleOneJoint", "right_HandFingerOneKnuckleOneJoint", 1.0, 0.0],
-        ["right_HandFingerTwoKnuckleThreeJoint", "right_HandFingerTwoKnuckleTwoJoint", 0.33333333, 0.0]
+        ["right_HandFingerTwoKnuckleThreeJoint", "right_HandFingerTwoKnuckleTwoJoint", 0.33333333, 0.0],
+        ["left_HandFingerThreeKnuckleThreeJoint", "left_HandFingerThreeKnuckleTwoJoint", 0.33333333, 0.0],
+        ["left_HandFingerOneKnuckleThreeJoint", "left_HandFingerOneKnuckleTwoJoint", 0.33333333, 0.0],
+        ["left_HandFingerTwoKnuckleOneJoint", "left_HandFingerOneKnuckleOneJoint", 1.0, 0.0],
+        ["left_HandFingerTwoKnuckleThreeJoint", "left_HandFingerTwoKnuckleTwoJoint", 0.33333333, 0.0]
         ]
 
         for mimic in hand_mimic:

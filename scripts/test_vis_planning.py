@@ -380,10 +380,6 @@ class TestOrOctomap:
         "torso_0_joint",
 #        "torso_1_joint",
         ]
-        arms_dof = [
-        [2,3,4,5],
-        [6,7,8,9],
-        ]
 
         dof_indices = []
         dof_limits = []
@@ -466,7 +462,7 @@ class TestOrOctomap:
                 return q_list
 
             def CostLine(q1, q2):
-                cost = Distance(q1, q2) * (np.linalg.norm(q1-self.q_init) + np.linalg.norm(q2-self.q_init)) * 0.5
+                cost = Distance(q1, q2)# * (np.linalg.norm(q1-self.q_init) + np.linalg.norm(q2-self.q_init)) * 0.5
                 return cost
 
             def uniformInBall2(r, center, limits):
@@ -510,12 +506,6 @@ class TestOrOctomap:
 #                            q_rand_list.append( search_near_q[i] )
 #                        q_rand_list[random.randint(0, len(dof_limits)-1)] += random.uniform(-20.0/180.0*math.pi, 20.0/180.0*math.pi)
                         q_rand = np.array(q_rand_list)
-#                    elif search_for_one_arm:
-#                        q_rand = V[v_idx]
-#                        for dof_idx in arms_dof[arm_id]:
-#                            lim_lo = max(dof_limits[dof_idx][0], q_rand[dof_idx]-5.0/180.0*math.pi)
-#                            lim_up = min(dof_limits[dof_idx][1], q_rand[dof_idx]+5.0/180.0*math.pi)
-#                            q_rand[dof_idx] = random.uniform(lim_lo, lim_up)
                     elif best_q == None or self.phs == None:
                         if shortest_path_len == None:
                             q_rand_list = []
@@ -650,9 +640,9 @@ class TestOrOctomap:
                 time.append( rospy.Time.now() )
                 q_nearest = V[q_nearest_idx]
                 q_new = Steer(q_nearest, q_rand)
-                col_free = CollisionFree(openrave, q_nearest, q_new, dof_indices)
-#                q_new = CollisionFree(openrave, q_nearest, q_new, dof_indices, return_closest_q=True)
-#                col_free = (q_new != None)
+#                col_free = CollisionFree(openrave, q_nearest, q_new, dof_indices)
+                q_new = CollisionFree(openrave, q_nearest, q_new, dof_indices, return_closest_q=True)
+                col_free = (q_new != None)
                 time.append( rospy.Time.now() )
                 if col_free:
 
@@ -712,7 +702,7 @@ class TestOrOctomap:
                     q_new_idx += 1
                     V[q_new_idx] = q_new
                     E[q_new_idx] = q_min_idx
-                    print "len(V) len(E)", len(V), len(E)
+                    print "len(V) len(E) len(neighbours)", len(V), len(E), len(q_near_idx_list)
 
                     if debug:
                         edge_ids[(q_min_idx, q_new_idx)] = edge_id
@@ -741,26 +731,24 @@ class TestOrOctomap:
                     vis = getVisibility(openrave, vis_bodies, q=q_new, dof_indices=dof_indices)
                     time.append( rospy.Time.now() )
 
-                    if vis > best_vis:
-                        goal_V_ids = [q_new_idx]
-                        best_vis = vis
-                        best_q = q_new
-                        best_q_idx = q_new_idx
-                        shortest_path_len = Cost(V, E, q_new_idx)
-
-                        if shortest_path_len > rrt_switch:
-                            self.phs = None
-                        else:
-                            self.phs = self.ProlateHyperspheroid(len(dof_indices), np.array(q_init), np.array(best_q), CostLine(q_init, best_q))
-#                            if shortest_path_len > 2.0:
-#                                self.phs.setTransverseDiameter(2.0)
-#                            else:
-                            self.phs.setTransverseDiameter(shortest_path_len)
-
-                        self.pub_marker.eraseMarkers(0, 200, frame_id='torso_base', namespace='shortest_path')
-                        DrawPath(V, E, q_new_idx)
-                        print " %s  vis %s, shortest_path: %s"%(k, vis, shortest_path_len)
-                    elif vis == best_vis and best_vis > 0:
+#                    if vis > best_vis:
+#                        goal_V_ids = [q_new_idx]
+#                        best_vis = vis
+#                        best_q = q_new
+#                        best_q_idx = q_new_idx
+#                        shortest_path_len = Cost(V, E, q_new_idx)
+#
+#                        if shortest_path_len > rrt_switch:
+#                            self.phs = None
+#                        else:
+#                            self.phs = self.ProlateHyperspheroid(len(dof_indices), np.array(q_init), np.array(best_q), CostLine(q_init, best_q))
+#                            self.phs.setTransverseDiameter(shortest_path_len)
+#
+#                        self.pub_marker.eraseMarkers(0, 200, frame_id='torso_base', namespace='shortest_path')
+#                        DrawPath(V, E, q_new_idx)
+#                        print " %s  vis %s, shortest_path: %s"%(k, vis, shortest_path_len)
+#                    elif vis == best_vis and best_vis > 0:
+                    if vis == 5:
                         goal_V_ids.append(q_new_idx)
 
                         if shortest_path_len == None or shortest_path_len > Cost(V, E, q_new_idx):
@@ -780,6 +768,8 @@ class TestOrOctomap:
 
                             self.pub_marker.eraseMarkers(0, 200, frame_id='torso_base', namespace='shortest_path')
                             DrawPath(V, E, q_new_idx)
+                            if shortest_path_len_old == None:
+                                shortest_path_len_old = shortest_path_len
                             print " %s  vis %s, shortest_path: %s   delta: %s"%(k, vis, shortest_path_len, shortest_path_len_old - shortest_path_len)
 
 #                    # process the tree nodes
@@ -898,6 +888,9 @@ class TestOrOctomap:
 
     def spin(self):
 
+        simulation = True
+         
+
         # TEST: phs
         if False:
             phs = self.ProlateHyperspheroid(3, np.array([0,0,0]), np.array([1,1,1]))
@@ -928,7 +921,7 @@ class TestOrOctomap:
         rospack = rospkg.RosPack()
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenraveURDF(env_file=rospack.get_path('velma_scripts') + '/data/key/vis_test.env.xml')
-        openrave.readRobot(xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro', srdf_uri=rospack.get_path('velma_description') + '/robots/velma.srdf')
+        openrave.readRobot(xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro', srdf_uri=rospack.get_path('velma_description') + '/robots/velma_simplified.srdf')
 
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
 
@@ -940,6 +933,14 @@ class TestOrOctomap:
         rospy.sleep(0.5)
         self.velma.updateTransformations()
 
+        if simulation:
+            hv = [3.2, 3.2, 3.2, 3.2]
+        ht = [3000, 3000, 3000, 3000]
+        self.velma.moveHandLeft([120.0/180.0*math.pi, 120.0/180.0*math.pi, 120.0/180.0*math.pi, 0], hv, ht, 5000, True)
+        self.velma.moveHandRight([120.0/180.0*math.pi, 120.0/180.0*math.pi, 120.0/180.0*math.pi, 0], hv, ht, 5000, True)
+
+        rospy.sleep(1.0)
+
 #        T_W_T = self.velma.T_W_E * PyKDL.Frame(PyKDL.Vector(0,0,0.17))
 #        print T_W_T.M.GetQuaternion()
 #        print T_W_T.p
@@ -947,6 +948,13 @@ class TestOrOctomap:
 
         openrave.updateRobotConfigurationRos(self.velma.js_pos)
 
+
+        report1 = CollisionReport()
+ 	print "self-collision:", openrave.robot_rave.CheckSelfCollision(report1)
+        print report1.plink1
+        print report1.plink2
+
+        exit(0)
         raw_input("Press ENTER to continue...")
         
         self.planVis(openrave)

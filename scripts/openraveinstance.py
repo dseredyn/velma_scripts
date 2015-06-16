@@ -95,8 +95,6 @@ class OpenraveInstance:
         self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
         self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
 
-#    def readGripper(self
-
     def readRobot(self, xacro_uri=None, urdf_uri=None, srdf_uri=None, env_file=None, collision=None):
         if (xacro_uri == None and urdf_uri == None) or (xacro_uri != None and urdf_uri != None):
             # TODO: exception
@@ -104,7 +102,7 @@ class OpenraveInstance:
             return
 
         if xacro_uri != None:
-            subprocess.call(["rosrun", "xacro", "xacro", "-o", "/tmp/velma.urdf", xacro_uri, "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=true"])
+            subprocess.call(["rosrun", "xacro", "xacro", "-o", "/tmp/velma.urdf", xacro_uri, "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=false"])
             urdf_uri = "/tmp/velma.urdf"
 
         if srdf_uri == None:

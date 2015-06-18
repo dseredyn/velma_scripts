@@ -60,6 +60,7 @@ import rospkg
 import velmautils
 from velma import Velma
 import openraveinstance
+from prolatehyperspheroid import ProlateHyperspheroid
 import rosparam
 
 from multiprocessing import Process, Queue
@@ -442,25 +443,66 @@ class TestOrOctomap:
                         return vec
 
         def SampleFree(dof_indices, dof_limits, start_q, shortest_path_len, best_q_idx, V, E):
-                search_near_path = False
+#                search_near_path = False
+                search_near_goal = False
+                search_near_subpath = False
 
                 random_0_1 = random.uniform(0,1)
+#                if best_q_idx != None and random_0_1 < 0.05:
+#                    path = GetPath(E, best_q_idx)
+#                    search_near_path = True
+
                 if best_q_idx != None and random_0_1 < 0.05:
+                    search_near_goal = True
+                elif best_q_idx != None and random_0_1 < 0.1:
                     path = GetPath(E, best_q_idx)
-                    search_near_path = True
+                    if len(path) < 3:
+                        search_near_goal = True
+                    else:
+                        search_near_subpath = True
+                        subpath_len = 3
+                        subpath_start_idx = random.randint(0, len(path)-subpath_len)
+                        subpath = []
+                        for path_idx in range(subpath_start_idx, subpath_start_idx+subpath_len):
+                            subpath.append( path[path_idx] )
+                        if len(subpath) != subpath_len:
+                            print "ERROR SampleFree: len(subpath) != subpath_len", len(subpath), subpath_len
+
+                        path_len = 0.0
+                        for p_idx in range(len(subpath)-1):
+                            path_len += CostLine(V[subpath[p_idx]], V[subpath[p_idx+1]], q_start)
+                        print "path_len", path_len
+
+                        phs = ProlateHyperspheroid(len(dof_indices), V[subpath[0]], V[subpath[-1]], CostLine(V[subpath[0]], V[subpath[-1]], q_start))
+                        phs.setTransverseDiameter(path_len)
 
                 tries = 0
                 while True:
                     tries += 1
-                    if search_near_path:
-                        q_rand_list = []
-                        p_idx = random.randint(0, len(path)-1)
-                        search_near_q = V[path[p_idx]]
+#                    if search_near_path:
+#                        q_rand_list = []
+#                        p_idx = random.randint(0, len(path)-1)
+#                        search_near_q = V[path[p_idx]]
+#                        for i in range(len(dof_limits)):
+#                            lim_lo = max(dof_limits[i][0], search_near_q[i]-10.0/180.0*math.pi)
+#                            lim_up = min(dof_limits[i][1], search_near_q[i]+10.0/180.0*math.pi)
+#                            q_rand_list.append( random.uniform(lim_lo, lim_up) )
+#                        q_rand = np.array(q_rand_list)
+                    if search_near_goal:
+                        q_rand = np.empty(len(dof_limits))
                         for i in range(len(dof_limits)):
-                            lim_lo = max(dof_limits[i][0], search_near_q[i]-10.0/180.0*math.pi)
-                            lim_up = min(dof_limits[i][1], search_near_q[i]+10.0/180.0*math.pi)
-                            q_rand_list.append( random.uniform(lim_lo, lim_up) )
-                        q_rand = np.array(q_rand_list)
+                            lim_lo = max(dof_limits[i][0], V[best_q_idx][i]-10.0/180.0*math.pi)
+                            lim_up = min(dof_limits[i][1], V[best_q_idx][i]+10.0/180.0*math.pi)
+                            q_rand[i] = random.uniform(lim_lo, lim_up)
+                    elif search_near_subpath:
+                        sphere = phs.uniformInBall(1.0, len(dof_limits))
+                        # Transform to the PHS
+                        vec = phs.transform(sphere)
+                        q_rand = np.empty(len(dof_indices))
+                        for i in range(len(dof_limits)):
+                            q_rand[i] = vec[i]
+                            if q_rand[i] < dof_limits[i][0] or q_rand[i] > dof_limits[i][1]:
+                                continue
                     else:
                         if shortest_path_len == None:
                             q_rand_list = []
@@ -527,7 +569,6 @@ class TestOrOctomap:
         while True:
             msg = queue_master.get()
             cmd = msg[0]
-#            print "slave", process_id, cmd
             if cmd == "exit":
                 break
             elif cmd == "isStateValid":
@@ -543,26 +584,20 @@ class TestOrOctomap:
                     queue_slave.put( ("isStateValid", True, q) )
 
             elif cmd == "addNode":
-                V, E, dof_indices, dof_limits, start_q, shortest_path_len, best_q_idx = msg[1:]
-                q_start = start_q
+                V, E, dof_indices, dof_limits, q_start, shortest_path_len, best_q_idx = msg[1:]
 
-                q_rand = SampleFree(dof_indices, dof_limits, start_q, shortest_path_len, best_q_idx, V, E)
+                q_rand = SampleFree(dof_indices, dof_limits, q_start, shortest_path_len, best_q_idx, V, E)
                 q_nearest_idx = Nearest(V, q_rand)
                 q_nearest = V[q_nearest_idx]
                 q_new = Steer(q_nearest, q_rand)
                 col_free = CollisionFree(q_nearest, q_new, dof_indices)
                 if col_free:
 
-                    if shortest_path_len != None and CostLine(start_q, q_new, q_start) > shortest_path_len:
+                    if shortest_path_len != None and CostLine(q_start, q_new, q_start) > shortest_path_len:
                         continue
 
                     near_dist = 120.0/180.0*math.pi
-#                    near_dist = gamma*math.log(len(V))/len(V)
-#min(gamma*math.pow(math.log(len(V))/len(V), 1.0/d), ETA)
-#                    print k, near_dist
-#                    near_dist = min(gamma*math.log(len(V))/len(V), ETA)
                     q_near_idx_list = Near(V, q_new, near_dist)
-#                    print "q_near_idx_list", len(q_near_idx_list)
 
                     # sort the neighbours
                     cost_q_near_idx_list = []
@@ -590,30 +625,18 @@ class TestOrOctomap:
                     E[q_new_idx] = q_min_idx
                     E_update = []
                     E_update.append( (-1, q_min_idx) )
-#                    print "len(V) len(neighbours) len(goal_V_ids)", len(V), len(q_near_idx_list), len(goal_V_ids)
-
-#                    if debug:
-#                        edge_ids[(q_min_idx, q_new_idx)] = edge_id
-#                        self.pub_marker.publishVectorMarker(PyKDL.Vector(V[q_min_idx][0], V[q_min_idx][1], V[q_min_idx][2]), PyKDL.Vector(V[q_new_idx][0], V[q_new_idx][1], V[q_new_idx][2]), edge_id, 0, 1, 0, frame='world', namespace='edges'+str(process_id), scale=0.01)
-#                        edge_id += 1
 
                     cost_q_new = Cost(V, E, q_new_idx, q_start)
                     for q_near_idx in q_near_idx_list:
                         q_near = V[q_near_idx]
                         if cost_q_new + CostLine(q_new, q_near, q_start) < Cost(V, E, q_near_idx, q_start) and CollisionFree(q_new, q_near, dof_indices):
-                            # Parent()
                             q_parent_idx = E[q_near_idx]
                             print "rem: %s  %s"%(q_parent_idx, q_near_idx)
 
                             edge_id_del = None
-#                            if debug:
-#                                edge_id_del = edge_ids[(q_parent_idx, q_near_idx)]
                             E[q_near_idx] = q_new_idx
                             E_update.append( (q_near_idx, -1) )
                             cost_q_new = Cost(V, E, q_new_idx, q_start)
-#                            if debug:
-#                                edge_ids[(q_new_idx, q_near_idx)] = edge_id_del
-#                                self.pub_marker.publishVectorMarker(PyKDL.Vector(V[q_new_idx][0], V[q_new_idx][1], V[q_new_idx][2]), PyKDL.Vector(V[q_near_idx][0], V[q_near_idx][1], V[q_near_idx][2]), edge_id_del, 0, 1, 0, frame='world', namespace='edges'+str(process_id), scale=0.01)
 
                     goal = checkGoal(q_new, dof_indices)
                     if goal:
@@ -622,6 +645,25 @@ class TestOrOctomap:
                     queue_slave.put( ("addNode", V_update_q_new, E_update, goal) )
                 else:
                     queue_slave.put( ("addNode", None, None, None) )
+#            elif cmd == "optimizePathSegment":
+#                V, E, dof_indices, dof_limits, q_start, shortest_path_len, best_q_idx, path = msg[1:]
+#
+#                path_len = 0.0
+#                for p_idx in range(len(path)-1):
+#                    path_len += CostLine(V[path[p_idx]], V[path[p_idx+1]], q_start)
+#
+#                V_sub = {}
+#                for vi in V:
+#                    if Distance(V[vi], V[path[0]]) + Distance(V[vi], V[path[-1]]) > 
+#
+#                phs = ProlateHyperspheroid(len(dof_indices), q_start, np.array(best_q), CostLine(q_init, best_q))
+#                phs.setTransverseDiameter(shortest_path_len)
+#
+#
+#                        sphere = phs.uniformInBall(1.0, len(dof_indices))
+#                        # Transform to the PHS
+#                        vec = phs.transform(sphere)
+
 
 
     def spin(self):

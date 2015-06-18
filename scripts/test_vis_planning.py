@@ -72,7 +72,8 @@ class TestOrOctomap:
             vec = np.empty(n)
             for i in range(n):
                 vec[i] = random.uniform(-r, r)
-            break
+            if np.linalg.norm(vec) <= r
+                break
 
         return vec
 
@@ -462,7 +463,7 @@ class TestOrOctomap:
                 return q_list
 
             def CostLine(q1, q2):
-                cost = Distance(q1, q2)# * (np.linalg.norm(q1-self.q_init) + np.linalg.norm(q2-self.q_init)) * 0.5
+                cost = Distance(q1, q2) * (np.linalg.norm(q1-self.q_init) + np.linalg.norm(q2-self.q_init)) * 0.5
                 return cost
 
             def uniformInBall2(r, center, limits):
@@ -949,12 +950,12 @@ class TestOrOctomap:
         openrave.updateRobotConfigurationRos(self.velma.js_pos)
 
 
-        report1 = CollisionReport()
- 	print "self-collision:", openrave.robot_rave.CheckSelfCollision(report1)
-        print report1.plink1
-        print report1.plink2
+#        report1 = CollisionReport()
+# 	print "self-collision:", openrave.robot_rave.CheckSelfCollision(report1)
+#        print report1.plink1
+#        print report1.plink2
 
-        exit(0)
+#        exit(0)
         raw_input("Press ENTER to continue...")
         
         self.planVis(openrave)

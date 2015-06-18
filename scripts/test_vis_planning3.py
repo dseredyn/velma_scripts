@@ -236,13 +236,20 @@ class TestOrOctomap:
                             edge_id += 1
                         self.pub_marker.publishVectorMarker(PyKDL.Vector(V[vi_pa][0], V[vi_pa][1], V[vi_pa][2]), PyKDL.Vector(V[vi_ch][0], V[vi_ch][1], V[vi_ch][2]), edge_ids[vi_ch], 0, 1, 0, frame='world', namespace='edges', scale=0.01)
 
+                    # verify the tree
                     visited_nodes = set()
-                    # verify all changes
                     for vi in V:
                         if vi in visited_nodes:
                             continue
                         path = GetPath(E, vi)
                         visited_nodes = visited_nodes.union(set(path))
+                    for vi in V:
+                        if vi == 0:
+                            continue
+                        parent = E[vi]
+                        if not parent in V:
+                            print "ERROR(1) no parent for node", vi
+                            exit(0)
 
                     if goal:
                         goal_V_ids.append(q_new_idx)
@@ -292,6 +299,24 @@ class TestOrOctomap:
                               del E[vi]
                               if vi in goal_V_ids:
                                   goal_V_ids.remove(vi)
+
+                    # verify the tree
+                    visited_nodes = set()
+                    for vi in V:
+                        if vi in visited_nodes:
+                            continue
+                        path = GetPath(E, vi)
+                        visited_nodes = visited_nodes.union(set(path))
+                    for vi in V:
+                        if vi == 0:
+                            continue
+                        parent = E[vi]
+                        if not parent in V:
+                            print "ERROR(2): no parent for node", vi
+                            exit(0)
+                    if not 0 in V:
+                        print "ERROR: not 0 in V"
+                        exit(0)
 
               if self.stop_planning:
                   break
@@ -452,26 +477,29 @@ class TestOrOctomap:
 #                    path = GetPath(E, best_q_idx)
 #                    search_near_path = True
 
-                if best_q_idx != None and random_0_1 < 0.05:
+                if best_q_idx != None and random_0_1 < 0.03:
                     search_near_goal = True
                 elif best_q_idx != None and random_0_1 < 0.1:
                     path = GetPath(E, best_q_idx)
-                    if len(path) < 3:
+                    if len(path) < 4:
                         search_near_goal = True
                     else:
                         search_near_subpath = True
-                        subpath_len = 3
-                        subpath_start_idx = random.randint(0, len(path)-subpath_len)
-                        subpath = []
-                        for path_idx in range(subpath_start_idx, subpath_start_idx+subpath_len):
-                            subpath.append( path[path_idx] )
-                        if len(subpath) != subpath_len:
-                            print "ERROR SampleFree: len(subpath) != subpath_len", len(subpath), subpath_len
+                        while True:
+                            subpath_len = random.randint(3, len(path))
+                            subpath_start_idx = random.randint(0, len(path)-subpath_len)
+                            subpath = []
+                            for path_idx in range(subpath_start_idx, subpath_start_idx+subpath_len):
+                                subpath.append( path[path_idx] )
+                            if len(subpath) != subpath_len:
+                                print "ERROR SampleFree: len(subpath) != subpath_len", len(subpath), subpath_len
 
-                        path_len = 0.0
-                        for p_idx in range(len(subpath)-1):
-                            path_len += CostLine(V[subpath[p_idx]], V[subpath[p_idx+1]], q_start)
-                        print "path_len", path_len
+                            path_len = 0.0
+                            for p_idx in range(len(subpath)-1):
+                                path_len += CostLine(V[subpath[p_idx]], V[subpath[p_idx+1]], q_start)
+                            print "path_len", path_len
+                            if path_len < 3.0:
+                                break
 
                         phs = ProlateHyperspheroid(len(dof_indices), V[subpath[0]], V[subpath[-1]], CostLine(V[subpath[0]], V[subpath[-1]], q_start))
                         phs.setTransverseDiameter(path_len)
@@ -499,10 +527,14 @@ class TestOrOctomap:
                         # Transform to the PHS
                         vec = phs.transform(sphere)
                         q_rand = np.empty(len(dof_indices))
+                        wrong_config = False
                         for i in range(len(dof_limits)):
                             q_rand[i] = vec[i]
                             if q_rand[i] < dof_limits[i][0] or q_rand[i] > dof_limits[i][1]:
-                                continue
+                                wrong_config = True
+                                break
+                        if wrong_config:
+                            continue
                     else:
                         if shortest_path_len == None:
                             q_rand_list = []
@@ -584,6 +616,7 @@ class TestOrOctomap:
                     queue_slave.put( ("isStateValid", True, q) )
 
             elif cmd == "addNode":
+              try:
                 V, E, dof_indices, dof_limits, q_start, shortest_path_len, best_q_idx = msg[1:]
 
                 q_rand = SampleFree(dof_indices, dof_limits, q_start, shortest_path_len, best_q_idx, V, E)
@@ -596,7 +629,7 @@ class TestOrOctomap:
                     if shortest_path_len != None and CostLine(q_start, q_new, q_start) > shortest_path_len:
                         continue
 
-                    near_dist = 120.0/180.0*math.pi
+                    near_dist = 80.0/180.0*math.pi
                     q_near_idx_list = Near(V, q_new, near_dist)
 
                     # sort the neighbours
@@ -645,6 +678,9 @@ class TestOrOctomap:
                     queue_slave.put( ("addNode", V_update_q_new, E_update, goal) )
                 else:
                     queue_slave.put( ("addNode", None, None, None) )
+              except:
+                print "exception in process", process_id
+                queue_slave.put( ("addNode", None, None, None) )
 #            elif cmd == "optimizePathSegment":
 #                V, E, dof_indices, dof_limits, q_start, shortest_path_len, best_q_idx, path = msg[1:]
 #

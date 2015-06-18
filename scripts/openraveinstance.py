@@ -62,6 +62,8 @@ import velmautils
 import operator
 import random
 import subprocess
+import uuid
+import os
 
 class OpenraveInstance:
 
@@ -95,25 +97,23 @@ class OpenraveInstance:
         self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
         self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
 
-    def readRobot(self, xacro_uri=None, urdf_uri=None, srdf_uri=None, env_file=None, collision=None):
-        if (xacro_uri == None and urdf_uri == None) or (xacro_uri != None and urdf_uri != None):
+    def readRobot(self, xacro_uri=None, urdf_uri=None, srdf_uri=None, srdf_path=None, env_file=None, collision=None):
+#        if (xacro_uri == None and urdf_uri == None) or (xacro_uri != None and urdf_uri != None):
+        if xacro_uri == None or srdf_path == None or urdf_uri != None or srdf_uri != None:
             # TODO: exception
-            print "ERROR: startOpenraveURDF:", xacro_uri, urdf_uri
-            return
-
-        if xacro_uri != None:
-            subprocess.call(["rosrun", "xacro", "xacro", "-o", "/tmp/velma.urdf", xacro_uri, "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=false"])
-            urdf_uri = "/tmp/velma.urdf"
-
-        if srdf_uri == None:
-            srdf_uri = ''
+            print "ERROR: startOpenraveURDF:", xacro_uri, srdf_path, urdf_uri, srdf_uri
+            exit(0)
 
         if not hasattr(self, 'urdf_module') or self.urdf_module == None:
             self.urdf_module = RaveCreateModule(self.env, 'urdf')
-        name = self.urdf_module.SendCommand('load ' + urdf_uri + ' ' + srdf_uri)
 
-        self.robot_rave = self.env.GetRobot(name)
-        self.env.Remove(self.robot_rave)
+        collision_models_urdf = {
+#        "velmafull" : ("velma.srdf", "collision_model_full:=true", "collision_model_simplified:=false", "collision_model_enlargement:=0.0", "collision_model_no_hands:=false"),
+        "velmasimplified0" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.0", "collision_model_no_hands:=false"),
+#        "velmasimplified1" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.01", "collision_model_no_hands:=false"),
+#        "velmasimplified2" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=false"),
+        "velmanohands" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=true"),
+        }
 
         mimic_joints = [
         ("right_HandFingerTwoKnuckleOneJoint", "right_HandFingerOneKnuckleOneJoint*1.0", "|right_HandFingerOneKnuckleOneJoint 1.0", ""),
@@ -125,17 +125,48 @@ class OpenraveInstance:
         ("left_HandFingerTwoKnuckleThreeJoint", "left_HandFingerTwoKnuckleTwoJoint*0.33333", "|left_HandFingerTwoKnuckleTwoJoint 0.33333", ""),
         ("left_HandFingerThreeKnuckleThreeJoint", "left_HandFingerThreeKnuckleTwoJoint*0.33333", "|left_HandFingerThreeKnuckleTwoJoint 0.33333", ""),
         ]
-        for mimic in mimic_joints:
-            mj = self.robot_rave.GetJoint(mimic[0])
-            mj.SetMimicEquations(0, mimic[1], mimic[2], mimic[3])
 
-        self.env.Add(self.robot_rave)
+        self.robots = {}
+
+        for model_name in collision_models_urdf:
+#filename = str(uuid.uuid4())
+            urdf_uri = "/tmp/" + str(uuid.uuid4()) + ".urdf"
+            srdf_uri = collision_models_urdf[model_name][0]
+            arg1 = collision_models_urdf[model_name][1]
+            arg2 = collision_models_urdf[model_name][2]
+            arg3 = collision_models_urdf[model_name][3]
+            arg4 = collision_models_urdf[model_name][4]
+            subprocess.call(["rosrun", "xacro", "xacro", "-o", urdf_uri, xacro_uri, arg1, arg2, arg3, arg4])
+            robot_name = self.urdf_module.SendCommand('load ' + urdf_uri + ' ' + srdf_path + srdf_uri)
+            os.remove(urdf_uri)
+            robot = self.env.GetRobot(robot_name)
+            self.env.Remove(robot)
+            robot.SetName(model_name)
+            self.robots[model_name] = robot
+
+            for mimic in mimic_joints:
+                mj = robot.GetJoint(mimic[0])
+                mj.SetMimicEquations(0, mimic[1], mimic[2], mimic[3])
+
+            self.env.Add(robot)
+            robot.Enable(False)
+            robot.SetVisible(False)
+
+        self.current_collision_model = "velmasimplified0"
+#        self.env.Add(self.robots[self.current_collision_model])
+        self.robot_rave = self.robots[self.current_collision_model]
+        self.robot_rave.Enable(True)
+        self.robot_rave.SetVisible(True)
+
+        for joint in self.robot_rave.GetJoints():
+            print joint
 
         base_link = self.robot_rave.GetLink("torso_base")
         self.T_World_Br = self.OpenraveToKDL(base_link.GetTransform())
         self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
         if not self.ikmodel.load():
             self.ikmodel.autogenerate()
+
 
         self.manipulator_dof_indices_map = {}
         self.lower_lim = {}
@@ -167,20 +198,34 @@ class OpenraveInstance:
 #        for joint in openrave.robot_rave.GetJoints():
 
 
+    def switchCollisionModel(self, model_name):
+        if model_name == self.current_collision_model:
+            return
+        dof_values = self.robot_rave.GetDOFValues()
+        self.robot_rave.Enable(False)
+        self.robot_rave.SetVisible(False)
+#        self.env.Remove(self.robot_rave)
+        self.robots[model_name].SetDOFValues(dof_values)
+#        self.env.Add(self.robots[model_name])
+        self.robot_rave = self.robots[model_name]
+        self.robot_rave.Enable(True)
+        self.robot_rave.SetVisible(True)
+        self.current_collision_model = model_name
 
-    def startOpenraveURDF(self, env_file=None, collision=None):
+    def startOpenraveURDF(self, env_file=None, collision=None, viewer=True):
 
         parser = OptionParser(description='Openrave Velma interface')
         OpenRAVEGlobalArguments.addOptions(parser)
         (options, leftargs) = parser.parse_args()
         if collision != None:
             options._collision = collision
-        self.env = OpenRAVEGlobalArguments.parseAndCreate(options,defaultviewer=True)
+        self.env = OpenRAVEGlobalArguments.parseAndCreate(options,defaultviewer=viewer)
 
         if env_file != None:
             self.env.Load(env_file)
 
 #        self.env.GetCollisionChecker().SetCollisionOptions(4)
+#        print "collision options:", self.env.GetCollisionChecker().GetCollisionOptions()
 
     def runOctomap(self):
 #        RaveSetDebugLevel(Level_Debug)

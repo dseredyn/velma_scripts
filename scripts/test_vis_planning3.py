@@ -201,19 +201,19 @@ class TestOrOctomap:
 #                openrave.env.UpdatePublishedBodies()
 #            return is_valid
 
-        def isStateValidPut(process, q, dof_indices):
-            self.queue_master[process].put( ("isStateValid", q, dof_indices) )
+        def isStateValidPut(q, dof_indices):
+            self.queue_master.put( ("isStateValid", q, dof_indices) )
 
-        def isStateValidGetWait(process):
-            resp = self.queue_slave[process].get()
+        def isStateValidGetWait():
+            resp = self.queue_slave.get()
             if resp[0] != "isStateValid":
                 print "ERROR: isStateValidGetWait", resp
                 exit(0)
             return resp[1], resp[2]
 
-        def isStateValidGetNoWait(process):
+        def isStateValidGetNoWait():
             try:
-                resp = self.queue_slave[process].get(False)
+                resp = self.queue_slave.get(False)
             except:
                 return None, None
             if resp[0] != "isStateValid":
@@ -302,55 +302,55 @@ class TestOrOctomap:
                     path = GetPath(E, best_q_idx)
                     search_near_path = True
 
-                procs = []
-                for i in range(self.num_proc):
-                    procs.append(False)
+                produced = 0
+                consumed = 0
+#                procs = []
+#                for i in range(self.num_proc):
+#                    procs.append(False)
                 tries = 0
                 found = False
                 found_q = None
                 while not found:
                     # put into pool
-                    for proc_id in range(self.num_proc):
-                        if procs[proc_id] == False:
-                            tries += 1
-                            if search_near_path:
-                                q_rand_list = []
-                                p_idx = random.randint(0, len(path)-1)
-                                search_near_q = V[path[p_idx]]
-                                for i in range(len(dof_limits)):
-                                    lim_lo = max(dof_limits[i][0], search_near_q[i]-10.0/180.0*math.pi)
-                                    lim_up = min(dof_limits[i][1], search_near_q[i]+10.0/180.0*math.pi)
-                                    q_rand_list.append( random.uniform(lim_lo, lim_up) )
-                                q_rand = np.array(q_rand_list)
-                            else:
-                                if shortest_path_len == None:
-                                    q_rand_list = []
-                                    for i in range(len(dof_limits)):
-                                        q_rand_list.append( random.uniform(dof_limits[i][0]+0.01, dof_limits[i][1]-0.01) )
-                                    q_rand = np.array(q_rand_list)
-                                else:
-                                    q_rand = uniformInBall2(shortest_path_len, dof_limits)
+#                    for proc_id in range(self.num_proc):
+#                        if procs[proc_id] == False:
+                    tries += 1
+                    if search_near_path:
+                        q_rand_list = []
+                        p_idx = random.randint(0, len(path)-1)
+                        search_near_q = V[path[p_idx]]
+                        for i in range(len(dof_limits)):
+                            lim_lo = max(dof_limits[i][0], search_near_q[i]-10.0/180.0*math.pi)
+                            lim_up = min(dof_limits[i][1], search_near_q[i]+10.0/180.0*math.pi)
+                            q_rand_list.append( random.uniform(lim_lo, lim_up) )
+                        q_rand = np.array(q_rand_list)
+                    else:
+                        if shortest_path_len == None:
+                            q_rand_list = []
+                            for i in range(len(dof_limits)):
+                                q_rand_list.append( random.uniform(dof_limits[i][0]+0.01, dof_limits[i][1]-0.01) )
+                            q_rand = np.array(q_rand_list)
+                        else:
+                            q_rand = uniformInBall2(shortest_path_len, dof_limits)
 
-#                            print "SampleFree: put into pool", proc_id
-                            isStateValidPut(proc_id, q_rand, dof_indices)
-                            procs[proc_id] = True
-                            break
+#                    print "SampleFree: put into pool", proc_id
+                    isStateValidPut(q_rand, dof_indices)
+                    produced += 1
+#                    procs[proc_id] = True
+#                    break
                     # get from pool
                     for proc_id in range(self.num_proc):
-                        if procs[proc_id] == True:
-                            valid, q = isStateValidGetNoWait(proc_id)
-                            if valid != None:
-#                                print "SampleFree: got from pool", proc_id
-                                procs[proc_id] = False
-                                if valid == True:
-                                    found = True
-                                    found_q = q
-#                                    print "found"
-                                    break
-                for proc_id in range(self.num_proc):
-                    if procs[proc_id] == True:
-                        isStateValidGetWait(proc_id)
-                        procs[proc_id] = False
+                        valid, q = isStateValidGetNoWait()
+                        if valid != None:
+                            consumed += 1
+                            if valid == True:
+                                found = True
+                                found_q = q
+                                break
+                        else:
+                            break
+                for i in range(produced-consumed):
+                    isStateValidGetWait()
                 return found_q
 
             def Nearest(V, q):
@@ -394,39 +394,34 @@ class TestOrOctomap:
                 steps = int(dist / (10.0/180.0*math.pi))
                 if steps < 2:
                     steps = 2
-                procs = []
-                for i in range(self.num_proc):
-                    procs.append(False)
+                produced = 0
+                consumed = 0
 
                 colliding = False
                 i = 1
                 while i < steps and not colliding:
                     # put into pool
-                    for proc_id in range(self.num_proc):
-                        if procs[proc_id] == False:
-                            t = float(i)/float(steps-1)
-                            current_q = q1 * (1.0-t) + q2 * t
-                            isStateValidPut(proc_id, current_q, dof_indices)
-                            procs[proc_id] = True
-                            i += 1
-                            break
+                    t = float(i)/float(steps-1)
+                    current_q = q1 * (1.0-t) + q2 * t
+                    isStateValidPut(current_q, dof_indices)
+                    produced += 1
+                    i += 1
 
                     # get from pool
                     for proc_id in range(self.num_proc):
-                        if procs[proc_id] == True:
-                            valid, q = isStateValidGetNoWait(proc_id)
-                            if valid != None:
-                                procs[proc_id] = False
-                                if valid == False:
-                                    colliding = True
-                                    break
+                        valid, q = isStateValidGetNoWait()
+                        if valid != None:
+                            consumed += 1
+                            if valid == False:
+                                colliding = True
+                                break
+                        else:
+                            break
 
-                for proc_id in range(self.num_proc):
-                    if procs[proc_id] == True:
-                        valid, q = isStateValidGetWait(proc_id)
-                        if valid == False:
-                            colliding = True
-                        procs[proc_id] = False
+                for i in range(produced - consumed):
+                    valid, q = isStateValidGetWait()
+                    if valid == False:
+                        colliding = True
 
                 return not colliding
 
@@ -519,9 +514,10 @@ class TestOrOctomap:
 
                     time.append( rospy.Time.now() )
 
+                    cost_q_new = Cost(V, E, q_new_idx)
                     for q_near_idx in q_near_idx_list:
                         q_near = V[q_near_idx]
-                        if Cost(V, E, q_new_idx) + CostLine(q_new, q_near) < Cost(V, E, q_near_idx) and CollisionFree(openrave, q_new, q_near, dof_indices):
+                        if cost_q_new + CostLine(q_new, q_near) < Cost(V, E, q_near_idx) and CollisionFree(openrave, q_new, q_near, dof_indices):
                             # Parent()
                             q_parent_idx = E[q_near_idx]
                             print "rem: %s  %s"%(q_parent_idx, q_near_idx)
@@ -530,6 +526,7 @@ class TestOrOctomap:
                             if debug:
                                 edge_id_del = edge_ids[(q_parent_idx, q_near_idx)]
                             E[q_near_idx] = q_new_idx
+                            cost_q_new = Cost(V, E, q_new_idx)
                             if debug:
                                 edge_ids[(q_new_idx, q_near_idx)] = edge_id_del
                                 self.pub_marker.publishVectorMarker(PyKDL.Vector(V[q_new_idx][0], V[q_new_idx][1], V[q_new_idx][2]), PyKDL.Vector(V[q_near_idx][0], V[q_near_idx][1], V[q_near_idx][2]), edge_id_del, 0, 1, 0, frame='world', namespace='edges', scale=0.01)
@@ -673,19 +670,19 @@ class TestOrOctomap:
         xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
-        self.num_proc = 3
+        self.num_proc = 1
         self.proc = []
-        self.queue_master = []
-        self.queue_slave = []
+        self.queue_master = Queue(maxsize=self.num_proc)
+        self.queue_slave = Queue()
         for i in range(self.num_proc):
-            self.queue_master.append( Queue() )
-            self.queue_slave.append( Queue() )
-            self.proc.append( Process(target=self.openraveWorker, args=(i, env_file, xacro_uri, srdf_path, self.queue_master[-1], self.queue_slave[-1],)) )
+#            self.queue_master.append( Queue() )
+#            self.queue_slave.append( Queue() )
+            self.proc.append( Process(target=self.openraveWorker, args=(i, env_file, xacro_uri, srdf_path, self.queue_master, self.queue_slave,)) )
             self.proc[-1].start()
 
+        # receive n messages
         for i in range(self.num_proc):
-            result = self.queue_slave[i].get()
-            print "result", i, result
+            result = self.queue_slave.get()
 
         print "all processes initalized"
 #        for i in range(self.num_proc):

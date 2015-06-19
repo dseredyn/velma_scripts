@@ -110,9 +110,9 @@ class OpenraveInstance:
         collision_models_urdf = {
 #        "velmafull" : ("velma.srdf", "collision_model_full:=true", "collision_model_simplified:=false", "collision_model_enlargement:=0.0", "collision_model_no_hands:=false"),
         "velmasimplified0" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.0", "collision_model_no_hands:=false"),
-#        "velmasimplified1" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.01", "collision_model_no_hands:=false"),
+        "velmasimplified1" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.01", "collision_model_no_hands:=false"),
 #        "velmasimplified2" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=false"),
-        "velmanohands" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=true"),
+#        "velmanohands" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=true"),
         }
 
         mimic_joints = [

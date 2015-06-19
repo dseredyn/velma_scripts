@@ -72,7 +72,7 @@ class TestOrOctomap:
             vec = np.empty(n)
             for i in range(n):
                 vec[i] = random.uniform(-r, r)
-            if np.linalg.norm(vec) <= r
+            if np.linalg.norm(vec) <= r:
                 break
 
         return vec
@@ -290,6 +290,7 @@ class TestOrOctomap:
             
 
         def getVisibility(openrave, vis_bodies, q=None, dof_indices=None):
+            openrave.switchCollisionModel("velmasimplified0")
             rays_hit = 0
             m_id = 0
 
@@ -342,6 +343,8 @@ class TestOrOctomap:
             return rays_hit
 
         def isStateValid(openrave, q, dof_indices):
+            openrave.switchCollisionModel("velmanohands")
+
             is_valid = True
             current_q = openrave.robot_rave.GetDOFValues(dof_indices)
             openrave.robot_rave.SetDOFValues(q, dof_indices)
@@ -920,9 +923,18 @@ class TestOrOctomap:
 #        exit(0)
 
         rospack = rospkg.RosPack()
+        env_file=rospack.get_path('velma_scripts') + '/data/key/vis_test.env.xml'
+        xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
+        srdf_path=rospack.get_path('velma_description') + '/robots/'
+
+#        openrave = openraveinstance.OpenraveInstance()
+#        openrave.startOpenraveURDF(env_file=rospack.get_path('velma_scripts') + '/data/key/vis_test.env.xml')
+#        openrave.readRobot(xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro', srdf_uri=rospack.get_path('velma_description') + '/robots/velma_simplified.srdf')
+
+
         openrave = openraveinstance.OpenraveInstance()
-        openrave.startOpenraveURDF(env_file=rospack.get_path('velma_scripts') + '/data/key/vis_test.env.xml')
-        openrave.readRobot(xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro', srdf_uri=rospack.get_path('velma_description') + '/robots/velma_simplified.srdf')
+        openrave.startOpenraveURDF(env_file=env_file, viewer=True)
+        openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
 
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
 

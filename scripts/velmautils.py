@@ -1059,15 +1059,18 @@ class VelmaSolvers:
         init_T_B_W = self.fk_solver.calculateFk("right_arm_7_link", init_js)
         T_B_Wd = goal_T_B_W
         T_B_W_diff = PyKDL.diff(init_T_B_W, T_B_Wd, 1.0)
+        steps = int(max( T_B_W_diff.vel.Norm()/0.05, T_B_W_diff.rot.Norm()/(20.0/180.0*math.pi) ))
+        if steps < 2:
+            steps = 2
 
         self.updateJointLimits(init_js)
         self.updateMimicJoints(init_js)
         q_list = []
-        for f in np.linspace(0.0, 1.0, 50):
+        for f in np.linspace(0.0, 1.0, steps):
             T_B_Wi = PyKDL.addDelta(init_T_B_W, T_B_W_diff, f)
             q_out = self.fk_solver.simulateTrajectory("right_arm_7_link", init_js, T_B_Wi)
             if q_out == None:
-                print "error: getCartImpWristTraj: ", str(f)
+#                print "error: getCartImpWristTraj: ", str(f)
                 return None
             q_list.append(q_out)
 

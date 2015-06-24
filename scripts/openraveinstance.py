@@ -79,16 +79,19 @@ class OpenraveInstance:
         self.robot_rave = self.env.GetRobot("velma")
         base_link = self.robot_rave.GetLink("torso_base")
         self.T_World_Br = self.OpenraveToKDL(base_link.GetTransform())
-        self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
-        if not self.ikmodel.load():
-            self.ikmodel.autogenerate()
+# TODO: ikmodel for both arms
+#        self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
+#        if not self.ikmodel.load():
+#            self.ikmodel.autogenerate()
 
         self.manipulator_dof_indices_map = {}
         self.lower_lim = {}
         self.upper_lim = {}
+        self.manipulators = {}
         manipulators = self.robot_rave.GetManipulators()
         for man in manipulators:
             man_name = man.GetName()
+            self.manipulators[man_name] = man
             self.manipulator_dof_indices_map[man_name] = man.GetArmIndices()
             self.lower_lim[man_name], self.upper_lim[man_name] = self.robot_rave.GetDOFLimits(self.manipulator_dof_indices_map[man_name])
 
@@ -163,17 +166,33 @@ class OpenraveInstance:
 
         base_link = self.robot_rave.GetLink("torso_base")
         self.T_World_Br = self.OpenraveToKDL(base_link.GetTransform())
-        self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
-        if not self.ikmodel.load():
-            self.ikmodel.autogenerate()
 
+        self.free_joint = {"right_arm":"right_arm_2_joint", "left_arm":"left_arm_2_joint"}
+        manipulators = self.robot_rave.GetManipulators()
+
+        for man in manipulators:
+            man_name = man.GetName()
+            self.ikmodel = {}
+            robot.SetActiveManipulator(man_name)
+            self.ikmodel[man_name] = databases.inversekinematics.InverseKinematicsModel(
+            self.robot_rave,iktype=IkParameterizationType.Transform6D, forceikfast=True, freeindices=[self.robot_rave.GetJoint(self.free_joint[man_name]).GetDOFIndex()])
+            if not self.ikmodel[man_name].load():
+                self.ikmodel[man_name].autogenerate()
+
+#        self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
+#        if not self.ikmodel.load():
+#            self.ikmodel.autogenerate()
+
+#        print "freeindices right", self.ikmodel["right_arm"].freeindices, self.ikmodel["right_arm"].freeinc
+#        print "freeindices left", self.ikmodel["left_arm"].freeindices, self.ikmodel["left_arm"].freeinc
 
         self.manipulator_dof_indices_map = {}
         self.lower_lim = {}
         self.upper_lim = {}
-        manipulators = self.robot_rave.GetManipulators()
+        self.manipulators = {}
         for man in manipulators:
             man_name = man.GetName()
+            self.manipulators[man_name] = man
             man.SetClosingDirection( (1,0,1,1) )
             print "manipulator:", man_name
             self.manipulator_dof_indices_map[man_name] = man.GetArmIndices()
@@ -1083,11 +1102,11 @@ class OpenraveInstance:
 
         return float(hits)/float(len(points))
 
-    def findIkSolution(self, T_Br_E):
-        return self.ikmodel.manip.FindIKSolution(self.KDLToOpenrave(self.T_World_Br * T_Br_E), IkFilterOptions.CheckEnvCollisions)
+    def findIkSolution(self, T_Br_E, man_name="right_arm", freevalues=None):
+        return self.manipulators[man_name].FindIKSolution(self.KDLToOpenrave(self.T_World_Br * T_Br_E), freevalues, IkFilterOptions.CheckEnvCollisions)
 
-    def findIkSolutions(self, T_Br_E):
-        return self.ikmodel.manip.FindIKSolutions(self.KDLToOpenrave(self.T_World_Br * T_Br_E), IkFilterOptions.CheckEnvCollisions)
+    def findIkSolutions(self, T_Br_E, man_name="right_arm", freevalues=None):
+        return self.manipulators[man_name].FindIKSolutions(self.KDLToOpenrave(self.T_World_Br * T_Br_E), freevalues, IkFilterOptions.CheckEnvCollisions)
 
     def getConfigurationPenalty(self, q):
         # punish for singularities in end configuration

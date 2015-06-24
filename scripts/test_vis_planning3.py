@@ -638,7 +638,6 @@ class TestOrOctomap:
                 col_free = CollisionFree(q_nearest, q_new, dof_indices)
                 if col_free:
 
-
                     near_dist = 120.0/180.0*math.pi
                     q_near_idx_list = Near(V, q_new, near_dist)
 
@@ -696,8 +695,6 @@ class TestOrOctomap:
 
                     queue_slave.put( ("addNode", V_update_q_new, E_update, goal, collision_checks[0]) )
                 else:
-                    if process_id == 0:
-                        print "exit"
                     queue_slave.put( ("addNode", None, None, None, collision_checks[0]) )
               except:
                 print "exception in process", process_id

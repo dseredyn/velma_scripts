@@ -212,6 +212,17 @@ class OpenraveInstance:
         self.robot_rave.SetVisible(True)
         self.current_collision_model = model_name
 
+    def disableLinks(self, disabled_links):
+        for model_name in self.robots:
+                    for link in self.robots[model_name].GetLinks():
+                        if link.GetName() in disabled_links:
+                            link.SetVisible(False)
+                            link.Enable(False)
+                        else:
+                            link.SetVisible(True)
+                            link.Enable(True)
+        self.env.UpdatePublishedBodies()
+
     def startOpenraveURDF(self, env_file=None, collision=None, viewer=True):
 
         parser = OptionParser(description='Openrave Velma interface')

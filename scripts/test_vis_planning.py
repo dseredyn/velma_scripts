@@ -290,7 +290,7 @@ class TestOrOctomap:
             
 
         def getVisibility(openrave, vis_bodies, q=None, dof_indices=None):
-            openrave.switchCollisionModel("velmasimplified0")
+#            openrave.switchCollisionModel("velmasimplified0")
             rays_hit = 0
             m_id = 0
 
@@ -343,7 +343,7 @@ class TestOrOctomap:
             return rays_hit
 
         def isStateValid(openrave, q, dof_indices):
-            openrave.switchCollisionModel("velmanohands")
+#            openrave.switchCollisionModel("velmasimplified1")
 
             is_valid = True
             current_q = openrave.robot_rave.GetDOFValues(dof_indices)
@@ -367,17 +367,17 @@ class TestOrOctomap:
         dof_names = [
         "head_pan_joint",
         "head_tilt_joint",
-        "left_arm_0_joint",
-        "left_arm_1_joint",
-        "left_arm_2_joint",
-        "left_arm_3_joint",
+#        "left_arm_0_joint",
+#        "left_arm_1_joint",
+#        "left_arm_2_joint",
+#        "left_arm_3_joint",
 #        "left_arm_4_joint",
 #        "left_arm_5_joint",
 #        "left_arm_6_joint",
-        "right_arm_0_joint",
-        "right_arm_1_joint",
-        "right_arm_2_joint",
-        "right_arm_3_joint",
+#        "right_arm_0_joint",
+#        "right_arm_1_joint",
+#        "right_arm_2_joint",
+#        "right_arm_3_joint",
 #        "right_arm_4_joint",
 #        "right_arm_5_joint",
 #        "right_arm_6_joint",
@@ -935,6 +935,50 @@ class TestOrOctomap:
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenraveURDF(env_file=env_file, viewer=True)
         openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
+
+        target_link = "head_tilt_link"
+        l_idx1 = openrave.robot_rave.GetLink(target_link).GetIndex()
+        l_idx2 = openrave.robot_rave.GetLink("torso_base").GetIndex()
+        joints = openrave.robot_rave.GetChain(l_idx1, l_idx2)
+        active_joints = []
+        for joint in joints:
+            if joint.GetDOFIndex() >= 0:
+                active_joints.append(joint.GetName())
+        print "active_joints", active_joints
+
+        root_joints = []
+        for joint in openrave.robot_rave.GetJoints():
+            if joint.GetName() in active_joints:
+                continue
+            idx1 = joint.GetHierarchyParentLink().GetIndex()
+            for ac_joint_name in active_joints:
+                ac_joint = openrave.robot_rave.GetJoint(ac_joint_name)
+                idx2 = ac_joint.GetHierarchyChildLink().GetIndex()
+                chain = openrave.robot_rave.GetChain(idx1, idx2)
+                all_passive = True
+                for chain_jnt in chain:
+                    if chain_jnt.GetDOFIndex() > 0:
+                        all_passive = False
+                        break
+                if all_passive and not joint.GetName() in root_joints:
+                    root_joints.append(joint.GetName())
+
+        print "root_joints", root_joints
+
+        disabled_links = []
+        for joint_name in root_joints:
+            joint = openrave.robot_rave.GetJoint(joint_name)
+            for link in openrave.robot_rave.GetLinks():
+                if openrave.robot_rave.DoesAffect(joint.GetJointIndex(), link.GetIndex()) != 0:
+                    disabled_links.append(link.GetName())
+
+        for link in openrave.robot_rave.GetLinks():
+            if link.GetName() in disabled_links:
+                link.SetVisible(False)
+                link.Enable(False)
+            else:
+                link.SetVisible(True)
+                link.Enable(True)
 
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
 

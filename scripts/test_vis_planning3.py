@@ -136,13 +136,46 @@ class LooAtTaskRRT:
             self.vis_bodies.append( body )
             self.openrave.env.Remove( body )
 
+        self.dof_names = [
+        "head_pan_joint",
+        "head_tilt_joint",
+        "left_arm_0_joint",
+        "left_arm_1_joint",
+        "left_arm_2_joint",
+        "left_arm_3_joint",
+        "right_arm_0_joint",
+        "right_arm_1_joint",
+        "right_arm_2_joint",
+        "right_arm_3_joint",
+        "torso_0_joint",
+        ]
 
-    def checkGoal(self, q, dof_indices):
+        self.dof_indices = []
+        self.dof_limits = []
+        for joint_name in self.dof_names:
+            joint = openrave.robot_rave.GetJoint(joint_name)
+            self.dof_indices.append( joint.GetDOFIndex() )
+            lim_lo, lim_up = joint.GetLimits()
+            self.dof_limits.append( (lim_lo[0], lim_up[0]) )
+
+        self.dof_indices_map = {}
+        for i in range(len(self.dof_names)):
+            self.dof_indices_map[self.dof_names[i]] = i
+
+    def getActiveDOF(self, q):
+        q_ret = np.empty(len(self.dof_indices))
+        q_ret_idx = 0
+        for dof_idx in self.dof_indices:
+            q_ret[q_ret_idx] = q[dof_idx]
+            q_ret_idx += 1
+        return q_ret
+
+    def checkGoal(self, q):
             self.openrave.switchCollisionModel("velmasimplified0")
             rays_hit = 0
             m_id = 0
 
-            self.openrave.robot_rave.SetDOFValues(q, dof_indices)
+            self.openrave.robot_rave.SetDOFValues(q, self.dof_indices)
 #            openrave.env.UpdatePublishedBodies()
 
             for body in self.vis_bodies:
@@ -172,37 +205,34 @@ class LooAtTaskRRT:
 
             return rays_hit == 4
 
-    def SampleGoal(self, dof_indices, dof_limits, dof_names, start_q, shortest_path_len):
-            dof_indices_map = {}
-            for i in range(len(dof_names)):
-                dof_indices_map[dof_names[i]] = i
-            q_goal = np.empty(len(dof_names))
+    def SampleGoal(self, start_q, shortest_path_len):
+            q_goal = np.empty(len(self.dof_names))
             for tries in range(200):
                 if shortest_path_len == None:
-                    for i in range(len(dof_names)):
-                        q_goal[i] = random.uniform(dof_limits[i][0]+0.01, dof_limits[i][1]-0.01)
+                    for i in range(len(self.dof_names)):
+                        q_goal[i] = random.uniform(self.dof_limits[i][0]+0.01, self.dof_limits[i][1]-0.01)
                 else:
-                    q_goal = uniformInBall2(shortest_path_len, dof_limits, start_q)
+                    q_goal = uniformInBall2(shortest_path_len, self.dof_limits, start_q)
 
-                self.head_kin.UpdateTorsoPose(q_goal[dof_indices_map["torso_0_joint"]], self.openrave.robot_rave.GetJoint("torso_1_joint").GetValue(0))
+                self.head_kin.UpdateTorsoPose(q_goal[self.dof_indices_map["torso_0_joint"]], self.openrave.robot_rave.GetJoint("torso_1_joint").GetValue(0))
                 self.head_kin.UpdateTargetPosition(self.head_target_B.x(), self.head_target_B.y(), self.head_target_B.z())
                 self.head_kin.TransformTargetToHeadFrame()
                 joint_pan, joint_tilt = self.head_kin.CalculateHeadPose()
                 if joint_pan == None:
                     continue
-                joint_pan = max(joint_pan, dof_limits[dof_indices_map["head_pan_joint"]][0])
-                joint_pan = min(joint_pan, dof_limits[dof_indices_map["head_pan_joint"]][1])
-                joint_tilt = max(joint_tilt, dof_limits[dof_indices_map["head_tilt_joint"]][0])
-                joint_tilt = min(joint_tilt, dof_limits[dof_indices_map["head_tilt_joint"]][1])
-                q_goal[dof_indices_map["head_pan_joint"]] = joint_pan
-                q_goal[dof_indices_map["head_tilt_joint"]] = joint_tilt
+                joint_pan = max(joint_pan, self.dof_limits[self.dof_indices_map["head_pan_joint"]][0])
+                joint_pan = min(joint_pan, self.dof_limits[self.dof_indices_map["head_pan_joint"]][1])
+                joint_tilt = max(joint_tilt, self.dof_limits[self.dof_indices_map["head_tilt_joint"]][0])
+                joint_tilt = min(joint_tilt, self.dof_limits[self.dof_indices_map["head_tilt_joint"]][1])
+                q_goal[self.dof_indices_map["head_pan_joint"]] = joint_pan
+                q_goal[self.dof_indices_map["head_tilt_joint"]] = joint_tilt
 
 #                if shortest_path_len != None and CostLine(start_q, q_goal) > shortest_path_len:
 #                    continue
 
 #                if isStateValid(q_goal, dof_indices) and checkGoal(q_goal, dof_indices):
 #                    return q_goal
-                if self.checkGoal(q_goal, dof_indices):
+                if self.checkGoal(q_goal):
                     return q_goal
             return None
 
@@ -237,51 +267,7 @@ class KeyRotTaskRRT:
             self.key_traj2_T_B_W.append( (T_B_W, angle) )
         self.velma_solvers = velmautils.VelmaSolvers()
 
-    def checkGoal(self, q, dof_indices):
-        # interpolate trajectory (in the cartesian space)
-        self.openrave.robot_rave.SetDOFValues(q, dof_indices)
-        link_E = self.openrave.robot_rave.GetLink("right_HandPalmLink")
-        T_World_E = OpenraveToKDL(link_E.GetTransform())
-        T_B_O = self.openrave.T_World_Br.Inverse() * T_World_E * self.T_E_O
-        diff = PyKDL.diff(self.T_B_O_nearHole, T_B_O)
-        if diff.vel.Norm() > 0.02 or diff.rot.Norm() > 10.0/180.0*math.pi:
-#            print "too far from goal"
-            return False
-
-        angle1 = 0.0
-        for T_B_W, angle in self.key_traj1_T_B_W:
-            init_js = self.openrave.getRobotConfigurationRos()
-            traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_W)
-            if traj == None:
-                break
-            angle1 = angle
-            qar = {}
-            for qi in range(len(traj[-1])):
-                qar["right_arm_"+str(qi)+"_joint"] = traj[-1][qi]
-            self.openrave.updateRobotConfigurationRos(qar)
-
-        self.openrave.robot_rave.SetDOFValues(q, dof_indices)
-        angle2 = 0.0
-        for T_B_W, angle in self.key_traj2_T_B_W:
-            init_js = self.openrave.getRobotConfigurationRos()
-            traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_W)
-            if traj == None:
-                break
-            angle2 = angle
-            qar = {}
-            for qi in range(len(traj[-1])):
-                qar["right_arm_"+str(qi)+"_joint"] = traj[-1][qi]
-            self.openrave.updateRobotConfigurationRos(qar)
-
-        if abs(angle1-angle2) > 190.0/180.0*math.pi:
-            return True
-        else:
-            return False
-
-    def SampleGoal(self, dof_indices, dof_limits, dof_names, start_q, shortest_path_len):
-        self.openrave.switchCollisionModel("velmasimplified0")
-
-        dof_names = [
+        self.dof_names = [
 #        "head_pan_joint",
 #        "head_tilt_joint",
         "left_arm_0_joint",
@@ -302,7 +288,15 @@ class KeyRotTaskRRT:
 #        "torso_1_joint",
         ]
 
-        dof_names_ik = [
+        self.dof_indices = []
+        self.dof_limits = []
+        for joint_name in self.dof_names:
+            joint = openrave.robot_rave.GetJoint(joint_name)
+            self.dof_indices.append( joint.GetDOFIndex() )
+            lim_lo, lim_up = joint.GetLimits()
+            self.dof_limits.append( (lim_lo[0], lim_up[0]) )
+
+        self.dof_names_ik = [
         "right_arm_0_joint",
         "right_arm_1_joint",
         "right_arm_2_joint",
@@ -312,39 +306,83 @@ class KeyRotTaskRRT:
         "right_arm_6_joint",
         ]
 
-        dof_indices = []
-        dof_limits = []
-        for joint_name in dof_names:
-                joint = self.openrave.robot_rave.GetJoint(joint_name)
-                dof_indices.append( joint.GetDOFIndex() )
-                lim_lo, lim_up = joint.GetLimits()
-                dof_limits.append( (lim_lo[0], lim_up[0]) )
+        self.dof_indices_map = {}
+        for i in range(len(self.dof_names)):
+            self.dof_indices_map[self.dof_names[i]] = i
 
-        dof_indices_map = {}
-        for i in range(len(dof_names)):
-            dof_indices_map[dof_names[i]] = i
+    def getActiveDOF(self, q):
+        q_ret = np.empty(len(self.dof_indices))
+        q_ret_idx = 0
+        for dof_idx in self.dof_indices:
+            q_ret[q_ret_idx] = q[dof_idx]
+            q_ret_idx += 1
+        return q_ret
+
+    def checkGoal(self, q):
+        # interpolate trajectory (in the cartesian space)
+        self.openrave.robot_rave.SetDOFValues(q, self.dof_indices)
+        link_E = self.openrave.robot_rave.GetLink("right_HandPalmLink")
+        T_World_E = OpenraveToKDL(link_E.GetTransform())
+        T_B_O = self.openrave.T_World_Br.Inverse() * T_World_E * self.T_E_O
+        diff = PyKDL.diff(self.T_B_O_nearHole, T_B_O)
+        if diff.vel.Norm() > 0.02 or diff.rot.Norm() > 10.0/180.0*math.pi:
+#            print "too far from goal"
+            return False
+
+        angle1 = 0.0
+        for T_B_W, angle in self.key_traj1_T_B_W:
+            init_js = self.openrave.getRobotConfigurationRos()
+            traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_W)
+            if traj == None:
+                break
+            angle1 = angle
+            qar = {}
+            for qi in range(len(traj[-1])):
+                qar["right_arm_"+str(qi)+"_joint"] = traj[-1][qi]
+            self.openrave.updateRobotConfigurationRos(qar)
+
+        self.openrave.robot_rave.SetDOFValues(q, self.dof_indices)
+        angle2 = 0.0
+        for T_B_W, angle in self.key_traj2_T_B_W:
+            init_js = self.openrave.getRobotConfigurationRos()
+            traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_W)
+            if traj == None:
+                break
+            angle2 = angle
+            qar = {}
+            for qi in range(len(traj[-1])):
+                qar["right_arm_"+str(qi)+"_joint"] = traj[-1][qi]
+            self.openrave.updateRobotConfigurationRos(qar)
+
+        if abs(angle1-angle2) > 190.0/180.0*math.pi:
+            return True
+        else:
+            return False
+
+    def SampleGoal(self, start_q, shortest_path_len):
+        self.openrave.switchCollisionModel("velmasimplified0")
 
         T_B_E = self.T_B_O_nearHole * self.T_O_E
 
-        q_goal = np.empty(len(dof_names))
+        q_goal = np.empty(len(self.dof_names))
         for tries in range(200):
             if shortest_path_len == None:
-                for i in range(len(dof_names)):
-                    q_goal[i] = random.uniform(dof_limits[i][0]+0.01, dof_limits[i][1]-0.01)
+                for i in range(len(self.dof_names)):
+                    q_goal[i] = random.uniform(self.dof_limits[i][0]+0.01, self.dof_limits[i][1]-0.01)
             else:
-                q_goal = uniformInBall2(shortest_path_len, dof_limits, start_q)
+                q_goal = uniformInBall2(shortest_path_len, self.dof_limits, start_q)
 
-            free_dof_idx = dof_indices_map[self.openrave.free_joint["right_arm"]]
-            freevalues = [ (q_goal[free_dof_idx]-dof_limits[free_dof_idx][0])/(dof_limits[free_dof_idx][1]-dof_limits[free_dof_idx][0]) ]
-            self.openrave.robot_rave.SetDOFValues(q_goal, dof_indices)
+            free_dof_idx = self.dof_indices_map[self.openrave.free_joint["right_arm"]]
+            freevalues = [ (q_goal[free_dof_idx]-self.dof_limits[free_dof_idx][0])/(self.dof_limits[free_dof_idx][1]-self.dof_limits[free_dof_idx][0]) ]
+            self.openrave.robot_rave.SetDOFValues(q_goal, self.dof_indices)
             solutions = self.openrave.findIkSolutions(T_B_E, man_name="right_arm", freevalues=freevalues)
 
             found_goal = False
             for sol in solutions:
-                for arm_dof_idx in range(len(dof_names_ik)):
-                    dof_name = dof_names_ik[arm_dof_idx]
-                    q_goal[dof_indices_map[dof_name]] = sol[arm_dof_idx]
-                if self.checkGoal(q_goal, dof_indices):
+                for arm_dof_idx in range(len(self.dof_names_ik)):
+                    dof_name = self.dof_names_ik[arm_dof_idx]
+                    q_goal[self.dof_indices_map[dof_name]] = sol[arm_dof_idx]
+                if self.checkGoal(q_goal):
                     found_goal = True
                     break
             if found_goal:
@@ -375,53 +413,12 @@ class TestOrOctomap:
             self.pub_marker.eraseMarkers(0,3000, frame_id='world')
             rospy.sleep(0.01)
 
-        dof_names = [
-        "head_pan_joint",
-        "head_tilt_joint",
-        "left_arm_0_joint",
-        "left_arm_1_joint",
-        "left_arm_2_joint",
-        "left_arm_3_joint",
-        "right_arm_0_joint",
-        "right_arm_1_joint",
-        "right_arm_2_joint",
-        "right_arm_3_joint",
-        "torso_0_joint",
-        ]
-
-        dof_names = [
-#        "head_pan_joint",
-#        "head_tilt_joint",
-        "left_arm_0_joint",
-        "left_arm_1_joint",
-        "left_arm_2_joint",
-        "left_arm_3_joint",
-#        "left_arm_4_joint",
-#        "left_arm_5_joint",
-#        "left_arm_6_joint",
-        "right_arm_0_joint",
-        "right_arm_1_joint",
-        "right_arm_2_joint",
-        "right_arm_3_joint",
-        "right_arm_4_joint",
-        "right_arm_5_joint",
-        "right_arm_6_joint",
-        "torso_0_joint",
-#        "torso_1_joint",
-        ]
         #
         # RRT*
         #
-        def RRTstar(openrave, dof_names):
-            dof_indices = []
-            dof_limits = []
-            for joint_name in dof_names:
-                joint = openrave.robot_rave.GetJoint(joint_name)
-                dof_indices.append( joint.GetDOFIndex() )
-                lim_lo, lim_up = joint.GetLimits()
-                dof_limits.append( (lim_lo[0], lim_up[0]) )
+        def RRTstar(openrave):
 
-            print "planning for %s joints"%(len(dof_indices))
+#            print "planning for %s joints"%(len(dof_indices))
 
 #            ETA = 60.0/180.0*math.pi
 #            gamma = 0.5
@@ -474,16 +471,26 @@ class TestOrOctomap:
             V = {}
             E = {}
             goal_V_ids = []
-            q_init = openrave.robot_rave.GetDOFValues(dof_indices)
-            self.q_init = np.array(q_init)
+            q_init = openrave.robot_rave.GetDOFValues()
+
+            self.queue_master.put( ("addFirstNode", q_init), True )
+            resp = self.queue_slave.get(True)
+            if resp[0] != "addFirstNode":
+                print "ERROR resp (addFirstNode):", resp[0]
+                exit(0)
+            V_update_q_new, dof_names = resp[1:]
+
+            V[0] = V_update_q_new
+
+#            self.q_init = np.array(q_init)
             q_new_idx = 0
-            V[0] = np.array(q_init)
+#            V[0] = np.array(q_init)
             total_collision_checks = 0
             for k in range(100000):
               produced = 0
               consumed = 0
 
-              self.queue_master.put( ("addNode", V, E, dof_indices, dof_limits, dof_names, self.q_init, shortest_path_len, best_q_idx, goal_V_ids), True )
+              self.queue_master.put( ("addNode", V, E, shortest_path_len, best_q_idx, goal_V_ids), True )
               while True:
                 try:
                     resp = self.queue_slave.get(False)
@@ -548,7 +555,7 @@ class TestOrOctomap:
                     if True and shortest_path_len_prev != shortest_path_len:
                         rem_nodes = []
                         for vi in V:
-                            if CostLine(self.q_init, V[vi]) > shortest_path_len:
+                            if CostLine(V[0], V[vi]) > shortest_path_len:
                                 rem_nodes.append(vi)
                         print "removing nodes:", len(rem_nodes)
                         for vi in rem_nodes:
@@ -603,7 +610,7 @@ class TestOrOctomap:
         self.stop_planning = False
         thread.start_new_thread(self.inputThread, (None,))
 
-        RRTstar(openrave, dof_names)
+        RRTstar(openrave)
 
     def openraveWorker(self, process_id, env_file, xacro_uri, srdf_path, configuration_ros, queue_master, queue_slave):
       openrave = openraveinstance.OpenraveInstance()
@@ -613,8 +620,8 @@ class TestOrOctomap:
       openrave.updateRobotConfigurationRos(configuration_ros)
       collision_checks = [0]
 
-#      taskrrt = LooAtTaskRRT(openrave)
-      taskrrt = KeyRotTaskRRT(openrave)
+      taskrrt = LooAtTaskRRT(openrave)
+#      taskrrt = KeyRotTaskRRT(openrave)
 
       with openrave.env:
 
@@ -779,38 +786,44 @@ class TestOrOctomap:
                 else:
                     queue_slave.put( ("isStateValid", True, q) )
 
+            elif cmd == "addFirstNode":
+                q_start_all = msg[1]
+                V_update_q_new = taskrrt.getActiveDOF(q_start_all)
+                queue_slave.put( ("addFirstNode", V_update_q_new, taskrrt.dof_names) )
+
             elif cmd == "addNode":
 #              try:
                 collision_checks[0] = 0
-                V, E, dof_indices, dof_limits, dof_names, q_start, shortest_path_len, best_q_idx, goal_V_ids = msg[1:]
+                V, E, shortest_path_len, best_q_idx, goal_V_ids = msg[1:]
+#                q_start = taskrrt.getActiveDOF(q_start_all)
 
                 if random.uniform(0,1) < 0.05:
                     for i in range(10):
-                        q_rand = taskrrt.SampleGoal(dof_indices, dof_limits, dof_names, q_start, shortest_path_len)
+                        q_rand = taskrrt.SampleGoal(V[0], shortest_path_len)
                         if q_rand == None:
                             continue
-                        if shortest_path_len != None and CostLine(q_start, q_rand) > shortest_path_len:
+                        if shortest_path_len != None and CostLine(V[0], q_rand) > shortest_path_len:
                             q_rand = None
                             continue
-                        if not isStateValid(q_rand, dof_indices):
+                        if not isStateValid(q_rand, taskrrt.dof_indices):
                             print "goal in collision"
                             q_rand = None
                             continue
                         break
                     if q_rand == None:
-                        q_rand = SampleFree(dof_indices, dof_limits, q_start, shortest_path_len, best_q_idx, goal_V_ids, V, E)
+                        q_rand = SampleFree(taskrrt.dof_indices, taskrrt.dof_limits, V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
                     else:
                         print "SampleGoal"
                 else:
-                    q_rand = SampleFree(dof_indices, dof_limits, q_start, shortest_path_len, best_q_idx, goal_V_ids, V, E)
+                    q_rand = SampleFree(taskrrt.dof_indices, taskrrt.dof_limits, V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
                 q_nearest_idx = Nearest(V, q_rand)
                 q_nearest = V[q_nearest_idx]
                 q_new = Steer(q_nearest, q_rand)
 
-                if shortest_path_len != None and CostLine(q_start, q_new) > shortest_path_len:
+                if shortest_path_len != None and CostLine(V[0], q_new) > shortest_path_len:
                     continue
 
-                col_free = CollisionFree(q_nearest, q_new, dof_indices)
+                col_free = CollisionFree(q_nearest, q_new, taskrrt.dof_indices)
                 if col_free:
 
                     near_dist = 120.0/180.0*math.pi
@@ -834,7 +847,7 @@ class TestOrOctomap:
                     collision_checked = {}
                     for (new_cost, q_near_idx) in sorted_cost_q_near_idx_list:
                         q_near = V[q_near_idx]
-                        if CollisionFree(q_near, q_new, dof_indices):
+                        if CollisionFree(q_near, q_new, taskrrt.dof_indices):
                             collision_checked[q_near_idx] = True
                             q_min_idx = q_near_idx
                             c_min = new_cost
@@ -857,14 +870,14 @@ class TestOrOctomap:
                             if q_near_idx in collision_checked:
                                 col = collision_checked[q_near_idx]
                             else:
-                                col = CollisionFree(q_new, q_near, dof_indices)
+                                col = CollisionFree(q_new, q_near, taskrrt.dof_indices)
                             if col:
                                 q_parent_idx = E[q_near_idx]
                                 print "rem: %s  %s"%(q_parent_idx, q_near_idx)
                                 E[q_near_idx] = q_new_idx
                                 E_update.append( (q_near_idx, -1) )
 
-                    goal = taskrrt.checkGoal(q_new, dof_indices)
+                    goal = taskrrt.checkGoal(q_new)
                     if goal:
                         print "found goal"
 
@@ -994,7 +1007,7 @@ class TestOrOctomap:
         # TEST: key hole goal
         if False:
             task = KeyRotTaskRRT(openrave)
-            task.SampleGoal(None, None, None, None, None)
+            task.SampleGoal(None, None)
             exit(0)
 
 

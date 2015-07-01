@@ -80,19 +80,40 @@ def OpenraveToKDL(T):
         pos = PyKDL.Vector(T[0][3], T[1][3], T[2][3])
         return PyKDL.Frame(rot, pos)
 
-def uniformInBall2(r, limits, q_start):
+def generateSubpaths(path):
+        paths = []
+        for path_idx in range(2**(len(path)-2) - 1):
+            value = path_idx
+            path_v_idx = 1
+            new_path = [path[0]]
+            while value > 0:
+                if (value&1) == 1:
+                    new_path.append(path[path_v_idx])
+                path_v_idx += 1
+                value = value>>1
+            new_path.append(path[-1])
+            paths.append(new_path)
+        return paths
+
+def uniformInBall(r, limits, q_start, ignore_dof=[]):
                 tries = 0
                 while True:
                     tries += 1
                     n = len(limits)
                     vec = np.empty(n)
                     for i in range(n):
-                        lo_limit = max(limits[i][0], q_start[i]-r)
-                        up_limit = min(limits[i][1], q_start[i]+r)
-                        vec[i] = random.uniform(lo_limit, up_limit)
-                    if np.linalg.norm(q_start - vec) <= r:
-#                        print "uniformInBall2", tries
-                        return vec
+                        if i in ignore_dof:
+                            vec[i] = q_start[i]
+                        else:
+                            lo_limit = max(limits[i][0], q_start[i]-r)
+                            up_limit = min(limits[i][1], q_start[i]+r)
+                            vec[i] = random.uniform(lo_limit, up_limit)
+                    diff = q_start - vec
+                    diff_len = np.linalg.norm(q_start - vec)
+                    if diff_len > r:
+                        diff = diff/diff_len * r * random.uniform(0,1)
+                        vec = q_start - diff
+                    return vec
 
 class LooAtTaskRRT:
     def __init__(self, openrave):
@@ -206,14 +227,12 @@ class LooAtTaskRRT:
             return rays_hit == 4
 
     def SampleGoal(self, start_q, shortest_path_len):
+            ignore_dof = [self.dof_indices_map["torso_0_joint"], self.dof_indices_map["head_pan_joint"], self.dof_indices_map["head_tilt_joint"]]
             q_goal = np.empty(len(self.dof_names))
             for tries in range(200):
-                if shortest_path_len == None:
-                    for i in range(len(self.dof_names)):
-                        q_goal[i] = random.uniform(self.dof_limits[i][0]+0.01, self.dof_limits[i][1]-0.01)
-                else:
-                    q_goal = uniformInBall2(shortest_path_len, self.dof_limits, start_q)
 
+                torso_0_joint_idx = self.dof_indices_map["torso_0_joint"]
+                q_goal[torso_0_joint_idx] = random.uniform(self.dof_limits[torso_0_joint_idx][0]+0.01, self.dof_limits[torso_0_joint_idx][1]-0.01)
                 self.head_kin.UpdateTorsoPose(q_goal[self.dof_indices_map["torso_0_joint"]], self.openrave.robot_rave.GetJoint("torso_1_joint").GetValue(0))
                 self.head_kin.UpdateTargetPosition(self.head_target_B.x(), self.head_target_B.y(), self.head_target_B.z())
                 self.head_kin.TransformTargetToHeadFrame()
@@ -227,12 +246,31 @@ class LooAtTaskRRT:
                 q_goal[self.dof_indices_map["head_pan_joint"]] = joint_pan
                 q_goal[self.dof_indices_map["head_tilt_joint"]] = joint_tilt
 
-#                if shortest_path_len != None and CostLine(start_q, q_goal) > shortest_path_len:
-#                    continue
+                if shortest_path_len == None:
+                    for i in range(len(self.dof_names)):
+                        if i in ignore_dof:
+                            continue
+                        q_goal[i] = random.uniform(self.dof_limits[i][0]+0.01, self.dof_limits[i][1]-0.01)
+                else:
+                    diff = 0.0
+                    for dof_idx in ignore_dof:
+                        diff += (start_q[dof_idx] - q_goal[dof_idx]) * (start_q[dof_idx] - q_goal[dof_idx])
+                    shortest_path_len2 = shortest_path_len*shortest_path_len - diff
+                    if shortest_path_len2 < 0.0:
+                        continue
+                    shortest_path_len2 = math.sqrt(shortest_path_len2)
+                    q_goal2 = uniformInBall(shortest_path_len2, self.dof_limits, start_q, ignore_dof=ignore_dof)
+                    for dof_idx in ignore_dof:
+                        q_goal2[dof_idx] = q_goal[dof_idx]
+                    q_goal = q_goal2
 
-#                if isStateValid(q_goal, dof_indices) and checkGoal(q_goal, dof_indices):
-#                    return q_goal
+                # sanity check
+                if shortest_path_len != None and np.linalg.norm(q_goal-start_q) > shortest_path_len:
+                    print "ERROR: np.linalg.norm(q_goal-start_q) > shortest_path_len", np.linalg.norm(q_goal-start_q), ">", shortest_path_len
+                    exit(0)
+
                 if self.checkGoal(q_goal):
+#                    print "SampleGoal", tries
                     return q_goal
             return None
 
@@ -361,35 +399,74 @@ class KeyRotTaskRRT:
 
     def SampleGoal(self, start_q, shortest_path_len):
         self.openrave.switchCollisionModel("velmasimplified0")
+        free_dof_idx = self.dof_indices_map[self.openrave.free_joint["right_arm"]]
+        torso_0_joint_idx = self.dof_indices_map["torso_0_joint"]
+        ignore_dof = [
+        self.dof_indices_map["torso_0_joint"],
+        self.dof_indices_map["right_arm_0_joint"],
+        self.dof_indices_map["right_arm_1_joint"],
+        self.dof_indices_map["right_arm_2_joint"],
+        self.dof_indices_map["right_arm_3_joint"],
+        self.dof_indices_map["right_arm_4_joint"],
+        self.dof_indices_map["right_arm_5_joint"],
+        self.dof_indices_map["right_arm_6_joint"]]
+
+        start_arm_q = np.empty(len(self.dof_names_ik))
+        for dof_ik_idx in range(len(self.dof_names_ik)):
+            start_arm_q[dof_ik_idx] = start_q[self.dof_indices_map[self.dof_names_ik[dof_ik_idx]]]
 
         T_B_E = self.T_B_O_nearHole * self.T_O_E
 
-        q_goal = np.empty(len(self.dof_names))
+        q_goal = np.zeros(len(self.dof_names))
         for tries in range(200):
-            if shortest_path_len == None:
-                for i in range(len(self.dof_names)):
-                    q_goal[i] = random.uniform(self.dof_limits[i][0]+0.01, self.dof_limits[i][1]-0.01)
-            else:
-                q_goal = uniformInBall2(shortest_path_len, self.dof_limits, start_q)
-
-            free_dof_idx = self.dof_indices_map[self.openrave.free_joint["right_arm"]]
+            # random free joint value for the arm
+            q_goal[free_dof_idx] = random.uniform(self.dof_limits[free_dof_idx][0]+0.01, self.dof_limits[free_dof_idx][1]-0.01)
             freevalues = [ (q_goal[free_dof_idx]-self.dof_limits[free_dof_idx][0])/(self.dof_limits[free_dof_idx][1]-self.dof_limits[free_dof_idx][0]) ]
+
+            # random torso joint value
+            q_goal[torso_0_joint_idx] = random.uniform(self.dof_limits[torso_0_joint_idx][0]+0.01, self.dof_limits[torso_0_joint_idx][1]-0.01)
+
             self.openrave.robot_rave.SetDOFValues(q_goal, self.dof_indices)
             solutions = self.openrave.findIkSolutions(T_B_E, man_name="right_arm", freevalues=freevalues)
 
-            found_goal = False
+            solutions_dist = []
+            # sort the solutions
             for sol in solutions:
+                dist = np.linalg.norm(start_arm_q-np.array(sol))
+                solutions_dist.append( (dist, sol) )
+
+            sorted_solutions = sorted(solutions_dist, key=operator.itemgetter(0))
+
+            for dist, sol in sorted_solutions:
                 for arm_dof_idx in range(len(self.dof_names_ik)):
                     dof_name = self.dof_names_ik[arm_dof_idx]
                     q_goal[self.dof_indices_map[dof_name]] = sol[arm_dof_idx]
-                if self.checkGoal(q_goal):
-                    found_goal = True
-                    break
-            if found_goal:
-#                self.openrave.robot_rave.SetDOFValues(q_goal, dof_indices)
-#                raw_input(".")
-                return q_goal
 
+                if shortest_path_len == None:
+                    for i in range(len(self.dof_names)):
+                        if i in ignore_dof:
+                            continue
+                        q_goal[i] = random.uniform(self.dof_limits[i][0]+0.01, self.dof_limits[i][1]-0.01)
+                else:
+                    diff = 0.0
+                    for dof_idx in ignore_dof:
+                        diff += (start_q[dof_idx] - q_goal[dof_idx]) * (start_q[dof_idx] - q_goal[dof_idx])
+                    shortest_path_len2 = shortest_path_len*shortest_path_len - diff
+                    if shortest_path_len2 < 0.0:
+                        continue
+                    shortest_path_len2 = math.sqrt(shortest_path_len2)
+                    q_goal2 = uniformInBall(shortest_path_len2, self.dof_limits, start_q, ignore_dof=ignore_dof)
+                    for dof_idx in ignore_dof:
+                        q_goal2[dof_idx] = q_goal[dof_idx]
+                    q_goal = q_goal2
+
+                # sanity check
+                if shortest_path_len != None and np.linalg.norm(q_goal-start_q) > shortest_path_len:
+                    print "ERROR: np.linalg.norm(q_goal-start_q) > shortest_path_len", np.linalg.norm(q_goal-start_q), ">", shortest_path_len
+                    exit(0)
+
+                if self.checkGoal(q_goal):
+                    return q_goal
         return None
 
 class TestOrOctomap:
@@ -418,12 +495,6 @@ class TestOrOctomap:
         #
         def RRTstar(openrave):
 
-#            print "planning for %s joints"%(len(dof_indices))
-
-#            ETA = 60.0/180.0*math.pi
-#            gamma = 0.5
-#            d = len(dof_indices)
-            
             def Distance(q1, q2):
                 return np.linalg.norm(q1-q2)
 
@@ -482,27 +553,23 @@ class TestOrOctomap:
 
             V[0] = V_update_q_new
 
-#            self.q_init = np.array(q_init)
             q_new_idx = 0
-#            V[0] = np.array(q_init)
             total_collision_checks = 0
+            tokens = 0
+            self.queue_master.put( ("addNode", V, E, shortest_path_len, best_q_idx, goal_V_ids), True )
+            self.queue_master.put( ("addNode", V, E, shortest_path_len, best_q_idx, goal_V_ids), True )
+            self.queue_master.put( ("addNode", V, E, shortest_path_len, best_q_idx, goal_V_ids), True )
             for k in range(100000):
-              produced = 0
-              consumed = 0
 
-              self.queue_master.put( ("addNode", V, E, shortest_path_len, best_q_idx, goal_V_ids), True )
-              while True:
-                try:
-                    resp = self.queue_slave.get(False)
-                except:
-                    break
+                resp = self.queue_slave.get(True)
+                self.queue_master.put( ("addNode", V, E, shortest_path_len, best_q_idx, goal_V_ids), False )
+
                 if resp[0] != "addNode":
                     print "ERROR resp (addNode):", resp[0]
                     exit(0)
 
                 V_update_q_new, E_update, goal, collision_checks = resp[1:]
                 total_collision_checks += collision_checks
-#                print "             total_collision_checks", total_collision_checks
                 if V_update_q_new != None:
                     allow_update = True
                     for (vi_ch, vi_pa) in E_update:
@@ -584,12 +651,13 @@ class TestOrOctomap:
                               if vi in goal_V_ids:
                                   goal_V_ids.remove(vi)
 
-              if self.stop_planning:
+                if self.stop_planning:
+                  print "planning stopped"
                   break
 
 
             path = GetPath(E, best_q_idx)
-            print path
+            print "path", path
 
             traj = []
             for i in range(len(path)-1):
@@ -601,11 +669,6 @@ class TestOrOctomap:
             while True:
                 raw_input(".")
                 openrave.showTrajectory(dof_names, 10.0, traj)
-
-#            for q in V_vis:
-#                openrave.robot_rave.SetDOFValues(q, dof_indices)
-#                openrave.env.UpdatePublishedBodies()
-#                raw_input(".")
 
         self.stop_planning = False
         thread.start_new_thread(self.inputThread, (None,))
@@ -664,7 +727,6 @@ class TestOrOctomap:
 
                 if len(goal_V_ids) > 0 and random_0_1 < 0.05:
                     path = GetPath(E, best_q_idx)
-#                    path = GetPath(E, goal_V_ids[random.randint(0, len(goal_V_ids)-1)])
                     if len(path) >=4:
                         search_near_subpath = True
                         subpath_tries = 0
@@ -713,9 +775,10 @@ class TestOrOctomap:
                             for i in range(num_dof):
                                 q_rand[i] = random.uniform(dof_limits[i][0]+0.01, dof_limits[i][1]-0.01)
                         else:
-                            q_rand = uniformInBall2(shortest_path_len, dof_limits, start_q)
+                            q_rand = uniformInBall(shortest_path_len, dof_limits, start_q)
 
                     if isStateValid(q_rand, dof_indices):
+#                        print "SampleFree", tries
                         return q_rand
 
         def Nearest(V, q):
@@ -756,7 +819,6 @@ class TestOrOctomap:
 
         def CollisionFree(q1, q2, dof_indices):
                 dist = max(abs(q1-q2))
-#                dist = Distance(q1,q2)
                 steps = int(dist / (10.0/180.0*math.pi))
                 if steps < 2:
                     steps = 2
@@ -796,7 +858,6 @@ class TestOrOctomap:
                 collision_checks[0] = 0
                 V, E, shortest_path_len, best_q_idx, goal_V_ids = msg[1:]
 #                q_start = taskrrt.getActiveDOF(q_start_all)
-
                 if random.uniform(0,1) < 0.05:
                     for i in range(10):
                         q_rand = taskrrt.SampleGoal(V[0], shortest_path_len)
@@ -828,6 +889,7 @@ class TestOrOctomap:
 
                     near_dist = 120.0/180.0*math.pi
                     q_near_idx_list = Near(V, q_new, near_dist)
+#                    print "q_near_idx_list", len(q_near_idx_list)
 
                     # sort the neighbours
                     cost_q_near_idx_list = []
@@ -863,6 +925,15 @@ class TestOrOctomap:
                     E_update = []
                     E_update.append( (-1, q_min_idx) )
 
+                    # get path to goal
+#                    path = GetPath(E, q_new_idx)
+#                    if len(path) > 2:
+#                        for pq_idx in range(len(path)-2):
+#                            if CollisionFree(V[path[pq_idx]], q_new, taskrrt.dof_indices):
+#                                E[q_new_idx] == path[pq_idx]
+#                                E_update[0] = (-1, path[pq_idx])
+#                                break
+
                     cost_q_new = Cost(V, E, q_new_idx)
                     for q_near_idx in q_near_idx_list:
                         q_near = V[q_near_idx]
@@ -881,9 +952,9 @@ class TestOrOctomap:
                     if goal:
                         print "found goal"
 
-                    queue_slave.put( ("addNode", V_update_q_new, E_update, goal, collision_checks[0]) )
+                    queue_slave.put( ("addNode", V_update_q_new, E_update, goal, collision_checks[0]), False )
                 else:
-                    queue_slave.put( ("addNode", None, None, None, collision_checks[0]) )
+                    queue_slave.put( ("addNode", None, None, None, collision_checks[0]), False )
 #              except:
 #                print "exception in process", process_id
 #                queue_slave.put( ("addNode", None, None, None, collision_checks[0]) )
@@ -916,7 +987,7 @@ class TestOrOctomap:
         self.num_proc = 3
         self.proc = []
         self.queue_master = Queue(maxsize=self.num_proc)
-        self.queue_slave = Queue()
+        self.queue_slave = Queue(maxsize=10)
         for i in range(self.num_proc):
 #            self.queue_master.append( Queue() )
 #            self.queue_slave.append( Queue() )

@@ -182,6 +182,15 @@ class LooAtTaskRRT:
         for i in range(len(self.dof_names)):
             self.dof_indices_map[self.dof_names[i]] = i
 
+    def GetDofLimits(self):
+        return self.dof_limits
+
+    def GetDofIndices(self):
+        return self.dof_indices
+
+    def GetDofNames(self):
+        return self.dof_names
+
     def getActiveDOF(self, q):
         q_ret = np.empty(len(self.dof_indices))
         q_ret_idx = 0
@@ -339,6 +348,27 @@ class KeyRotTaskRRT:
         for i in range(len(self.dof_names)):
             self.dof_indices_map[self.dof_names[i]] = i
 
+        self.free_dof_idx = self.dof_indices_map[self.openrave.free_joint["right_arm"]]
+        self.torso_0_joint_idx = self.dof_indices_map["torso_0_joint"]
+        self.ignore_dof = [
+        self.dof_indices_map["torso_0_joint"],
+        self.dof_indices_map["right_arm_0_joint"],
+        self.dof_indices_map["right_arm_1_joint"],
+        self.dof_indices_map["right_arm_2_joint"],
+        self.dof_indices_map["right_arm_3_joint"],
+        self.dof_indices_map["right_arm_4_joint"],
+        self.dof_indices_map["right_arm_5_joint"],
+        self.dof_indices_map["right_arm_6_joint"]]
+
+    def GetDofLimits(self):
+        return self.dof_limits
+
+    def GetDofIndices(self):
+        return self.dof_indices
+
+    def GetDofNames(self):
+        return self.dof_names
+
     def getActiveDOF(self, q):
         q_ret = np.empty(len(self.dof_indices))
         q_ret_idx = 0
@@ -389,17 +419,6 @@ class KeyRotTaskRRT:
 
     def SampleGoal(self, start_q, shortest_path_len):
         self.openrave.switchCollisionModel("velmasimplified0")
-        free_dof_idx = self.dof_indices_map[self.openrave.free_joint["right_arm"]]
-        torso_0_joint_idx = self.dof_indices_map["torso_0_joint"]
-        ignore_dof = [
-        self.dof_indices_map["torso_0_joint"],
-        self.dof_indices_map["right_arm_0_joint"],
-        self.dof_indices_map["right_arm_1_joint"],
-        self.dof_indices_map["right_arm_2_joint"],
-        self.dof_indices_map["right_arm_3_joint"],
-        self.dof_indices_map["right_arm_4_joint"],
-        self.dof_indices_map["right_arm_5_joint"],
-        self.dof_indices_map["right_arm_6_joint"]]
 
         start_arm_q = np.empty(len(self.dof_names_ik))
         for dof_ik_idx in range(len(self.dof_names_ik)):
@@ -410,11 +429,11 @@ class KeyRotTaskRRT:
         q_goal = np.zeros(len(self.dof_names))
         for tries in range(200):
             # random free joint value for the arm
-            q_goal[free_dof_idx] = random.uniform(self.dof_limits[free_dof_idx][0]+0.01, self.dof_limits[free_dof_idx][1]-0.01)
-            freevalues = [ (q_goal[free_dof_idx]-self.dof_limits[free_dof_idx][0])/(self.dof_limits[free_dof_idx][1]-self.dof_limits[free_dof_idx][0]) ]
+            q_goal[self.free_dof_idx] = random.uniform(self.dof_limits[self.free_dof_idx][0]+0.01, self.dof_limits[self.free_dof_idx][1]-0.01)
+            freevalues = [ (q_goal[self.free_dof_idx]-self.dof_limits[self.free_dof_idx][0])/(self.dof_limits[self.free_dof_idx][1]-self.dof_limits[self.free_dof_idx][0]) ]
 
             # random torso joint value
-            q_goal[torso_0_joint_idx] = random.uniform(self.dof_limits[torso_0_joint_idx][0]+0.01, self.dof_limits[torso_0_joint_idx][1]-0.01)
+            q_goal[self.torso_0_joint_idx] = random.uniform(self.dof_limits[self.torso_0_joint_idx][0]+0.01, self.dof_limits[self.torso_0_joint_idx][1]-0.01)
 
             self.openrave.robot_rave.SetDOFValues(q_goal, self.dof_indices)
             solutions = self.openrave.findIkSolutions(T_B_E, man_name="right_arm", freevalues=freevalues)
@@ -434,19 +453,19 @@ class KeyRotTaskRRT:
 
                 if shortest_path_len == None:
                     for i in range(len(self.dof_names)):
-                        if i in ignore_dof:
+                        if i in self.ignore_dof:
                             continue
                         q_goal[i] = random.uniform(self.dof_limits[i][0]+0.01, self.dof_limits[i][1]-0.01)
                 else:
                     diff = 0.0
-                    for dof_idx in ignore_dof:
+                    for dof_idx in self.ignore_dof:
                         diff += (start_q[dof_idx] - q_goal[dof_idx]) * (start_q[dof_idx] - q_goal[dof_idx])
                     shortest_path_len2 = shortest_path_len*shortest_path_len - diff
                     if shortest_path_len2 < 0.0:
                         continue
                     shortest_path_len2 = math.sqrt(shortest_path_len2)
-                    q_goal2 = uniformInBall(shortest_path_len2, self.dof_limits, start_q, ignore_dof=ignore_dof)
-                    for dof_idx in ignore_dof:
+                    q_goal2 = uniformInBall(shortest_path_len2, self.dof_limits, start_q, ignore_dof=self.ignore_dof)
+                    for dof_idx in self.ignore_dof:
                         q_goal2[dof_idx] = q_goal[dof_idx]
                     q_goal = q_goal2
 
@@ -499,14 +518,39 @@ class TestOrOctomap:
 
             shortest_path_len = None
             shortest_path_len_prev = None
-            best_vis = 0
             best_q = None
             best_q_idx = None
-            V_vis = []
             V = {}
             E = {}
             goal_V_ids = []
             q_init = openrave.robot_rave.GetDOFValues()
+
+            def sendToAll(msg):
+                num_proc = 3
+                for proc_id in range(num_proc):
+                    self.queue_master.put( ("specialCommand", True) )
+
+                for proc_id in range(num_proc):
+                    resp = self.queue_slave.get(True)
+                    if resp[0] != "specialCommand":
+                        print "ERROR resp (specialCommand)", msg[0], resp[0]
+                        exit(0)
+
+                for proc_id in range(num_proc):
+                    self.queue_master_special.put( msg )
+
+                for proc_id in range(num_proc):
+                    resp = self.queue_slave.get(True)
+                    if resp[0] != msg[0]:
+                        print "ERROR resp", msg[0], resp[0]
+                        exit(0)
+
+            sendToAll( ("setInitialConfiguration", q_init) )
+
+            sendToAll( ("setTaskSpec", KeyRotTaskRRT) )
+
+#      taskrrt = LooAtTaskRRT(openrave)
+#      taskrrt = KeyRotTaskRRT(openrave)
 
             self.queue_master.put( ("addFirstNode", q_init), True )
             resp = self.queue_slave.get(True)
@@ -518,7 +562,6 @@ class TestOrOctomap:
             V[0] = V_update_q_new
 
             q_new_idx = 0
-            total_collision_checks = 0
             tokens = 0
             self.queue_master.put( ("addNode", V, E, shortest_path_len, best_q_idx, goal_V_ids), True )
             self.queue_master.put( ("addNode", V, E, shortest_path_len, best_q_idx, goal_V_ids), True )
@@ -532,8 +575,7 @@ class TestOrOctomap:
                     print "ERROR resp (addNode):", resp[0]
                     exit(0)
 
-                V_update_q_new, E_update, goal, collision_checks = resp[1:]
-                total_collision_checks += collision_checks
+                V_update_q_new, E_update, goal = resp[1:]
                 if V_update_q_new != None:
                     allow_update = True
                     for (vi_ch, vi_pa) in E_update:
@@ -639,16 +681,10 @@ class TestOrOctomap:
 
         RRTstar(openrave)
 
-    def openraveWorker(self, process_id, env_file, xacro_uri, srdf_path, configuration_ros, queue_master, queue_slave):
+    def openraveWorker(self, process_id, env_file, xacro_uri, srdf_path, configuration_ros, queue_master, queue_master_special, queue_slave):
       openrave = openraveinstance.OpenraveInstance()
       openrave.startOpenraveURDF(env_file=env_file, viewer=False)
       openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
-
-      openrave.updateRobotConfigurationRos(configuration_ros)
-      collision_checks = [0]
-
-#      taskrrt = LooAtTaskRRT(openrave)
-      taskrrt = KeyRotTaskRRT(openrave)
 
       with openrave.env:
 
@@ -658,7 +694,6 @@ class TestOrOctomap:
         def isStateValid(q, dof_indices):
             openrave.switchCollisionModel("velmasimplified1")
 
-            collision_checks[0] += 1
             is_valid = True
             current_q = openrave.robot_rave.GetDOFValues(dof_indices)
             openrave.robot_rave.SetDOFValues(q, dof_indices)
@@ -774,28 +809,26 @@ class TestOrOctomap:
             cmd = msg[0]
             if cmd == "exit":
                 break
-            elif cmd == "isStateValid":
-                q = msg[1]
-                dof_indices = msg[2]
-                openrave.switchCollisionModel("velmasimplified1")
-                openrave.robot_rave.SetDOFValues(q, dof_indices)
-                report1 = CollisionReport()
-                report2 = CollisionReport()
-                if openrave.env.CheckCollision(openrave.robot_rave, report2) or openrave.robot_rave.CheckSelfCollision(report1):
-                    queue_slave.put( ("isStateValid", False, q) )
-                else:
-                    queue_slave.put( ("isStateValid", True, q) )
+            elif cmd == "specialCommand":
+                queue_slave.put( ("specialCommand", True) )
+                msg_s = queue_master_special.get()
+                cmd_s = msg_s[0]
+                if cmd_s == "setInitialConfiguration":
+                    q = msg_s[1]
+                    openrave.robot_rave.SetDOFValues(q)
+                    queue_slave.put( ("setInitialConfiguration", True) )
+                if cmd_s == "setTaskSpec":
+                    taskrrt = msg_s[1](openrave)
+                    queue_slave.put( ("setTaskSpec", True) )
 
             elif cmd == "addFirstNode":
                 q_start_all = msg[1]
                 V_update_q_new = taskrrt.getActiveDOF(q_start_all)
-                queue_slave.put( ("addFirstNode", V_update_q_new, taskrrt.dof_names) )
+                queue_slave.put( ("addFirstNode", V_update_q_new, taskrrt.GetDofNames()) )
 
             elif cmd == "addNode":
 #              try:
-                collision_checks[0] = 0
                 V, E, shortest_path_len, best_q_idx, goal_V_ids = msg[1:]
-#                q_start = taskrrt.getActiveDOF(q_start_all)
                 if random.uniform(0,1) < 0.05:
                     for i in range(10):
                         q_rand = taskrrt.SampleGoal(V[0], shortest_path_len)
@@ -804,17 +837,17 @@ class TestOrOctomap:
                         if shortest_path_len != None and CostLine(V[0], q_rand) > shortest_path_len:
                             q_rand = None
                             continue
-                        if not isStateValid(q_rand, taskrrt.dof_indices):
+                        if not isStateValid(q_rand, taskrrt.GetDofIndices()):
                             print "goal in collision"
                             q_rand = None
                             continue
                         break
                     if q_rand == None:
-                        q_rand = SampleFree(taskrrt.dof_indices, taskrrt.dof_limits, V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
+                        q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
                     else:
                         print "SampleGoal"
                 else:
-                    q_rand = SampleFree(taskrrt.dof_indices, taskrrt.dof_limits, V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
+                    q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
                 q_nearest_idx = Nearest(V, q_rand)
                 q_nearest = V[q_nearest_idx]
                 q_new = Steer(q_nearest, q_rand)
@@ -822,7 +855,7 @@ class TestOrOctomap:
                 if shortest_path_len != None and CostLine(V[0], q_new) > shortest_path_len:
                     continue
 
-                col_free = CollisionFree(q_nearest, q_new, taskrrt.dof_indices)
+                col_free = CollisionFree(q_nearest, q_new, taskrrt.GetDofIndices())
                 if col_free:
 
                     near_dist = 120.0/180.0*math.pi
@@ -847,7 +880,7 @@ class TestOrOctomap:
                     collision_checked = {}
                     for (new_cost, q_near_idx) in sorted_cost_q_near_idx_list:
                         q_near = V[q_near_idx]
-                        if CollisionFree(q_near, q_new, taskrrt.dof_indices):
+                        if CollisionFree(q_near, q_new, taskrrt.GetDofIndices()):
                             collision_checked[q_near_idx] = True
                             q_min_idx = q_near_idx
                             c_min = new_cost
@@ -870,7 +903,7 @@ class TestOrOctomap:
                             if q_near_idx in collision_checked:
                                 col = collision_checked[q_near_idx]
                             else:
-                                col = CollisionFree(q_new, q_near, taskrrt.dof_indices)
+                                col = CollisionFree(q_new, q_near, taskrrt.GetDofIndices())
                             if col:
                                 q_parent_idx = E[q_near_idx]
                                 print "rem: %s  %s"%(q_parent_idx, q_near_idx)
@@ -881,12 +914,12 @@ class TestOrOctomap:
                     if goal:
                         print "found goal"
 
-                    queue_slave.put( ("addNode", V_update_q_new, E_update, goal, collision_checks[0]), False )
+                    queue_slave.put( ("addNode", V_update_q_new, E_update, goal), False )
                 else:
-                    queue_slave.put( ("addNode", None, None, None, collision_checks[0]), False )
+                    queue_slave.put( ("addNode", None, None, None), False )
 #              except:
 #                print "exception in process", process_id
-#                queue_slave.put( ("addNode", None, None, None, collision_checks[0]) )
+#                queue_slave.put( ("addNode", None, None, None) )
 
     def spin(self):
 
@@ -916,11 +949,10 @@ class TestOrOctomap:
         self.num_proc = 3
         self.proc = []
         self.queue_master = Queue(maxsize=self.num_proc)
+        self.queue_master_special = Queue(maxsize=self.num_proc)
         self.queue_slave = Queue(maxsize=10)
         for i in range(self.num_proc):
-#            self.queue_master.append( Queue() )
-#            self.queue_slave.append( Queue() )
-            self.proc.append( Process(target=self.openraveWorker, args=(i, env_file, xacro_uri, srdf_path, self.velma.js_pos, self.queue_master, self.queue_slave,)) )
+            self.proc.append( Process(target=self.openraveWorker, args=(i, env_file, xacro_uri, srdf_path, self.velma.js_pos, self.queue_master, self.queue_master_special, self.queue_slave,)) )
             self.proc[-1].start()
 
         # receive n messages
@@ -928,79 +960,16 @@ class TestOrOctomap:
             result = self.queue_slave.get()
 
         print "all processes initalized"
-#        for i in range(self.num_proc):
-#            self.proc[i].join()
-#        return
 
         #
         # Initialise Openrave
         #
 
-#        a1 = np.array([1,2,3])
-#        a2 = np.array([3,2,1])
-#        print a1*3
-#        exit(0)
-
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenraveURDF(env_file=env_file)
-#        openrave.readRobot(xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro', srdf_uri=rospack.get_path('velma_description') + '/robots/velma_simplified.srdf')
         openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
 
-        target_link = "head_tilt_link"
-        l_idx1 = openrave.robot_rave.GetLink(target_link).GetIndex()
-        l_idx2 = openrave.robot_rave.GetLink("torso_base").GetIndex()
-        joints = openrave.robot_rave.GetChain(l_idx1, l_idx2)
-        active_joints = []
-        for joint in joints:
-            if joint.GetDOFIndex() >= 0:
-                active_joints.append(joint.GetName())
-        print "active_joints", active_joints
-
-        root_joints = []
-        for joint in openrave.robot_rave.GetJoints():
-            if joint.GetName() in active_joints:
-                continue
-            idx1 = joint.GetHierarchyParentLink().GetIndex()
-            for ac_joint_name in active_joints:
-                ac_joint = openrave.robot_rave.GetJoint(ac_joint_name)
-                idx2 = ac_joint.GetHierarchyChildLink().GetIndex()
-                chain = openrave.robot_rave.GetChain(idx1, idx2)
-                all_passive = True
-                for chain_jnt in chain:
-                    if chain_jnt.GetDOFIndex() > 0:
-                        all_passive = False
-                        break
-                if all_passive and not joint.GetName() in root_joints:
-                    root_joints.append(joint.GetName())
-
-        print "root_joints", root_joints
-
-        disabled_links = []
-        for joint_name in root_joints:
-            joint = openrave.robot_rave.GetJoint(joint_name)
-            for link in openrave.robot_rave.GetLinks():
-                if openrave.robot_rave.DoesAffect(joint.GetJointIndex(), link.GetIndex()) != 0:
-                    disabled_links.append(link.GetName())
-
-#        for link in openrave.robot_rave.GetLinks():
-#            if link.GetName() in disabled_links:
-#                link.SetVisible(False)
-#                link.Enable(False)
-#            else:
-#                link.SetVisible(True)
-#                link.Enable(True)
-
-#        raw_input("Press ENTER to continue...")
-
-#        exit(0)
-
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
-
-
-#        T_W_T = self.velma.T_W_E * PyKDL.Frame(PyKDL.Vector(0,0,0.17))
-#        print T_W_T.M.GetQuaternion()
-#        print T_W_T.p
-#        exit(0)
 
         openrave.updateRobotConfigurationRos(self.velma.js_pos)
 
@@ -1009,7 +978,6 @@ class TestOrOctomap:
             task = KeyRotTaskRRT(openrave)
             task.SampleGoal(None, None)
             exit(0)
-
 
         # TEST: head IK
         if False:
@@ -1036,12 +1004,6 @@ class TestOrOctomap:
                 raw_input("Press ENTER to continue...")
             exit(0)
 
-#        report1 = CollisionReport()
-# 	print "self-collision:", openrave.robot_rave.CheckSelfCollision(report1)
-#        print report1.plink1
-#        print report1.plink2
-
-#        exit(0)
         raw_input("Press ENTER to continue...")
         
         self.planVis(openrave)

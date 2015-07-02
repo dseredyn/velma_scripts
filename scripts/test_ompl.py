@@ -305,29 +305,29 @@ class TestOrOctomap:
         ]
 
         # planning for torso
-        for link in openrave.robot_rave.GetLinks():
-            if link.GetName() in disabled_links_torso:
-                link.Enable(False)
-            else:
-                link.Enable(True)
+#        for link in openrave.robot_rave.GetLinks():
+#            if link.GetName() in disabled_links_torso:
+#                link.Enable(False)
+#            else:
+#                link.Enable(True)
 
         # TODO
 
 
-        return
+#        return
 
         dof_names = [
         "head_pan_joint",
         "head_tilt_joint",
-#        "left_arm_0_joint",
-#        "left_arm_1_joint",
+        "left_arm_0_joint",
+        "left_arm_1_joint",
 #        "left_arm_2_joint",
 #        "left_arm_3_joint",
 #        "left_arm_4_joint",
 #        "left_arm_5_joint",
 #        "left_arm_6_joint",
-#        "right_arm_0_joint",
-#        "right_arm_1_joint",
+        "right_arm_0_joint",
+        "right_arm_1_joint",
 #        "right_arm_2_joint",
 #        "right_arm_3_joint",
 #        "right_arm_4_joint",
@@ -351,7 +351,7 @@ class TestOrOctomap:
 
         def isStateValid(state):
             self.collision_checks += 1
-            return True
+#            return True
             q = []
             for i in range(len(dof_indices)):
                 q.append(state[i])
@@ -374,7 +374,28 @@ class TestOrOctomap:
         # without SimpleSetup
         si = ob.SpaceInformation(space);
         si.setStateValidityChecker(ob.StateValidityCheckerFn(isStateValid))
+
+        print "si.getStateValidityCheckingResolution", si.getStateValidityCheckingResolution()
+        si.setStateValidityCheckingResolution(0.03)
+
+#        class InformedValidStateSampler(ob.ValidStateSampler):
+#            def __init__(self, si):
+#                ob.ValidStateSampler.__init__(self, si)
+#                self.name_ = "my sampler"
+#                print "InformedValidStateSampler: init"
+#            def sample(state):
+#                print "sample"
+#                return True
+#            def sampleNear(state_out, state_in, distance):
+#                print "sampleNear"
+#                return True
+
+#        def allocValidStateSampler(si):
+#            return InformedValidStateSampler(si)
+
         si.setup()
+#        si.setValidStateSamplerAllocator(ob.ValidStateSamplerAllocator(allocValidStateSampler))
+#        si.setValidStateSamplerAllocator(ob.ValidStateSamplerAllocator(allocOBValidStateSampler))
 
         # create a simple setup object
 #        ss = og.SimpleSetup(space)
@@ -416,6 +437,9 @@ class TestOrOctomap:
 #                    q.append(state[i])
 #                cost = getSightAngle(openrave, q=q, dof_indices=dof_indices)
 #                return ob.Cost(cost)
+
+                return ob.Cost(0.0)
+
                 cost = 0.0
                 for i in range(len(dof_indices)):
                     diff = (state[i]-start[i])
@@ -432,7 +456,18 @@ class TestOrOctomap:
 #                cost = math.sqrt(np.dot(q_diff, q_diff)) + self.stateCost(s2) - self.stateCost(s1)
 #                cost = math.sqrt(np.dot(q_diff, q_diff)) + self.stateCost(s2).value() - self.stateCost(s1).value()
 #                cost = np.dot(q_diff, q_diff)
-                cost = self.si.distance(s1,s2)# + (self.stateCost(s2).value() - self.stateCost(s1).value())
+
+                cost1 = 0.0
+                for i in range(len(dof_indices)):
+                    diff = (s1[i]-start[i])
+                    cost1 += diff*diff
+
+                cost2 = 0.0
+                for i in range(len(dof_indices)):
+                    diff = (s2[i]-start[i])
+                    cost2 += diff*diff
+
+                cost = self.si.distance(s1,s2) * (math.sqrt(cost1) + math.sqrt(cost2))*0.5 # + (self.stateCost(s2).value() - self.stateCost(s1).value())
 #                cost = 0.0
 #                for i in range(len(dof_indices)):
 #                    cost += abs(s1[i] - s2[i])
@@ -453,6 +488,8 @@ class TestOrOctomap:
         planner.setProblemDefinition(pdef)
         planner.setDelayCC(True)
 #        planner.setPrune(True)
+#        print "pruning:", planner.getPruneStatesImprovementThreshold()
+#        planner.setPruneStatesImprovementThreshold(0.99)
         planner.setRange(360.0/180.0*math.pi)
         print planner
         planner.setup()
@@ -462,7 +499,7 @@ class TestOrOctomap:
 
         # this will automatically choose a default planner with
         # default parameters
-        solved = planner.solve(30.0 * 2.0)
+        solved = planner.solve(30.0 * 1.0)
 
         print "collision_checks", self.collision_checks
 
@@ -508,9 +545,15 @@ class TestOrOctomap:
 #        exit(0)
 
         rospack = rospkg.RosPack()
+        env_file=rospack.get_path('velma_scripts') + '/data/key/vis_test.env.xml'
+        xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
+        srdf_path=rospack.get_path('velma_description') + '/robots/'
+
         openrave = openraveinstance.OpenraveInstance()
-        openrave.startOpenraveURDF(env_file=rospack.get_path('velma_scripts') + '/data/key/vis_test.env.xml')
-        openrave.readRobot(xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro', srdf_uri=rospack.get_path('velma_description') + '/robots/velma.srdf')
+        openrave.startOpenraveURDF(env_file=env_file)
+#        openrave.readRobot(xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro', srdf_uri=rospack.get_path('velma_description') + '/robots/velma.srdf')
+        openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
+
 
 #        for link in openrave.robot_rave.GetLinks():
 #            print link.GetName()

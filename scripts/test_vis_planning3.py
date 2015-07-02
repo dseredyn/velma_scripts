@@ -62,38 +62,11 @@ from velma import Velma
 import openraveinstance
 from prolatehyperspheroid import ProlateHyperspheroid
 import headkinematics
+import conversions as conv
 
 import rosparam
 
 from multiprocessing import Process, Queue
-
-def KDLToOpenrave(T):
-        ret = numpy.array([
-        [T.M[0,0], T.M[0,1], T.M[0,2], T.p.x()],
-        [T.M[1,0], T.M[1,1], T.M[1,2], T.p.y()],
-        [T.M[2,0], T.M[2,1], T.M[2,2], T.p.z()],
-        [0, 0, 0, 1]])
-        return ret
-
-def OpenraveToKDL(T):
-        rot = PyKDL.Rotation(T[0][0],T[0][1],T[0][2],T[1][0],T[1][1],T[1][2],T[2][0],T[2][1],T[2][2])
-        pos = PyKDL.Vector(T[0][3], T[1][3], T[2][3])
-        return PyKDL.Frame(rot, pos)
-
-def generateSubpaths(path):
-        paths = []
-        for path_idx in range(2**(len(path)-2) - 1):
-            value = path_idx
-            path_v_idx = 1
-            new_path = [path[0]]
-            while value > 0:
-                if (value&1) == 1:
-                    new_path.append(path[path_v_idx])
-                path_v_idx += 1
-                value = value>>1
-            new_path.append(path[-1])
-            paths.append(new_path)
-        return paths
 
 def uniformInBall(r, limits, q_start, ignore_dof=[]):
                 tries = 0
@@ -114,6 +87,32 @@ def uniformInBall(r, limits, q_start, ignore_dof=[]):
                         diff = diff/diff_len * r * random.uniform(0,1)
                         vec = q_start - diff
                     return vec
+
+def Distance(q1, q2):
+                return np.linalg.norm(q1-q2)
+
+def GetPath(E, q_idx):
+                if not q_idx in E:
+                    return [q_idx]
+                parent_idx = E[q_idx]
+                q_list = GetPath(E, parent_idx)
+                q_list.append(q_idx)
+                return q_list
+
+def CostLine(q1, q2):
+                cost = Distance(q1, q2)# * (np.linalg.norm(q1-self.q_init) + np.linalg.norm(q2-self.q_init)) * 0.5
+                return cost
+
+def Cost(V, E, q_idx):
+                if not q_idx in E:
+                    return 0.0
+                parent_idx = E[q_idx]
+                if not parent_idx in V:
+                    print "not parent_idx in V: %s"%(parent_idx)
+                if not q_idx in V:
+                    print "not q_idx in V: %s"%(q_idx)
+                cost = CostLine(V[parent_idx], V[q_idx]) + Cost(V, E, parent_idx)
+                return cost
 
 class LooAtTaskRRT:
     def __init__(self, openrave):
@@ -153,7 +152,7 @@ class LooAtTaskRRT:
 
         for (name, diam, pos) in self.vis_targets:
             body = self.openrave.addSphere(name, diam)
-            body.SetTransform(KDLToOpenrave(PyKDL.Frame(pos)))
+            body.SetTransform(conv.KDLToOpenrave(PyKDL.Frame(pos)))
             self.vis_bodies.append( body )
             self.openrave.env.Remove( body )
 
@@ -197,11 +196,10 @@ class LooAtTaskRRT:
             m_id = 0
 
             self.openrave.robot_rave.SetDOFValues(q, self.dof_indices)
-#            openrave.env.UpdatePublishedBodies()
 
             for body in self.vis_bodies:
                 self.openrave.env.Add( body )
-            T_W_C = OpenraveToKDL(self.openrave.robot_rave.GetLink("head_kinect_rgb_optical_frame").GetTransform())
+            T_W_C = conv.OpenraveToKDL(self.openrave.robot_rave.GetLink("head_kinect_rgb_optical_frame").GetTransform())
             T_C_W = T_W_C.Inverse()
             cam_W = T_W_C * PyKDL.Vector()
             cam_dir_W = PyKDL.Frame(T_W_C.M) * PyKDL.Vector(0,0,0.5)
@@ -270,7 +268,6 @@ class LooAtTaskRRT:
                     exit(0)
 
                 if self.checkGoal(q_goal):
-#                    print "SampleGoal", tries
                     return q_goal
             return None
 
@@ -290,8 +287,8 @@ class KeyRotTaskRRT:
         # get the transformation from wrist to palm
         link_E = self.openrave.robot_rave.GetLink("right_HandPalmLink")
         link_W = self.openrave.robot_rave.GetLink("right_arm_7_link")
-        T_World_E = OpenraveToKDL(link_E.GetTransform())
-        T_World_W = OpenraveToKDL(link_W.GetTransform())
+        T_World_E = conv.OpenraveToKDL(link_E.GetTransform())
+        T_World_W = conv.OpenraveToKDL(link_W.GetTransform())
         self.T_W_E = T_World_W.Inverse() * T_World_E
         self.T_E_W = self.T_W_E.Inverse()
 
@@ -306,15 +303,10 @@ class KeyRotTaskRRT:
         self.velma_solvers = velmautils.VelmaSolvers()
 
         self.dof_names = [
-#        "head_pan_joint",
-#        "head_tilt_joint",
         "left_arm_0_joint",
         "left_arm_1_joint",
         "left_arm_2_joint",
         "left_arm_3_joint",
-#        "left_arm_4_joint",
-#        "left_arm_5_joint",
-#        "left_arm_6_joint",
         "right_arm_0_joint",
         "right_arm_1_joint",
         "right_arm_2_joint",
@@ -323,7 +315,6 @@ class KeyRotTaskRRT:
         "right_arm_5_joint",
         "right_arm_6_joint",
         "torso_0_joint",
-#        "torso_1_joint",
         ]
 
         self.dof_indices = []
@@ -360,11 +351,10 @@ class KeyRotTaskRRT:
         # interpolate trajectory (in the cartesian space)
         self.openrave.robot_rave.SetDOFValues(q, self.dof_indices)
         link_E = self.openrave.robot_rave.GetLink("right_HandPalmLink")
-        T_World_E = OpenraveToKDL(link_E.GetTransform())
+        T_World_E = conv.OpenraveToKDL(link_E.GetTransform())
         T_B_O = self.openrave.T_World_Br.Inverse() * T_World_E * self.T_E_O
         diff = PyKDL.diff(self.T_B_O_nearHole, T_B_O)
         if diff.vel.Norm() > 0.02 or diff.rot.Norm() > 10.0/180.0*math.pi:
-#            print "too far from goal"
             return False
 
         angle1 = 0.0
@@ -494,32 +484,6 @@ class TestOrOctomap:
         # RRT*
         #
         def RRTstar(openrave):
-
-            def Distance(q1, q2):
-                return np.linalg.norm(q1-q2)
-
-            def GetPath(E, q_idx):
-                if not q_idx in E:
-                    return [q_idx]
-                parent_idx = E[q_idx]
-                q_list = GetPath(E, parent_idx)
-                q_list.append(q_idx)
-                return q_list
-
-            def CostLine(q1, q2):
-                cost = Distance(q1, q2)# * (np.linalg.norm(q1-self.q_init) + np.linalg.norm(q2-self.q_init)) * 0.5
-                return cost
-
-            def Cost(V, E, q_idx):
-                if not q_idx in E:
-                    return 0.0
-                parent_idx = E[q_idx]
-                if not parent_idx in V:
-                    print "not parent_idx in V: %s"%(parent_idx)
-                if not q_idx in V:
-                    print "not q_idx in V: %s"%(q_idx)
-                cost = CostLine(V[parent_idx], V[q_idx]) + Cost(V, E, parent_idx)
-                return cost
 
             def DrawPath(V, E, q_idx):
                 if not q_idx in E:
@@ -683,28 +647,13 @@ class TestOrOctomap:
       openrave.updateRobotConfigurationRos(configuration_ros)
       collision_checks = [0]
 
-      taskrrt = LooAtTaskRRT(openrave)
-#      taskrrt = KeyRotTaskRRT(openrave)
+#      taskrrt = LooAtTaskRRT(openrave)
+      taskrrt = KeyRotTaskRRT(openrave)
 
       with openrave.env:
 
         ETA = 60.0/180.0*math.pi
         gamma = 0.5
-
-        def Distance(q1, q2):
-                return np.linalg.norm(q1-q2)
-
-        def GetPath(E, q_idx):
-                if not q_idx in E:
-                    return [q_idx]
-                parent_idx = E[q_idx]
-                q_list = GetPath(E, parent_idx)
-                q_list.append(q_idx)
-                return q_list
-
-        def CostLine(q1, q2):
-                cost = Distance(q1, q2)# * (np.linalg.norm(q1-q_start) + np.linalg.norm(q2-q_start)) * 0.5
-                return cost
 
         def isStateValid(q, dof_indices):
             openrave.switchCollisionModel("velmasimplified1")
@@ -805,17 +754,6 @@ class TestOrOctomap:
                     if Distance(q, V[vi]) < near_dist:
                         result.append(vi)
                 return result
-
-        def Cost(V, E, q_idx):
-                if not q_idx in E:
-                    return 0.0
-                parent_idx = E[q_idx]
-                if not parent_idx in V:
-                    print "not parent_idx in V: %s"%(parent_idx)
-                if not q_idx in V:
-                    print "not q_idx in V: %s"%(q_idx)
-                cost = CostLine(V[parent_idx], V[q_idx]) + Cost(V, E, parent_idx)
-                return cost
 
         def CollisionFree(q1, q2, dof_indices):
                 dist = max(abs(q1-q2))
@@ -924,15 +862,6 @@ class TestOrOctomap:
                     E[q_new_idx] = q_min_idx
                     E_update = []
                     E_update.append( (-1, q_min_idx) )
-
-                    # get path to goal
-#                    path = GetPath(E, q_new_idx)
-#                    if len(path) > 2:
-#                        for pq_idx in range(len(path)-2):
-#                            if CollisionFree(V[path[pq_idx]], q_new, taskrrt.dof_indices):
-#                                E[q_new_idx] == path[pq_idx]
-#                                E_update[0] = (-1, path[pq_idx])
-#                                break
 
                     cost_q_new = Cost(V, E, q_new_idx)
                     for q_near_idx in q_near_idx_list:
@@ -1141,7 +1070,7 @@ class TestOrOctomap:
                 for y in np.linspace(-1,1,40):
                     for z in np.linspace(1,2,20):
 #                        print x,y,z
-                        tr = KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(x,y,z)))
+                        tr = conv.KDLToOpenrave(PyKDL.Frame(PyKDL.Vector(x,y,z)))
                         sphere.SetTransform(tr)
                         openrave.env.UpdatePublishedBodies()
                         report = CollisionReport()

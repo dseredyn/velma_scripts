@@ -61,7 +61,7 @@ import velmautils
 from velma import Velma
 import openraveinstance
 import conversions as conv
-import rrt_star_planner
+import rrt_star_connect_planner
 import tree
 import rosparam
 import tasks
@@ -83,7 +83,7 @@ class TestOrOctomap:
         xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
-        rrt = rrt_planner.PlannerRRT(3, env_file, xacro_uri, srdf_path)
+        rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, xacro_uri, srdf_path)
 
         print "creating interface for Velma..."
         # create the interface for Velma robot

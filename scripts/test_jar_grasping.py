@@ -61,7 +61,7 @@ import velmautils
 from velma import Velma
 import openraveinstance
 import conversions as conv
-import rrt_planner
+import rrt_star_planner
 import tree
 import rosparam
 import tasks

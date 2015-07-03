@@ -186,47 +186,45 @@ class PlannerRRT:
             elif cmd == "addNode":
 #              try:
                 V, E, shortest_path_len, best_q_idx, goal_V_ids = msg[1:]
-                if random.uniform(0,1) < 0.05:
-                    goal_list = taskrrt.SampleGoal(V[0], shortest_path_len)
-                    if goal_list == None or len(goal_list) == 0:
-                        q_rand = None
-                    else:
-                        goal_list_valid = []
+                sample_goal = random.uniform(0,1) < 0.05
+
+                goal_found = False
+                if sample_goal:
+                    for goal_tries in range(10):
+                        goal_list = taskrrt.SampleGoal(V[0], shortest_path_len)
+                        if goal_list == None or len(goal_list) == 0:
+                            continue
                         for goal in goal_list:
                             if isStateValid(goal, taskrrt.GetDofIndices()):
-                                goal_list_valid.append(goal)
-                        if len(goal_list_valid) == 0:
-                            q_rand = None
-                        else:
-                            q_rand = goal_list_valid[random.randint(0, len(goal_list_valid)-1)]
-
-                        print "goal_list", len(goal_list), len(goal_list_valid)
-#                    for i in range(10):
-#                        q_rand = taskrrt.SampleGoal(V[0], shortest_path_len)
-#                        if q_rand == None:
-#                            continue
-#                        if shortest_path_len != None and tree.CostLine(V[0], q_rand) > shortest_path_len:
-#                            q_rand = None
-#                            continue
-#                        if not isStateValid(q_rand, taskrrt.GetDofIndices()):
-#                            print "goal in collision"
-#                            q_rand = None
-#                            continue
-#                        break
-                    if q_rand == None:
+                                print "foung valid goal"
+                                q_nearest_idx = Nearest(V, goal)
+                                q_nearest = V[q_nearest_idx]
+                                q_new = goal
+                                if shortest_path_len != None and tree.CostLine(V[0], q_new) > shortest_path_len:
+                                    print "foung valid goal - too far"
+                                    continue
+                                col_free = CollisionFree(q_nearest, q_new, taskrrt.GetDofIndices())
+                                if col_free:
+                                    print "foung valid goal - may connect"
+                                    goal_found = True
+                                    break
+                        if goal_found:
+                            break
+                if not goal_found:
+                    while True:
                         q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
-                    else:
-                        print "SampleGoal"
-                else:
-                    q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
-                q_nearest_idx = Nearest(V, q_rand)
-                q_nearest = V[q_nearest_idx]
-                q_new = Steer(q_nearest, q_rand)
+                        q_nearest_idx = Nearest(V, q_rand)
+                        q_nearest = V[q_nearest_idx]
+                        q_new = Steer(q_nearest, q_rand)
+                        if shortest_path_len != None and tree.CostLine(V[0], q_new) > shortest_path_len:
+                            continue
+                        col_free = CollisionFree(q_nearest, q_new, taskrrt.GetDofIndices())
+                        if col_free:
+                            break
 
-                if shortest_path_len != None and tree.CostLine(V[0], q_new) > shortest_path_len:
-                    continue
-
-                col_free = CollisionFree(q_nearest, q_new, taskrrt.GetDofIndices())
+                if not col_free:
+                    print "ERROR: not col_free"
+                    exit(0)
                 if col_free:
 
                     near_dist = 120.0/180.0*math.pi
@@ -281,7 +279,7 @@ class PlannerRRT:
                                 E[q_near_idx] = q_new_idx
                                 E_update.append( (q_near_idx, -1) )
 
-                    goal = taskrrt.checkGoal(q_new)
+                    goal = goal_found or taskrrt.checkGoal(q_new)
                     if goal:
                         print "found goal"
 

@@ -83,11 +83,12 @@ class TestOrOctomap:
         simulation = True
 
         rospack = rospkg.RosPack()
-        env_file=rospack.get_path('velma_scripts') + '/data/key/vis_test.env.xml'
+#        env_file=rospack.get_path('velma_scripts') + '/data/key/vis_test.env.xml'
+        env_file=rospack.get_path('velma_scripts') + '/data/jar/cabinet_test.env.xml'
         xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
-        rrt = rrt_planner.PlannerRRT(3, env_file, xacro_uri, srdf_path)
+#        rrt = rrt_planner.PlannerRRT(3, env_file, xacro_uri, srdf_path)
 
         print "creating interface for Velma..."
         # create the interface for Velma robot
@@ -149,15 +150,16 @@ class TestOrOctomap:
             exit(0)
 
         raw_input("Press ENTER to continue...")
-
-# LooAtTaskRRT
-# KeyRotTaskRRT
-
-#        def getGripperPose():
-#            return PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.6, 0, 1.6))
+        exit(0)
 
         T_B_E_list = [PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.6, 0, 1.6))]
-        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("right", T_B_E_list), 90.0)
+        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("right", T_B_E_list), 30.0)
+
+#        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.KeyRotTaskRRT, ("right",), 30.0)
+
+#        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.LooAtTaskRRT, ("right",), 30.0)
+
+#        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.MoveArmsCloseTaskRRT, ("right",), 30.0)
 
         traj = []
         for i in range(len(path)-1):

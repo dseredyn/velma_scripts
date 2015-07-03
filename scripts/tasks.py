@@ -197,7 +197,7 @@ class LooAtTaskRRT:
                     exit(0)
 
                 if self.checkGoal(q_goal):
-                    return q_goal
+                    return [q_goal]
             return None
 
 class KeyRotTaskRRT:
@@ -347,7 +347,7 @@ class KeyRotTaskRRT:
         T_B_E = self.T_B_O_nearHole * self.T_O_E
 
         q_goal = np.zeros(len(self.dof_names))
-        for tries in range(200):
+        for tries in range(50):
             # random free joint value for the arm
             q_goal[self.free_dof_idx] = random.uniform(self.dof_limits[self.free_dof_idx][0]+0.01, self.dof_limits[self.free_dof_idx][1]-0.01)
             freevalues = [ (q_goal[self.free_dof_idx]-self.dof_limits[self.free_dof_idx][0])/(self.dof_limits[self.free_dof_idx][1]-self.dof_limits[self.free_dof_idx][0]) ]
@@ -358,15 +358,18 @@ class KeyRotTaskRRT:
             self.openrave.robot_rave.SetDOFValues(q_goal, self.dof_indices)
             solutions = self.openrave.findIkSolutions(T_B_E, man_name="right_arm", freevalues=freevalues)
 
-            solutions_dist = []
-            # sort the solutions
+#            solutions_dist = []
+#            # sort the solutions
+#            for sol in solutions:
+#                dist = np.linalg.norm(start_arm_q-np.array(sol))
+#                solutions_dist.append( (dist, sol) )
+
+#            sorted_solutions = sorted(solutions_dist, key=operator.itemgetter(0))
+
+            goal_list = []
+
+#            for dist, sol in sorted_solutions:
             for sol in solutions:
-                dist = np.linalg.norm(start_arm_q-np.array(sol))
-                solutions_dist.append( (dist, sol) )
-
-            sorted_solutions = sorted(solutions_dist, key=operator.itemgetter(0))
-
-            for dist, sol in sorted_solutions:
                 for arm_dof_idx in range(len(self.dof_names_ik)):
                     dof_name = self.dof_names_ik[arm_dof_idx]
                     q_goal[self.dof_indices_map[dof_name]] = sol[arm_dof_idx]
@@ -395,7 +398,10 @@ class KeyRotTaskRRT:
                     exit(0)
 
                 if self.checkGoal(q_goal):
-                    return q_goal
+                    goal_list.append(q_goal)
+#                    return q_goal
+            if len(goal_list) > 0:
+                return goal_list
         return None
 
 class MoveArmsCloseTaskRRT:
@@ -463,7 +469,7 @@ class MoveArmsCloseTaskRRT:
             q_goal = np.empty(len(self.dof_names))
             for i in range(len(self.dof_names)):
                 q_goal[i] = random.uniform(self.dof_tol[i][0], self.dof_tol[i][1])
-            return q_goal
+            return [q_goal]
 
 class GraspTaskRRT:
     def __init__(self, openrave, args):
@@ -598,10 +604,10 @@ class GraspTaskRRT:
         for dof_ik_idx in range(len(self.dof_names_ik)):
             start_arm_q[dof_ik_idx] = start_q[self.dof_indices_map[self.dof_names_ik[dof_ik_idx]]]
 
-        T_B_E = self.T_B_E_list[random.randint(0, len(self.T_B_E_list)-1)]
+        T_B_Ed = self.T_B_E_list[random.randint(0, len(self.T_B_E_list)-1)]
 
         q_goal = np.zeros(len(self.dof_names))
-        for tries in range(200):
+        for tries in range(50):
             # random free joint value for the arm
             q_goal[self.free_dof_idx] = random.uniform(self.dof_limits[self.free_dof_idx][0]+0.01, self.dof_limits[self.free_dof_idx][1]-0.01)
             freevalues = [ (q_goal[self.free_dof_idx]-self.dof_limits[self.free_dof_idx][0])/(self.dof_limits[self.free_dof_idx][1]-self.dof_limits[self.free_dof_idx][0]) ]
@@ -610,7 +616,7 @@ class GraspTaskRRT:
             q_goal[self.torso_0_joint_idx] = random.uniform(self.dof_limits[self.torso_0_joint_idx][0]+0.01, self.dof_limits[self.torso_0_joint_idx][1]-0.01)
 
             self.openrave.robot_rave.SetDOFValues(q_goal, self.dof_indices)
-            solutions = self.openrave.findIkSolutions(T_B_E, man_name=self.gripper+"_arm", freevalues=freevalues)
+            solutions = self.openrave.findIkSolutions(T_B_Ed, man_name=self.gripper+"_arm", freevalues=freevalues)
             if len(solutions) == 0:
                 continue
 
@@ -661,9 +667,10 @@ class GraspTaskRRT:
                     print "ERROR: np.linalg.norm(q_goal-start_q) > shortest_path_len", np.linalg.norm(q_goal-start_q), ">", shortest_path_len
                     exit(0)
 
-                self.goals_T_B_E.append(T_B_E)
+                self.goals_T_B_E.append(T_B_Ed)
                 goal_list.append(q_goal)
 #                return q_goal
-            return goal_list
+            if len(goal_list) > 0:
+                return goal_list
         return None
 

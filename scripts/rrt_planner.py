@@ -194,7 +194,9 @@ class PlannerRRT:
                         goal_list = taskrrt.SampleGoal(V[0], shortest_path_len)
                         if goal_list == None or len(goal_list) == 0:
                             continue
+#                        print len(goal_list)
                         for goal in goal_list:
+#                            openrave.showConfiguration(taskrrt.GetDofNames(), goal)
                             if isStateValid(goal, taskrrt.GetDofIndices()):
                                 print "foung valid goal"
                                 q_nearest_idx = Nearest(V, goal)

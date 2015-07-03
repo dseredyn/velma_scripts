@@ -591,27 +591,8 @@ class OpenraveInstance:
     def getGraspStandoff(self, target_name, grasp):
         return grasp[self.gmodel[target_name].graspindices.get('igraspstandoff')]
 
-#    def updateRobotConfigurationRos(self, js_pos):
-#        dof_values = self.robot_rave.GetDOFValues()
-#        for dof_idx in range(self.robot_rave.GetDOF()):
-#            joint = self.robot_rave.GetJointFromDOFIndex(dof_idx)
-#            joint_name = joint.GetName()
-#            if joint_name in js_pos:
-#                dof_values[dof_idx] = js_pos[joint_name]
-#        self.robot_rave.SetDOFValues(dof_values)
-
-    def showTrajectory(self, joint_names, time, traj):#qt_list=None, qar_list=None, qal_list=None, qhr_list=None, qhl_list=None):
+    def showTrajectory(self, joint_names, time, traj):
         length = len(traj)
-#        if qt_list != None:
-#            length = len(qt_list)
-#        elif qar_list != None:
-#            length = len(qar_list)
-#        elif qal_list != None:
-#            length = len(qal_list)
-#        elif qhr_list != None:
-#            length = len(qhr_list)
-#        elif qhl_list != None:
-#            length = len(qhl_list)
         if length < 1:
             return None
         time_d = time / length
@@ -621,30 +602,6 @@ class OpenraveInstance:
             with self.env:
                 for i in range(length):
                     self.robot_rave.GetController().Reset(0)
-#                    dof_values = self.robot_rave.GetDOFValues()
-#                    if qt_list == None:
-#                        qt = dof_values[0:2]
-#                    else:
-#                        qt = qt_list[i]
-#                    if qal_list == None:
-#                        qal = dof_values[2:9]
-#                    else:
-#                        qal = qal_list[i]
-#                    if qhl_list == None:
-#                        qhl = dof_values[9:13]
-#                    else:
-#                        qhl = qhl_list[i]
-#                    if qar_list == None:
-#                        qar = dof_values[13:20]
-#                    else:
-#                        qar = qar_list[i]
-#                    if qhr_list == None:
-#                        qhr = dof_values[20:24]
-#                    else:
-#                        qhr = qhr_list[i]
-#                    dof_values = list(qt) + list(qal) + list(qhl) + list(qar) + list(qhr)
-#                    self.robot_rave.SetDOFValues(dof_values)
-
                     conf = {}
                     for qi in range(len(joint_names)):
                         conf[joint_names[qi]] = traj[i][qi]
@@ -660,6 +617,15 @@ class OpenraveInstance:
                     if time_d > 0.0:
                         rospy.sleep(time_d)
         return first_collision
+
+    def showConfiguration(self, joint_names, q):
+#        with self.robot_rave.CreateRobotStateSaver():
+            with self.env:
+                conf = {}
+                for qi in range(len(joint_names)):
+                    conf[joint_names[qi]] = q[qi]
+                self.updateRobotConfigurationRos(conf)
+                self.env.UpdatePublishedBodies()
 
     def getMesh(self, name):
         body = self.env.GetKinBody(name)

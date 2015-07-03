@@ -484,20 +484,8 @@ class GraspTaskRRT:
 
         self.openrave = openrave
 
-#        def getGripperPose():
-#            return PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.6, 0, 1.6))
-
         self.gripper = args[0]
         self.T_B_E_list = args[1]
-
-#        self.T_E_O = PyKDL.Frame()
-#        self.T_O_E = self.T_E_O.Inverse()
-#        self.key_axis_O = PyKDL.Vector(0,0,1)
-#        self.key_up_O = PyKDL.Vector(1,0,0)
-#        self.key_side_O = self.key_axis_O * self.key_up_O
-
-#        self.key_endpoint_O = PyKDL.Vector(0.000256401261281, -0.000625166847342, 0.232297442735)
-#        self.T_B_O_nearHole = PyKDL.Frame(PyKDL.Rotation.Quaternion(0.71891504857, -0.0529880479354, 0.691118088949, 0.0520500417212), PyKDL.Vector(0.883081316461, -0.100813768303, 0.95381559114))
 
         # get the transformation from wrist to palm
         link_E = self.openrave.robot_rave.GetLink(self.gripper + "_HandPalmLink")
@@ -506,16 +494,6 @@ class GraspTaskRRT:
         T_World_W = conv.OpenraveToKDL(link_W.GetTransform())
         self.T_W_E = T_World_W.Inverse() * T_World_E
         self.T_E_W = self.T_W_E.Inverse()
-
-#        self.key_traj1_T_B_W = []
-#        for angle in np.linspace(0.0/180.0*math.pi, -180.0/180.0*math.pi, 10):
-#            T_B_W = self.T_B_O_nearHole * PyKDL.Frame(PyKDL.Rotation.Rot(self.key_axis_O, angle)) * self.T_O_E * self.T_E_W
-#            self.key_traj1_T_B_W.append( (T_B_W, angle) )
-#        self.key_traj2_T_B_W = []
-#        for angle in np.linspace(0.0/180.0*math.pi, 180.0/180.0*math.pi, 10):
-#            T_B_W = self.T_B_O_nearHole * PyKDL.Frame(PyKDL.Rotation.Rot(self.key_axis_O, angle)) * self.T_O_E * self.T_E_W
-#            self.key_traj2_T_B_W.append( (T_B_W, angle) )
-#        self.velma_solvers = velmautils.VelmaSolvers()
 
         self.dof_names = [
         "left_arm_0_joint",

@@ -132,13 +132,17 @@ class PlannerRRT:
 
         def Steer(q_nearest, q_rand):
                 dist = tree.Distance(q_nearest, q_rand)
+                reached = False
                 if dist > ETA:
                     factor = ETA / dist
+                    reached = False
                 else:
                     factor = 1.0
+                    reached = True
+
                 q_diff = q_rand - q_nearest
                 q_new = q_nearest + q_diff * factor
-                return q_new
+                return q_new, reached
 
         def Near(V, q, near_dist):
                 result = []
@@ -158,6 +162,37 @@ class PlannerRRT:
                     if not isStateValid(current_q, dof_indices):
                         return False
                 return True
+
+        def Extend(V, E, q, q_new_idx):
+            q_nearest_idx = Nearest(V, q)
+            q_nearest = V[q_nearest_idx]
+            q_new, reached = Steer(q_nearest, q)
+            col_free = CollisionFree(q_nearest, q_new, taskrrt.GetDofIndices())
+            update = None
+            if col_free:
+                if reached:
+                    status = "reached"
+                else:
+                    status = "advanced"
+                V[q_new_idx] = q_new
+                V_update_q_new = q_new
+                E[q_new_idx] = q_nearest_idx
+                E_update = q_nearest_idx
+                update = (V_update_q_new, q_new_idx, E_update)
+                q_new_idx += 1
+            else:
+                status = "trapped"
+            return status, update, q_new_idx
+
+        def Connect(V, E, q, q_new_idx):
+            updates = []
+            while True:
+                status, update, q_new_idx = Extend(V, E, q, q_new_idx)
+                if update != None:
+                    updates.append(update)
+                if status != "advanced":
+                    break
+            return status, updates, q_new_idx
 
         queue_slave.put( ("init_complete",) )
 
@@ -200,7 +235,7 @@ class PlannerRRT:
                             goal_too_close_to_other = False
                             for tree_id in trees_goal:
                                 gV, gE = trees_goal[tree_id]
-                                if Distance(gV[0], goal) < 10.0/180.0*math.pi:
+                                if tree.Distance(gV[0], goal) < 10.0/180.0*math.pi:
                                     print "found goal that is too close to other goal"
                                     goal_too_close_to_other = True
                                     break
@@ -208,46 +243,88 @@ class PlannerRRT:
                                 continue
                             if isStateValid(goal, taskrrt.GetDofIndices()):
                                 print "foung valid goal"
-                                q_nearest_idx = Nearest(V, goal)
-                                q_nearest = V[q_nearest_idx]
+                                goal_found = True
+#                                q_nearest_idx = Nearest(V, goal)
+#                                q_nearest = V[q_nearest_idx]
                                 q_new = goal
                                 if shortest_path_len != None and tree.CostLine(V[0], q_new) > shortest_path_len:
                                     print "foung valid goal - too far"
                                     continue
-                                col_free = CollisionFree(q_nearest, q_new, taskrrt.GetDofIndices())
-                                if col_free:
-                                    print "foung valid goal - may connect"
-                                    goal_found = True
-                                    break
+#                                col_free = CollisionFree(q_nearest, q_new, taskrrt.GetDofIndices())
+#                                if col_free:
+#                                    print "foung valid goal - may connect"
+#                                    goal_found = True
+#                                    break
                         if goal_found:
                             break
-                if not goal_found:
-                    while True:
-                        q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
-                        q_nearest_idx = Nearest(V, q_rand)
-                        q_nearest = V[q_nearest_idx]
-                        q_new = Steer(q_nearest, q_rand)
-                        if shortest_path_len != None and tree.CostLine(V[0], q_new) > shortest_path_len:
-                            continue
-                        col_free = CollisionFree(q_nearest, q_new, taskrrt.GetDofIndices())
-                        if col_free:
-                            break
-                    goal_found = taskrrt.checkGoal(q_new)
+#                if not goal_found:
+#                    while True:
+#                        q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
+#                        q_nearest_idx = Nearest(V, q_rand)
+#                        q_nearest = V[q_nearest_idx]
+#                        q_new = Steer(q_nearest, q_rand)
+#                        if shortest_path_len != None and tree.CostLine(V[0], q_new) > shortest_path_len:
+#                            continue
+#                        col_free = CollisionFree(q_nearest, q_new, taskrrt.GetDofIndices())
+#                        if col_free:
+#                            break
+#                    goal_found = taskrrt.checkGoal(q_new)
 
-                if not col_free:
-                    print "ERROR: not col_free"
-                    exit(0)
+#                if not col_free:
+#                    print "ERROR: not col_free"
+#                    exit(0)
 
                 # a new goal is found - create a new tree
                 if goal_found:
-                    queue_slave.put( ("addNode", None, {1000000:(q_new,[])}, goal_found), False )
+#                    print "openraveWorker: goal_found"
+                    queue_slave.put( ("addNode", None, {-1:(q_new,None)}, goal_found), False )
                 else:
+                    q_new_idx = 1000000
+                    updates_start = []
+                    updates_goals = {}
+
+                    q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
+                    status, update, q_new_idx = Extend(V, E, q_rand, q_new_idx)
+#                    print "Extend(V, E, q_rand, q_new_idx)", status
+                    if status != "trapped":
+                        updates_start.append(update)
+                        q_new = V[q_new_idx-1]
+                        for tree_id in trees_goal:
+                            gV, gE = trees_goal[tree_id]
+                            status, updates, q_new_idx = Connect(gV, gE, q_new, q_new_idx)
+#                            print "Connect(gV, gE, q_rand, q_new_idx)", status
+                            trees_goal[tree_id] = (gV, gE)
+                            if status != "trapped":
+                                updates_goals[tree_id] = updates
+                            if status == "reached":
+                                print "PATH FOUND!!! (1)"
+
+                    q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
+                    for tree_id in trees_goal:
+                        gV, gE = trees_goal[tree_id]
+                        status, update, q_new_idx = Extend(gV, gE, q_rand, q_new_idx)
+#                        print "Extend(gV, gE, q_rand, q_new_idx)", status
+                        trees_goal[tree_id] = (gV, gE)
+                        if status != "trapped":
+                            if not tree_id in updates_goals:
+                                updates_goals[tree_id] = []
+                            updates_goals[tree_id].append(update)
+                            q_new = gV[q_new_idx-1]
+                            status, updates, q_new_idx = Connect(V, E, q_new, q_new_idx)
+#                            print "Connect(V, E, q_rand, q_new_idx)", status
+                            if status != "trapped":
+                                updates_start += updates
+                            if status == "reached":
+                                print "PATH FOUND!!! (2)"
+                        
+
+
 #                    near_dist = 120.0/180.0*math.pi
 #                    q_near_idx_list = Near(V, q_new, near_dist)
 #
 #                    # sort the neighbours
 #                    cost_q_near_idx_list = []
-                    q_min_idx = q_nearest_idx
+#                    q_min_idx = q_nearest_idx
 #                    c_min = tree.Cost(V, E, q_nearest_idx) + tree.CostLine(q_nearest, q_new)
 #                    for q_near_idx in q_near_idx_list:
 #                        if q_nearest_idx == q_near_idx:
@@ -271,14 +348,14 @@ class PlannerRRT:
 #                        else:
 #                            collision_checked[q_near_idx] = False
 #
-                    q_new_idx = 1000000
-                    V[q_new_idx] = q_new
-                    V_update_q_new = q_new
-
-                    E[q_new_idx] = q_min_idx
-                    E_update = []
-                    E_update.append( (-1, q_min_idx) )
-
+#                    q_new_idx = 1000000
+#                    V[q_new_idx] = q_new
+#                    V_update_q_new = q_new
+#
+#                    E[q_new_idx] = q_min_idx
+#                    E_update = []
+#                    E_update.append( (-1, q_min_idx) )
+#
 #                    cost_q_new = tree.Cost(V, E, q_new_idx)
 #                    for q_near_idx in q_near_idx_list:
 #                        q_near = V[q_near_idx]
@@ -293,12 +370,11 @@ class PlannerRRT:
 #                                E[q_near_idx] = q_new_idx
 #                                E_update.append( (q_near_idx, -1) )
 #
-                    if goal_found:
-                        print "found goal"
+#                    if goal_found:
+#                        print "found goal"
 
-                    queue_slave.put( ("addNode", (V_update_q_new, E_update), None, goal_found), False )
-                else:
-                    queue_slave.put( ("addNode", None, None, None), False )
+                    queue_slave.put( ("addNode", updates_start, updates_goals, goal_found), False )
+
 #              except:
 #                print "exception in process", process_id
 #                queue_slave.put( ("addNode", None, None, None) )
@@ -384,6 +460,7 @@ class PlannerRRT:
             V[0] = V_update_q_new
 
             trees_goal = {}
+            trees_goal_last_idx = 0
             q_new_idx = 0
             tokens = 0
             for proc_id in range(self.num_proc):
@@ -399,48 +476,54 @@ class PlannerRRT:
                 if resp[0] != "addNode":
                     print "ERROR resp (addNode):", resp[0]
                     exit(0)
-
                 
-                init_tree_update, goal_trees_update, goal = resp[1:]
-                if init_tree_update != None:
-                    V_update_q_new, E_update = init_tree_update
-                    allow_update = True
-                    for (vi_ch, vi_pa) in E_update:
-                        if vi_ch != -1 and not vi_ch in V:
-                            allow_update = False
-                            break
-                        if vi_pa != -1 and not vi_pa in V:
-                            allow_update = False
-                            break
-                    if not allow_update:
-                        print "discarding changes"
-                        continue
-                    # update the graph
-                    q_new_idx += 1
-                    V[q_new_idx] = V_update_q_new
-                    for (vi_ch, vi_pa) in E_update:
-                        if vi_ch == -1:
-                            vi_ch = q_new_idx
-                        elif not vi_ch in V:
-                            print "ERROR: vi_ch",vi_ch
-                            continue
-                        if vi_pa == -1:
-                            vi_pa = q_new_idx
-                        elif not vi_pa in V:
-                            print "ERROR: vi_pa",vi_pa
-                            continue
-                        E[vi_ch] = vi_pa
-                        if not vi_ch in edge_ids:
-                            edge_ids[vi_ch] = edge_id
+                updates_start, updates_goals, goal = resp[1:]
+                ids_map = {}
+                if updates_start != None:
+                    for update in updates_start:
+                        V_update_q_new, child_id, parent_id = update
+                        if parent_id in ids_map:
+                            parent_id = ids_map[parent_id]
+                        q_new_idx += 1
+                        ids_map[child_id] = q_new_idx
+                        V[q_new_idx] = V_update_q_new
+                        E[q_new_idx] = parent_id
+
+#                        print "update tree", parent_id, "->", q_new_idx
+
+                        if not q_new_idx in edge_ids:
+                            edge_ids[q_new_idx] = edge_id
                             edge_id += 1
                         if self.debug:
-                            self.pub_marker.publishVectorMarker(PyKDL.Vector(V[vi_pa][0], V[vi_pa][1], V[vi_pa][2]), PyKDL.Vector(V[vi_ch][0], V[vi_ch][1], V[vi_ch][2]), edge_ids[vi_ch], 0, 1, 0, frame='world', namespace='edges', scale=0.01)
+                            self.pub_marker.publishVectorMarker(PyKDL.Vector(V[parent_id][0], V[parent_id][1], V[parent_id][2]), PyKDL.Vector(V[q_new_idx][0], V[q_new_idx][1], V[q_new_idx][2]), edge_ids[q_new_idx], 0, 1, 0, frame='world', namespace='edges', scale=0.01)
 
                     if goal:
                         goal_V_ids.append(q_new_idx)
 
-                    print "len(V) len(goal_V_ids)", len(V), len(goal_V_ids)
+                    print "len(V) len(goal_V_ids), trees", len(V), len(goal_V_ids), len(trees_goal)
 
+                if len(updates_goals) > 0:
+                    for tree_id in updates_goals:
+#                        print "tree_id", tree_id
+                        # add new tree
+                        if tree_id == -1:
+                            q_new, _None = updates_goals[tree_id]
+                            trees_goal[trees_goal_last_idx] = ({0:q_new}, {})
+                            trees_goal_last_idx += 1
+                        else:
+                            gV, gE = trees_goal[tree_id]
+                            for update in updates_goals[tree_id]:
+                                V_update_q_new, child_id, parent_id = update
+                                if parent_id in ids_map:
+                                    parent_id = ids_map[parent_id]
+                                q_new_idx += 1
+                                ids_map[child_id] = q_new_idx
+                                gV[q_new_idx] = V_update_q_new
+                                gE[q_new_idx] = parent_id
+                            trees_goal[tree_id] = gV, gE
+
+#                print "trees_goal", len(trees_goal)
+                if False:
                     for goal_idx in goal_V_ids:
                         goal_cost = tree.Cost(V, E, goal_idx)
 #                        if shortest_path_len == None or shortest_path_len > goal_cost:
@@ -479,7 +562,6 @@ class PlannerRRT:
                             rem_nodes = orphan_nodes
                             if len(rem_nodes) == 0:
                                 break
-#                            print "removing nodes:", len(rem_nodes)
                             for vi in rem_nodes:
                                 del V[vi]
                                 if self.debug:
@@ -489,9 +571,6 @@ class PlannerRRT:
                                 if vi in goal_V_ids:
                                     goal_V_ids.remove(vi)
 
-#                if self.stop_planning:
-#                  print "planning stopped"
-#                  break
 
             for proc_id in range(self.num_proc):
                 resp = self.queue_slave.get(True)

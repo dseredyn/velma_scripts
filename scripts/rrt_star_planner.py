@@ -149,7 +149,7 @@ class PlannerRRT:
 
         def CollisionFree(q1, q2, dof_indices):
                 dist = max(abs(q1-q2))
-                steps = int(dist / (10.0/180.0*math.pi))
+                steps = int(dist / (5.0/180.0*math.pi))
                 if steps < 2:
                     steps = 2
                 for i in range(1, steps):

@@ -175,7 +175,7 @@ class PlannerRRT:
                     openrave.robot_rave.SetDOFValues(q)
                     queue_slave.put( ("setInitialConfiguration", True) )
                 if cmd_s == "setTaskSpec":
-                    taskrrt = msg_s[1](openrave)
+                    taskrrt = msg_s[1](openrave, msg_s[2])
                     queue_slave.put( ("setTaskSpec", True) )
 
             elif cmd == "addFirstNode":
@@ -187,18 +187,32 @@ class PlannerRRT:
 #              try:
                 V, E, shortest_path_len, best_q_idx, goal_V_ids = msg[1:]
                 if random.uniform(0,1) < 0.05:
-                    for i in range(10):
-                        q_rand = taskrrt.SampleGoal(V[0], shortest_path_len)
-                        if q_rand == None:
-                            continue
-                        if shortest_path_len != None and tree.CostLine(V[0], q_rand) > shortest_path_len:
+                    goal_list = taskrrt.SampleGoal(V[0], shortest_path_len)
+                    if goal_list == None or len(goal_list) == 0:
+                        q_rand = None
+                    else:
+                        goal_list_valid = []
+                        for goal in goal_list:
+                            if isStateValid(goal, taskrrt.GetDofIndices()):
+                                goal_list_valid.append(goal)
+                        if len(goal_list_valid) == 0:
                             q_rand = None
-                            continue
-                        if not isStateValid(q_rand, taskrrt.GetDofIndices()):
-                            print "goal in collision"
-                            q_rand = None
-                            continue
-                        break
+                        else:
+                            q_rand = goal_list_valid[random.randint(0, len(goal_list_valid)-1)]
+
+                        print "goal_list", len(goal_list), len(goal_list_valid)
+#                    for i in range(10):
+#                        q_rand = taskrrt.SampleGoal(V[0], shortest_path_len)
+#                        if q_rand == None:
+#                            continue
+#                        if shortest_path_len != None and tree.CostLine(V[0], q_rand) > shortest_path_len:
+#                            q_rand = None
+#                            continue
+#                        if not isStateValid(q_rand, taskrrt.GetDofIndices()):
+#                            print "goal in collision"
+#                            q_rand = None
+#                            continue
+#                        break
                     if q_rand == None:
                         q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
                     else:
@@ -320,7 +334,7 @@ class PlannerRRT:
         for proc in self.proc:
             proc.join()
 
-    def RRTstar(self, q_init, classTaskRRT, max_time):
+    def RRTstar(self, q_init, classTaskRRT, taskArgs, max_time):
 
             def DrawPath(V, E, q_idx):
                 if not q_idx in E:
@@ -336,6 +350,8 @@ class PlannerRRT:
                 self.pub_marker.eraseMarkers(0,3000, frame_id='world')
 
             shortest_path_len = None
+#            shortest_path_len = 6.0
+            goal_not_found = True
             shortest_path_len_prev = None
             best_q = None
             best_q_idx = None
@@ -345,7 +361,7 @@ class PlannerRRT:
 
             self.sendToAll( ("setInitialConfiguration", q_init) )
 
-            self.sendToAll( ("setTaskSpec", classTaskRRT) )
+            self.sendToAll( ("setTaskSpec", classTaskRRT, taskArgs) )
 
             self.queue_master.put( ("addFirstNode", q_init), True )
             resp = self.queue_slave.get(True)
@@ -413,10 +429,11 @@ class PlannerRRT:
 
                     for goal_idx in goal_V_ids:
                         goal_cost = tree.Cost(V, E, goal_idx)
-                        if shortest_path_len == None or shortest_path_len > goal_cost:
+#                        if shortest_path_len == None or shortest_path_len > goal_cost:
+                        if goal_not_found or shortest_path_len > goal_cost:
+                            goal_not_found = False
                             best_q_idx = goal_idx
                             best_q = V[best_q_idx]
-                            shortest_path_len_old = shortest_path_len
                             shortest_path_len =  goal_cost
                             #print "*********** found better goal:", shortest_path_len
                             if self.debug:
@@ -424,7 +441,7 @@ class PlannerRRT:
                                 self.pub_marker.eraseMarkers(0, 200, frame_id='torso_base', namespace='shortest_path')
                                 DrawPath(V, E, best_q_idx)
 
-                    if True and shortest_path_len_prev != shortest_path_len:
+                    if shortest_path_len_prev != shortest_path_len:
                         rem_nodes = []
                         for vi in V:
                             if tree.CostLine(V[0], V[vi]) > shortest_path_len:

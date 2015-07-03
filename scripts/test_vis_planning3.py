@@ -76,6 +76,10 @@ class TestOrOctomap:
 
     def spin(self):
 
+#        sorted_solutions = sorted([10, 20, 5,3,1,11])#, key=operator.itemgetter(0))
+#        print sorted_solutions
+#        exit(0)
+
         simulation = True
 
         rospack = rospkg.RosPack()
@@ -149,7 +153,11 @@ class TestOrOctomap:
 # LooAtTaskRRT
 # KeyRotTaskRRT
 
-        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.LooAtTaskRRT, 60.0)
+#        def getGripperPose():
+#            return PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.6, 0, 1.6))
+
+        T_B_E_list = [PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.6, 0, 1.6))]
+        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("right", T_B_E_list), 90.0)
 
         traj = []
         for i in range(len(path)-1):

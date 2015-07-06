@@ -521,8 +521,8 @@ class PlannerRRT:
                                 V_update_q_new, child_id, parent_id = update
                                 if parent_id in ids_map:
                                     parent_id = ids_map[parent_id]
-                                if not parent_id in gV:
-                                    continue
+#                                if not parent_id in gV:
+#                                    continue
                                 q_new_idx += 1
                                 ids_map[child_id] = q_new_idx
                                 gV[q_new_idx] = V_update_q_new

@@ -541,7 +541,17 @@ class GraspTaskRRT:
         self.ignore_dof = [ self.dof_indices_map["torso_0_joint"] ]
         for dof_name in self.dof_names_ik:
             self.ignore_dof.append( self.dof_indices_map[dof_name] )
-
+###
+#        print self.dof_names
+#        print self.ignore_dof
+        self.other_dof = []
+        for dof_name in self.dof_names:
+            dof_idx = self.dof_indices_map[dof_name]
+            if not dof_idx in self.ignore_dof:
+                self.other_dof.append(dof_idx)
+#        print self.other_dof
+#        exit(0)
+###
         self.goals_T_B_E = []
 
     def GetDofLimits(self):
@@ -549,7 +559,10 @@ class GraspTaskRRT:
 
     def GetDofIndices(self):
         return self.dof_indices
-
+###
+    def GetOtherDofIndices(self):
+        return self.other_dof
+###
     def GetDofNames(self):
         return self.dof_names
 

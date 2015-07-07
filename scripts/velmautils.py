@@ -217,6 +217,9 @@ class MarkerPublisher:
         self.pub_marker.publish(m)
         return base_id+1
 
+def nSphereVolume(n, R):
+    return math.pow(math.pi, float(n)/2.0) / math.gamma(float(n)/2.0 + 1.0) * math.pow(R, n)
+
 def getAngle(v1, v2):
     return math.atan2((v1*v2).Norm(), PyKDL.dot(v1,v2))
 

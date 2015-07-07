@@ -28,6 +28,7 @@ import PyKDL
 import numpy as np
 from multiprocessing import Process, Queue
 import math
+import copy
 from geometry_msgs.msg import *
 from visualization_msgs.msg import *
 import openraveinstance
@@ -225,14 +226,51 @@ class PlannerRRT:
                 tree_start, trees_goal, shortest_path_len, best_q_idx, goal_V_ids = msg[1:]
                 V, E = tree_start
                 sample_goal = random.uniform(0,1) < 0.05
-
                 goal_found = False
                 if sample_goal:
+
+                    other_dof = taskrrt.GetOtherDofIndices()
+                    start_conf = np.empty(len(other_dof))
+                    limits = []
+                    for dof_idx_idx in range(len(other_dof)):
+                        start_conf[dof_idx_idx] = V[0][other_dof[dof_idx_idx]]
+                        limits.append( taskrrt.GetDofLimits()[other_dof[dof_idx_idx]] )
+
                     for goal_tries in range(10):
                         goal_list = taskrrt.SampleGoal(V[0], shortest_path_len)
                         if goal_list == None or len(goal_list) == 0:
                             continue
                         for goal in goal_list:
+                            if not isStateValid(goal, taskrrt.GetDofIndices()):
+                                continue
+
+                            # try to move the goal closer to the starting configuration
+                            goal_conf = np.empty(len(other_dof))
+                            for dof_idx_idx in range(len(other_dof)):
+                                goal_conf[dof_idx_idx] = goal[other_dof[dof_idx_idx]]
+                            goal_dist = np.linalg.norm(start_conf-goal_conf)
+                            for dist_max in np.linspace(0.0, goal_dist*0.5, 5):
+                                vol = velmautils.nSphereVolume(len(other_dof), dist_max)
+                                max_tries = int(vol / 0.01)
+                                if max_tries < 1:
+                                    max_tries = 1
+                                if max_tries > 1000:
+                                    max_tries = 1000
+#                                print "len(other_dof), vol, dist_max, max_tries", len(other_dof), vol, dist_max, max_tries
+                                new_goal_available = False
+                                for try_idx in range(max_tries):
+                                    goal_part = tree.uniformInBall(dist_max, limits, start_conf, ignore_dof=[])
+                                    goal_new = copy.copy(goal)
+                                    for dof_idx_idx in range(len(other_dof)):
+                                        goal_new[other_dof[dof_idx_idx]] = goal_part[dof_idx_idx]
+                                    if isStateValid(goal_new, taskrrt.GetDofIndices()):
+                                        print "moved goal", tree.Distance(V[0], goal), tree.Distance(V[0], goal_new)
+                                        goal = goal_new
+                                        new_goal_available = True
+                                        break
+
+                                if new_goal_available:
+                                    break
                             # check if the goal is too close to any other goal
                             goal_too_close_to_other = False
                             for tree_id in trees_goal:
@@ -243,7 +281,7 @@ class PlannerRRT:
                                     break
                             if goal_too_close_to_other:
                                 continue
-                            if isStateValid(goal, taskrrt.GetDofIndices()):
+                            if True:#isStateValid(goal, taskrrt.GetDofIndices()):
                                 print "foung valid goal"
                                 goal_found = True
                                 q_new = goal
@@ -281,11 +319,8 @@ class PlannerRRT:
                             if status == "reached":
                                 path_start = tree.GetPath(E, connect_idx)
                                 path_goal = tree.GetPath(gE, q_new_idx-1)
-#                                print "path_start", path_start
-#                                print "path_goal", path_goal
                                 path_goal.reverse()
                                 paths_found[tree_id] = path_start[:-1] + path_goal
-#                                print "PATH FOUND!!! (1)"
 
                     # RRT-connect step 2
                     q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
@@ -305,11 +340,8 @@ class PlannerRRT:
                             if status == "reached":
                                 path_start = tree.GetPath(E, q_new_idx-1)
                                 path_goal = tree.GetPath(gE, connect_idx)
-#                                print "path_start", path_start
-#                                print "path_goal", path_goal
                                 path_goal.reverse()
                                 paths_found[tree_id] = path_start[:-1] + path_goal
-#                                print "PATH FOUND!!! (2)"
 
                     # RRT* for the main tree
                     E_updates_start = []
@@ -521,8 +553,13 @@ class PlannerRRT:
                                 V_update_q_new, child_id, parent_id = update
                                 if parent_id in ids_map:
                                     parent_id = ids_map[parent_id]
-#                                if not parent_id in gV:
+                                if not parent_id in gV:
+                                    print "ERROR"
+                                    print gV
+                                    print ids_map
+                                    print parent_id
 #                                    continue
+                                    exit(0)
                                 q_new_idx += 1
                                 ids_map[child_id] = q_new_idx
                                 gV[q_new_idx] = V_update_q_new
@@ -536,7 +573,7 @@ class PlannerRRT:
 
                             trees_goal[tree_id] = gV, gE
 
-                # remove goal trees and add paths to goals to the main tree
+                # paths to goals found: remove goal trees and add paths to goals to the main tree
                 for tree_id in paths_found:
                     if not tree_id in trees_goal:
                         continue
@@ -561,6 +598,13 @@ class PlannerRRT:
                                 print parent_q_idx, q_idx, edge_id
                                 self.pub_marker.publishVectorMarker(PyKDL.Vector(V[parent_q_idx][0], V[parent_q_idx][1], V[parent_q_idx][2]), PyKDL.Vector(V[q_idx][0], V[q_idx][1], V[q_idx][2]), edge_ids[q_idx], 0, 1, 0, frame='world', namespace='edges', scale=0.01)
                     del trees_goal[tree_id]
+
+                    # try to optimize the path
+#                    path = tree.GetPath(E, q_idx)
+#                    new_path = []
+#                    for path_idx in range(len(path)):
+#                        q1,
+
                     goal_V_ids.append(q_idx)
 
                 trees_sizes = []
@@ -585,6 +629,11 @@ class PlannerRRT:
                                 DrawPath(V, E, best_q_idx)
 
                     if shortest_path_len_prev != shortest_path_len:
+                        # sanity check
+                        for vi in V:
+                            tree.GetPath(E, vi)
+                        for vi in E:
+                            tree.GetPath(E, vi)
                         rem_nodes = []
                         for vi in V:
                             if tree.CostLine(V[0], V[vi]) > shortest_path_len:
@@ -598,16 +647,6 @@ class PlannerRRT:
                             del E[vi]
                             if vi in goal_V_ids:
                                 goal_V_ids.remove(vi)
-
-                        rem_trees = []
-                        for tree_id in trees_goal:
-                            gV, gE = trees_goal[tree_id]
-                            if tree.CostLine(V[0], gV[tree_id]) > shortest_path_len:
-                                rem_trees.append(tree_id)
-
-                        print "removing trees", rem_trees
-                        for tree_id in rem_trees:
-                            del trees_goal[tree_id]
 
                         shortest_path_len_prev = shortest_path_len
                         while True:
@@ -627,7 +666,16 @@ class PlannerRRT:
                                 del E[vi]
                                 if vi in goal_V_ids:
                                     goal_V_ids.remove(vi)
-#                        break
+
+                        rem_trees = []
+                        for tree_id in trees_goal:
+                            gV, gE = trees_goal[tree_id]
+                            if tree.CostLine(V[0], gV[tree_id]) > shortest_path_len:
+                                rem_trees.append(tree_id)
+
+                        print "removing trees", rem_trees
+                        for tree_id in rem_trees:
+                            del trees_goal[tree_id]
 
 
             for proc_id in range(self.num_proc):

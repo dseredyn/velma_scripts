@@ -223,7 +223,7 @@ class PlannerRRT:
 
             elif cmd == "addNode":
 #              try:
-                tree_start, trees_goal, shortest_path_len, best_q_idx, goal_V_ids = msg[1:]
+                tree_start, trees_goal, shortest_path_len, best_q_idx, goal_V_ids, job_id = msg[1:]
                 V, E = tree_start
                 sample_goal = random.uniform(0,1) < 0.05
                 goal_found = False
@@ -295,7 +295,7 @@ class PlannerRRT:
                 if goal_found:
 #                    print "openraveWorker: goal_found"
                     E_updates_start = []
-                    queue_slave.put( ("addNode", None, E_updates_start, {-1:(q_new,None)}, goal_found, {}), False )
+                    queue_slave.put( ("addNode", None, E_updates_start, {-1:(q_new,None)}, goal_found, {}, job_id), False )
                 else:
                     q_new_idx = 1000000 * (1+process_id)
                     updates_start = []
@@ -314,8 +314,9 @@ class PlannerRRT:
                             gV, gE = trees_goal[tree_id]
                             status, updates, q_new_idx = Connect(gV, gE, q_new, q_new_idx)
                             trees_goal[tree_id] = (gV, gE)
-                            if status != "trapped":
+                            if len(updates) > 0:
                                 updates_goals[tree_id] = updates
+#                                print "connect goal",  updates_goals[tree_id]
                             if status == "reached":
                                 path_start = tree.GetPath(E, connect_idx)
                                 path_goal = tree.GetPath(gE, q_new_idx-1)
@@ -333,10 +334,11 @@ class PlannerRRT:
                             if not tree_id in updates_goals:
                                 updates_goals[tree_id] = []
                             updates_goals[tree_id].append(update)
+#                            print "extend goal",  updates_goals[tree_id]
                             q_new = gV[connect_idx]
                             status, updates, q_new_idx = Connect(V, E, q_new, q_new_idx)
-                            if status != "trapped":
-                                updates_start += updates
+#                            if status != "trapped":
+                            updates_start += updates
                             if status == "reached":
                                 path_start = tree.GetPath(E, q_new_idx-1)
                                 path_goal = tree.GetPath(gE, connect_idx)
@@ -401,7 +403,7 @@ class PlannerRRT:
                                     E_update.append( (q_near_idx, -1) )
                                     E_updates_start.append( (q_near_idx, child_id) )
 
-                    queue_slave.put( ("addNode", updates_start, E_updates_start, updates_goals, goal_found, paths_found), False )
+                    queue_slave.put( ("addNode", updates_start, E_updates_start, updates_goals, goal_found, paths_found, job_id), False )
 
 #              except:
 #                print "exception in process", process_id
@@ -487,24 +489,31 @@ class PlannerRRT:
 
             V[0] = V_update_q_new
 
+            job_id = 1
             trees_goal = {}
             q_new_idx = 0
             tokens = 0
             for proc_id in range(self.num_proc):
-                self.queue_master.put( ("addNode", (V, E), trees_goal, shortest_path_len, best_q_idx, goal_V_ids), True )
+                self.queue_master.put( ("addNode", (V, E), trees_goal, shortest_path_len, best_q_idx, goal_V_ids, job_id), True )
+                job_id += 1
                 tokens += 1
 
+            first_valid_job_id = 0
             start_time = rospy.Time.now()
             for k in range(100000):
                 if (rospy.Time.now()-start_time).to_sec() > max_time:
                     break
                 resp = self.queue_slave.get(True)
-                self.queue_master.put( ("addNode", (V, E), trees_goal, shortest_path_len, best_q_idx, goal_V_ids), False )
+                self.queue_master.put( ("addNode", (V, E), trees_goal, shortest_path_len, best_q_idx, goal_V_ids, job_id), False )
+                job_id += 1
                 if resp[0] != "addNode":
                     print "ERROR resp (addNode):", resp[0]
                     exit(0)
                 
-                updates_start, E_updates_start, updates_goals, goal, paths_found = resp[1:]
+                updates_start, E_updates_start, updates_goals, goal, paths_found, resp_job_id = resp[1:]
+                if resp_job_id < first_valid_job_id:
+                    print "discarding changes:", resp_job_id, "<", first_valid_job_id
+                    continue
 
                 ids_map = {}
                 if updates_start != None:
@@ -557,6 +566,8 @@ class PlannerRRT:
                                     print "ERROR"
                                     print gV
                                     print ids_map
+                                    print updates_goals[tree_id]
+                                    print updates_start
                                     print parent_id
 #                                    continue
                                     exit(0)
@@ -638,7 +649,9 @@ class PlannerRRT:
                         for vi in V:
                             if tree.CostLine(V[0], V[vi]) > shortest_path_len:
                                 rem_nodes.append(vi)
-                        print "removing nodes:", len(rem_nodes)
+                        print "removing nodes:", len(rem_nodes), rem_nodes
+                        if len(rem_nodes) > 0:
+                            first_valid_job_id = job_id
                         for vi in rem_nodes:
                             del V[vi]
                             if self.debug:
@@ -654,11 +667,17 @@ class PlannerRRT:
                             for vi in E:
                                 if (not vi in rem_nodes) and (E[vi] in rem_nodes):
                                     orphan_nodes.append(vi)
-                            print "orphan_nodes", len(orphan_nodes)
+                            print "orphan_nodes", len(orphan_nodes), orphan_nodes
                             rem_nodes = orphan_nodes
                             if len(rem_nodes) == 0:
                                 break
                             for vi in rem_nodes:
+                                if not vi in V:
+                                    print "ERROR"
+                                    print "V:"
+                                    for vii in V:
+                                        print vii
+                                    print E
                                 del V[vi]
                                 if self.debug:
                                     self.pub_marker.eraseMarkers(edge_ids[vi], edge_ids[vi]+1, frame_id='torso_base', namespace='edges')

@@ -134,7 +134,7 @@ class TestOrOctomap:
         raw_input("Press ENTER to continue...")
 
 #        T_B_E_list = [PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.6, 0, 1.6))]
-        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("right", T_B_E_list), 240.0)
+        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("left", T_B_E_list), 240.0)
 
         traj = []
         for i in range(len(path)-1):

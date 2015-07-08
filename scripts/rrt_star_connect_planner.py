@@ -63,6 +63,18 @@ class PlannerRRT:
                 is_valid = False
             return is_valid
 
+        def CollisionFree(q1, q2, dof_indices):
+                dist = max(abs(q1-q2))
+                steps = int(dist / (5.0/180.0*math.pi))
+                if steps < 2:
+                    steps = 2
+                for i in range(1, steps):
+                    t = float(i)/float(steps-1)
+                    current_q = q1 * (1.0-t) + q2 * t
+                    if not isStateValid(current_q, dof_indices):
+                        return False
+                return True
+
         def SampleFree(dof_indices, dof_limits, start_q, shortest_path_len, best_q_idx, goal_V_ids, V, E):
                 num_dof = len(dof_limits)
                 search_near_subpath = False
@@ -122,7 +134,6 @@ class PlannerRRT:
                             q_rand = tree.uniformInBall(shortest_path_len, dof_limits, start_q)
 
                     if isStateValid(q_rand, dof_indices):
-#                        print "SampleFree", tries
                         return q_rand
 
         def Nearest(V, q):
@@ -153,18 +164,6 @@ class PlannerRRT:
                     if tree.Distance(q, V[vi]) < near_dist:
                         result.append(vi)
                 return result
-
-        def CollisionFree(q1, q2, dof_indices):
-                dist = max(abs(q1-q2))
-                steps = int(dist / (5.0/180.0*math.pi))
-                if steps < 2:
-                    steps = 2
-                for i in range(1, steps):
-                    t = float(i)/float(steps-1)
-                    current_q = q1 * (1.0-t) + q2 * t
-                    if not isStateValid(current_q, dof_indices):
-                        return False
-                return True
 
         def Extend(V, E, q, q_new_idx):
             q_nearest_idx = Nearest(V, q)
@@ -271,6 +270,7 @@ class PlannerRRT:
 
                                 if new_goal_available:
                                     break
+
                             # check if the goal is too close to any other goal
                             goal_too_close_to_other = False
                             for tree_id in trees_goal:
@@ -281,19 +281,18 @@ class PlannerRRT:
                                     break
                             if goal_too_close_to_other:
                                 continue
-                            if True:#isStateValid(goal, taskrrt.GetDofIndices()):
-                                print "foung valid goal"
-                                goal_found = True
-                                q_new = goal
-                                if shortest_path_len != None and tree.CostLine(V[0], q_new) > shortest_path_len:
-                                    print "foung valid goal - too far"
-                                    continue
+                            if shortest_path_len != None and tree.CostLine(V[0], q_new) > shortest_path_len:
+                                print "foung valid goal - too far"
+                                continue
+                            print "foung valid goal"
+                            goal_found = True
+                            q_new = goal
+                            break
                         if goal_found:
                             break
 
                 # a new goal is found - create a new tree
                 if goal_found:
-#                    print "openraveWorker: goal_found"
                     E_updates_start = []
                     queue_slave.put( ("addNode", None, E_updates_start, {-1:(q_new,None)}, goal_found, {}, job_id), False )
                 else:
@@ -316,7 +315,7 @@ class PlannerRRT:
                             trees_goal[tree_id] = (gV, gE)
                             if len(updates) > 0:
                                 updates_goals[tree_id] = updates
-#                                print "connect goal",  updates_goals[tree_id]
+
                             if status == "reached":
                                 path_start = tree.GetPath(E, connect_idx)
                                 path_goal = tree.GetPath(gE, q_new_idx-1)
@@ -334,10 +333,8 @@ class PlannerRRT:
                             if not tree_id in updates_goals:
                                 updates_goals[tree_id] = []
                             updates_goals[tree_id].append(update)
-#                            print "extend goal",  updates_goals[tree_id]
                             q_new = gV[connect_idx]
                             status, updates, q_new_idx = Connect(V, E, q_new, q_new_idx)
-#                            if status != "trapped":
                             updates_start += updates
                             if status == "reached":
                                 path_start = tree.GetPath(E, q_new_idx-1)
@@ -398,7 +395,6 @@ class PlannerRRT:
                                     col = CollisionFree(q_new, q_near, taskrrt.GetDofIndices())
                                 if col:
                                     q_parent_idx = E[q_near_idx]
-                                    print "rem: %s  %s"%(q_parent_idx, q_near_idx)
                                     E[q_near_idx] = q_new_idx
                                     E_update.append( (q_near_idx, -1) )
                                     E_updates_start.append( (q_near_idx, child_id) )
@@ -467,7 +463,6 @@ class PlannerRRT:
                 self.pub_marker.eraseMarkers(0,3000, frame_id='world')
 
             shortest_path_len = None
-#            shortest_path_len = 6.0
             goal_not_found = True
             shortest_path_len_prev = None
             best_q = None
@@ -610,12 +605,6 @@ class PlannerRRT:
                                 self.pub_marker.publishVectorMarker(PyKDL.Vector(V[parent_q_idx][0], V[parent_q_idx][1], V[parent_q_idx][2]), PyKDL.Vector(V[q_idx][0], V[q_idx][1], V[q_idx][2]), edge_ids[q_idx], 0, 1, 0, frame='world', namespace='edges', scale=0.01)
                     del trees_goal[tree_id]
 
-                    # try to optimize the path
-#                    path = tree.GetPath(E, q_idx)
-#                    new_path = []
-#                    for path_idx in range(len(path)):
-#                        q1,
-
                     goal_V_ids.append(q_idx)
 
                 trees_sizes = []
@@ -623,7 +612,6 @@ class PlannerRRT:
                     trees_sizes.append(len(trees_goal[tree_id][0]))
                 print "V goals, trees", len(V), len(goal_V_ids), len(trees_goal), trees_sizes
 
-#                print "trees_goal", len(trees_goal)
                 if True:
                     for goal_idx in goal_V_ids:
                         goal_cost = tree.Cost(V, E, goal_idx)
@@ -649,7 +637,7 @@ class PlannerRRT:
                         for vi in V:
                             if tree.CostLine(V[0], V[vi]) > shortest_path_len:
                                 rem_nodes.append(vi)
-                        print "removing nodes:", len(rem_nodes), rem_nodes
+                        print "removing nodes:", len(rem_nodes)
                         if len(rem_nodes) > 0:
                             first_valid_job_id = job_id
                         for vi in rem_nodes:
@@ -667,7 +655,7 @@ class PlannerRRT:
                             for vi in E:
                                 if (not vi in rem_nodes) and (E[vi] in rem_nodes):
                                     orphan_nodes.append(vi)
-                            print "orphan_nodes", len(orphan_nodes), orphan_nodes
+                            print "orphan_nodes", len(orphan_nodes)
                             rem_nodes = orphan_nodes
                             if len(rem_nodes) == 0:
                                 break

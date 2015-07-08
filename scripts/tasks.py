@@ -626,25 +626,13 @@ class GraspTaskRRT:
             if len(solutions) == 0:
                 continue
 
-#            solutions_dist = []
-#            # sort the solutions
-#            for sol in solutions:
-#                dist = np.linalg.norm(start_arm_q-np.array(sol))
-#                solutions_dist.append( (dist, sol) )
-#            sorted_solutions = sorted(solutions_dist, key=operator.itemgetter(0))
-
             goal_list = []
-#            for dist, sol in sorted_solutions:
             for sol in solutions:
                 for arm_dof_idx in range(len(self.dof_names_ik)):
                     dof_name = self.dof_names_ik[arm_dof_idx]
                     q_goal[self.dof_indices_map[dof_name]] = sol[arm_dof_idx]
 
                 if shortest_path_len == None:
-                    # somtimes search for a goal much closer
-#                    if random.uniform(0,1) < 0.5:
-#                        q_goal = tree.uniformInBall(5.0, self.dof_limits, start_q, ignore_dof=self.ignore_dof)
-#                    else:
                     for i in range(len(self.dof_names)):
                             if i in self.ignore_dof:
                                 continue
@@ -658,11 +646,6 @@ class GraspTaskRRT:
                         continue
                     shortest_path_len2 = math.sqrt(shortest_path_len2)
 
-                    # somtimes search for a goal much closer
-#                    if random.uniform(0,1) < 0.5:
-#                        if shortest_path_len2 > 10.0:
-#                            shortest_path_len2 = 10.0
-#                        shortest_path_len2 *= 0.5
                     q_goal2 = tree.uniformInBall(shortest_path_len2, self.dof_limits, start_q, ignore_dof=self.ignore_dof)
                     for dof_idx in self.ignore_dof:
                         q_goal2[dof_idx] = q_goal[dof_idx]
@@ -675,7 +658,6 @@ class GraspTaskRRT:
 
                 self.goals_T_B_E.append(T_B_Ed)
                 goal_list.append(q_goal)
-#                return q_goal
             if len(goal_list) > 0:
                 return goal_list
         return None

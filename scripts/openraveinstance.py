@@ -241,6 +241,9 @@ class OpenraveInstance:
         out = self.or_octomap.SendCommand("Enable")
         self.or_octomap_checker = RaveCreateCollisionChecker(self.env, "or_octomap_checker")
 
+    def pauseOctomap(self):
+        self.or_octomap.SendCommand("TogglePause")
+
     def setCamera(self, cam_pos, target_pos):
             cam_z = target_pos - cam_pos
             focalDistance = cam_z.Norm()
@@ -375,6 +378,12 @@ class OpenraveInstance:
         body = self.env.GetKinBody(name)
         if body != None:
             return self.T_World_Br.Inverse() * self.OpenraveToKDL(body.GetTransform())
+        return None
+
+    def getPoseW(self, name):
+        body = self.env.GetKinBody(name)
+        if body != None:
+            return self.OpenraveToKDL(body.GetTransform())
         return None
 
     def getLinkPose(self, name, qt=None, qar=None, qal=None, qhr=None, qhl=None):

@@ -169,6 +169,7 @@ Class for grasp learning.
 
         # key and grasp parameters
         self.T_E_O = PyKDL.Frame()
+        self.T_E_Orot = PyKDL.Frame(PyKDL.Vector(0, 0, 0.07))
         self.key_axis_O = PyKDL.Vector(0,0,1)
         self.key_up_O = PyKDL.Vector(1,0,0)
         self.key_side_O = self.key_axis_O * self.key_up_O
@@ -196,12 +197,12 @@ Class for grasp learning.
 
         raw_input("Press ENTER to continue...")
 
+        q_grasp = [1.4141768883517725, 1.4179811607057289, 1.4377081536379384, 0]
+        q_pre = 10.0/180.0*math.pi
+        hv = [1.2, 1.2, 1.2, 1.2]
+        ht = [3000, 3000, 3000, 3000]
         # set gripper configuration
-        if False:
-            q_grasp = [1.4141768883517725, 1.4179811607057289, 1.4377081536379384, 0]
-            q_pre = 10.0/180.0*math.pi
-            hv = [1.2, 1.2, 1.2, 1.2]
-            ht = [3000, 3000, 3000, 3000]
+        if True:
             self.velma.moveHand([0.0, 0.0, 0.0, 0.0/180.0*math.pi], hv, ht, 5000, True)
             rospy.sleep(3)
             self.velma.moveHand([q_grasp[0]-q_pre, q_grasp[1]-q_pre, q_grasp[2]-q_pre, q_grasp[3]], hv, ht, 5000, True)
@@ -246,8 +247,8 @@ Class for grasp learning.
             self.key_endpoint_O = PyKDL.Vector(0.000256401261281, -0.000625166847342, 0.232297442735)
  
         k_high = Wrench(Vector3(1000.0, 1000.0, 1000.0), Vector3(150, 150, 150))
-        max_force = 10.0
-        max_torque = 10.0
+        max_force = 12.0
+        max_torque = 12.0
         path_tol = (PyKDL.Vector(max_force/k_high.force.x, max_force/k_high.force.y, max_force/k_high.force.z), PyKDL.Vector(max_torque/k_high.torque.x, max_torque/k_high.torque.y, max_torque/k_high.torque.z))
         max_force2 = 20.0
         max_torque2 = 20.0
@@ -257,7 +258,8 @@ Class for grasp learning.
 
 #        k_hole_in = Wrench(Vector3(1000.0, 500.0, 500.0), Vector3(200, 200, 200))
         k_hole_in = Wrench(Vector3(100.0, 1000.0, 1000.0), Vector3(50, 5, 5))
-        path_tol_in = (PyKDL.Vector(max_force2/k_hole_in.force.x, max_force2/k_hole_in.force.y, max_force2/k_hole_in.force.z), PyKDL.Vector(max_torque2/k_hole_in.torque.x, max_torque2/k_hole_in.torque.y, max_torque2/k_hole_in.torque.z))
+        path_tol_in = (PyKDL.Vector(max_force2/k_hole_in.force.x, max_force/k_hole_in.force.y, max_force/k_hole_in.force.z), PyKDL.Vector(max_torque2/k_hole_in.torque.x, max_torque2/k_hole_in.torque.y, max_torque2/k_hole_in.torque.z))
+        path_tol_in2 = (PyKDL.Vector(max_force2/k_hole_in.force.x, max_force2/k_hole_in.force.y, max_force2/k_hole_in.force.z), PyKDL.Vector(max_torque2/k_hole_in.torque.x, max_torque2/k_hole_in.torque.y, max_torque2/k_hole_in.torque.z))
 
         if False:
             k_increase = [
@@ -486,8 +488,6 @@ Class for grasp learning.
             force_key_up = 10.0
             force_key_side = 10.0
 
-            spiral_hole = self.generateSpiral(0.05, 0.005)
-
             xi = 7
             yi = 7
             explore_mode = "get_new"
@@ -499,7 +499,7 @@ Class for grasp learning.
                 diff_B = PyKDL.diff(T_B_Ocurrent, self.T_B_O_nearHole)
                 rot_diff_Ocurrent = PyKDL.Frame(T_B_Ocurrent.Inverse().M) * diff_B.rot
 
-
+                spiral_hole = self.generateSpiral(0.04, 0.005)
                 T_B_W_shake = []
                 for pt in spiral_hole:
                     T_B_Od_shake = T_B_Ocurrent * PyKDL.Frame(PyKDL.Rotation.RotZ(rot_diff_Ocurrent.z()-6.0/180.0*math.pi), self.key_up_O * pt[0] + self.key_side_O * pt[1])
@@ -508,17 +508,21 @@ Class for grasp learning.
                     T_B_W_shake.append(T_B_Od_shake * self.T_E_O.Inverse() * self.velma.T_W_E.Inverse())
 
                 print "shaking..."
+                counter = 0
                 for T_B_W in T_B_W_shake:
+                    counter += 1
                     time = self.velma.getMovementTime(T_B_W, max_v_l = 0.4, max_v_r = 0.4)
 #                    self.velma.moveWrist2(T_B_W * self.velma.T_W_T)
 #                    raw_input("Press ENTER to movie the wrist in " + str(time) + " s...")
-                    self.velma.moveWrist(T_B_W, 0.5, Wrench(Vector3(40,40,40), Vector3(14,14,14)), path_tol=path_tol_in)
+                    self.velma.moveWrist(T_B_W, time, Wrench(Vector3(40,40,40), Vector3(14,14,14)), path_tol=path_tol_in)
                     status1, feedback = self.velma.waitForCartEnd()
                     print "status", status1
 
                     self.velma.updateTransformations()
                     contact_B = self.velma.T_B_W * self.velma.T_W_E * self.T_E_O * self.key_endpoint_O
                     m_id = self.pub_marker.publishSinglePointMarker(contact_B, m_id, r=1, g=0, b=0, a=1, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
+                    pt_desired_B = T_B_W * self.velma.T_W_E * self.T_E_O * self.key_endpoint_O
+                    m_id = self.pub_marker.publishSinglePointMarker(pt_desired_B, m_id, r=0, g=1, b=0, a=1, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
 
                     contact_L = T_B_L.Inverse() * contact_B
                     contact_depth_L = PyKDL.dot(contact_L, penetration_axis_L)
@@ -536,9 +540,53 @@ Class for grasp learning.
                 score = contact_depth_L - prev_contact_depth_L
                 prev_contact_depth_L = contact_depth_L
 
-                if status1.error_code != 0:
+                if status1.error_code != 0 or counter == len(T_B_W_shake):
                     break
 
+            print "moving the key to the current pose..."
+            self.velma.updateTransformations()
+            T_B_Wd = self.velma.T_B_W
+            time = self.velma.getMovementTime(T_B_Wd, max_v_l = 0.1, max_v_r = 0.1)
+            self.velma.moveWrist(T_B_Wd, time, Wrench(Vector3(40,40,40), Vector3(14,14,14)), path_tol=path_tol_in2)
+            status1, feedback = self.velma.waitForCartEnd()
+            print "status", status1
+            if status1.error_code != 0:
+                exit(0)
+
+            print "moving the key to the current pose..."
+            self.velma.updateTransformations()
+            T_B_Ocurrent = self.velma.T_B_W * self.velma.T_W_E * self.T_E_O
+            T_B_Od = T_B_Ocurrent * PyKDL.Frame(self.key_axis_O * (-2.0/k_hole_in.force.x))
+            T_B_Wd = T_B_Od * self.T_E_O.Inverse() * self.velma.T_W_E.Inverse()
+            time = self.velma.getMovementTime(T_B_Wd, max_v_l = 0.1, max_v_r = 0.1)
+            raw_input("Press ENTER to movie the wrist in " + str(time) + " s...")
+            self.velma.moveWrist(T_B_Wd, time, Wrench(Vector3(40,40,40), Vector3(14,14,14)), path_tol=path_tol_in)
+            status1, feedback = self.velma.waitForCartEnd()
+            print "status", status1
+            if status1.error_code != 0:
+                exit(0)
+
+            self.velma.moveHand([q_grasp[0]-q_pre, q_grasp[1]-q_pre, q_grasp[2]-q_pre, q_grasp[3]], hv, ht, 5000, True)
+            rospy.sleep(2)
+
+            print "setting stiffness to bigger value"
+            self.velma.moveImpedance(k_high, 1.0)
+            if self.velma.checkStopCondition(1.1):
+                exit(0)
+            print "done."
+
+            T_B_Wd = T_B_Ocurrent * self.T_E_Orot.Inverse() * self.velma.T_W_E.Inverse()
+            time = self.velma.getMovementTime(T_B_Wd, max_v_l = 0.02, max_v_r = 0.02)
+            raw_input("Press ENTER to movie the wrist in " + str(time) + " s...")
+            self.velma.moveWrist(T_B_Wd, time, Wrench(Vector3(40,40,40), Vector3(14,14,14)), path_tol=path_tol2)
+            status1, feedback = self.velma.waitForCartEnd()
+            print "status", status1
+            if status1.error_code != 0:
+                exit(0)
+
+            self.velma.moveHand([q_grasp[0]+q_pre, q_grasp[1]+q_pre, q_grasp[2]+q_pre, q_grasp[3]], hv, ht, 5000, True)
+            rospy.sleep(5)
+            
 #                m_id = self.pub_marker.publishSinglePointMarker(T_B_L * PyKDL.Vector(0.01*xi+ori_map_vis_offset[0], 0.01*yi+ori_map_vis_offset[1], score), m_id, r=0, g=0, b=1, a=0.5, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
 #                m_id = self.pub_marker.publishSinglePointMarker(T_B_L * PyKDL.Vector(0.01*xi+ori_map_vis_offset[0], 0.01*yi+ori_map_vis_offset[1], ori_map[xi][yi][1]), m_id, r=0, g=1, b=0, a=0.5, namespace='default', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
 

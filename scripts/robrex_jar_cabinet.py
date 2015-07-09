@@ -61,7 +61,6 @@ import velmautils
 from velma import Velma
 import openraveinstance
 import conversions as conv
-#import rrt_star_planner_ee
 import rrt_star_connect_planner
 import tree
 import rosparam
@@ -77,21 +76,16 @@ class TestOrOctomap:
 
     def spin(self):
 
-#        l = [1,2,3,4,5]
-#        print dir(l)
-#        print l
-#        l.reverse()
-#        print l
-#        exit(0)
         simulation = True
 
+        self.listener = tf.TransformListener()
+
         rospack = rospkg.RosPack()
-        env_file=rospack.get_path('velma_scripts') + '/data/jar/cabinet_test.env.xml'
+        env_file=rospack.get_path('velma_scripts') + '/data/common/velma_room.env.xml'
         xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
         rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, xacro_uri, srdf_path)
-#        rrt = rrt_star_planner_ee.PlannerRRT(3, env_file, xacro_uri, srdf_path)
 
         print "creating interface for Velma..."
         # create the interface for Velma robot
@@ -104,8 +98,8 @@ class TestOrOctomap:
         if simulation:
             hv = [3.2, 3.2, 3.2, 3.2]
         ht = [3000, 3000, 3000, 3000]
-        self.velma.moveHandLeft([40.0/180.0*math.pi, 40.0/180.0*math.pi, 40.0/180.0*math.pi, 0], hv, ht, 5000, True)
-        self.velma.moveHandRight([40.0/180.0*math.pi, 40.0/180.0*math.pi, 40.0/180.0*math.pi, 0], hv, ht, 5000, True)
+        self.velma.moveHandLeft([30.0/180.0*math.pi, 30.0/180.0*math.pi, 30.0/180.0*math.pi, 0], hv, ht, 5000, True)
+        self.velma.moveHandRight([30.0/180.0*math.pi, 30.0/180.0*math.pi, 30.0/180.0*math.pi, 0], hv, ht, 5000, True)
 
         rospy.sleep(1.0)
 
@@ -117,27 +111,36 @@ class TestOrOctomap:
         openrave.startOpenraveURDF(env_file=env_file)
         openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
 
-        rrt.waitForInit()
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
-
         openrave.updateRobotConfigurationRos(self.velma.js_pos)
 
-        T_B_J = openrave.getPose("jar")
+        openrave.runOctomap()
+        rospy.sleep(1)
+        openrave.pauseOctomap()
+
+        while True:
+            if self.listener.canTransform('world', 'jar', rospy.Time(0)):
+                pose = self.listener.lookupTransform('world', 'jar', rospy.Time(0))
+                T_B_J = pm.fromTf(pose)
+                break
+
+        rrt.waitForInit()
+
+#        raw_input("Press ENTER to continue...")
 
         T_B_E_list = []
         for angle_jar_axis in np.arange(0.0, math.pi*2.0, 10.0/180.0*math.pi):
             for translation_jar_axis in np.linspace(-0.03, 0.03, 7):
-                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.15))
+                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.20))
                 T_B_E_list.append(T_B_Ed)
-                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.15))
+                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.20))
                 T_B_E_list.append(T_B_Ed)
 
         print "grasps:", len(T_B_E_list)
 
         raw_input("Press ENTER to continue...")
 
-#        T_B_E_list = [PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.6, 0, 1.6))]
-        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("left", T_B_E_list), 120.0)
+        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("left", T_B_E_list), 60.0)
 
         traj = []
         for i in range(len(path)-1):

@@ -78,14 +78,14 @@ class TestOrOctomap:
 
         simulation = True
 
-        self.listener = tf.TransformListener()
-
         rospack = rospkg.RosPack()
         env_file=rospack.get_path('velma_scripts') + '/data/common/velma_room.env.xml'
         xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
         rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, xacro_uri, srdf_path)
+
+        self.listener = tf.TransformListener()
 
         print "creating interface for Velma..."
         # create the interface for Velma robot
@@ -109,14 +109,15 @@ class TestOrOctomap:
 
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenraveURDF(env_file=env_file)
+        openrave.runOctomap()
+
         openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
 
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
         openrave.updateRobotConfigurationRos(self.velma.js_pos)
 
-        openrave.runOctomap()
-        rospy.sleep(1)
-        openrave.pauseOctomap()
+        rospy.sleep(3)
+#        openrave.pauseOctomap()
 
         while True:
             if self.listener.canTransform('world', 'jar', rospy.Time(0)):
@@ -125,8 +126,6 @@ class TestOrOctomap:
                 break
 
         rrt.waitForInit()
-
-#        raw_input("Press ENTER to continue...")
 
         T_B_E_list = []
         for angle_jar_axis in np.arange(0.0, math.pi*2.0, 10.0/180.0*math.pi):
@@ -140,7 +139,7 @@ class TestOrOctomap:
 
         raw_input("Press ENTER to continue...")
 
-        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("left", T_B_E_list), 60.0)
+        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("left", T_B_E_list), 120.0)
 
         traj = []
         for i in range(len(path)-1):

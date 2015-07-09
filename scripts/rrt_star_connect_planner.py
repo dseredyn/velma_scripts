@@ -42,13 +42,13 @@ import operator
 class PlannerRRT:
 
     def openraveWorker(self, process_id, env_file, xacro_uri, srdf_path, queue_master, queue_master_special, queue_slave):
+#      rospy.init_node('test_or_octomap_proc_'+str(process_id))
       openrave = openraveinstance.OpenraveInstance()
       openrave.startOpenraveURDF(env_file=env_file, viewer=False)
       openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
-      rospy.sleep(random.uniform(0,1))
       openrave.runOctomap()
-      rospy.sleep(1)
-      openrave.pauseOctomap()
+#      rospy.sleep(5)
+#      openrave.pauseOctomap()
 
       with openrave.env:
 
@@ -57,15 +57,15 @@ class PlannerRRT:
 
         def isStateValid(q, dof_indices):
             openrave.switchCollisionModel("velmasimplified1")
-
-            is_valid = True
             current_q = openrave.robot_rave.GetDOFValues(dof_indices)
             openrave.robot_rave.SetDOFValues(q, dof_indices)
-            report1 = CollisionReport()
-            report2 = CollisionReport()
- 	    if openrave.env.CheckCollision(openrave.robot_rave, report2) or openrave.robot_rave.CheckSelfCollision(report1):
-                is_valid = False
-            return is_valid
+            report = CollisionReport()
+ 	    if openrave.env.CheckCollision(openrave.robot_rave, report):
+                return False
+            report = CollisionReport()
+            if openrave.robot_rave.CheckSelfCollision(report):
+                return False
+            return True
 
         def CollisionFree(q1, q2, dof_indices):
                 dist = max(abs(q1-q2))
@@ -84,7 +84,6 @@ class PlannerRRT:
                 search_near_subpath = False
 
                 random_0_1 = random.uniform(0,1)
-
                 if len(goal_V_ids) > 0 and random_0_1 < 0.05:
                     path = tree.GetPath(E, best_q_idx)
                     if len(path) >=4:
@@ -103,7 +102,6 @@ class PlannerRRT:
                             path_len = 0.0
                             for p_idx in range(len(subpath)-1):
                                 path_len += tree.CostLine(V[subpath[p_idx]], V[subpath[p_idx+1]])
-#                            print "path_len", path_len
                             if path_len < 4.0:
                                 break
                             if subpath_tries > 20:
@@ -203,10 +201,8 @@ class PlannerRRT:
         queue_slave.put( ("init_complete",) )
 
         while True:
-            print "proc is waiting", process_id
             msg = queue_master.get()
             cmd = msg[0]
-            print "proc is processing", cmd, process_id
             if cmd == "exit":
                 break
             elif cmd == "specialCommand":
@@ -232,9 +228,7 @@ class PlannerRRT:
                 V, E = tree_start
                 sample_goal = random.uniform(0,1) < 0.05
                 goal_found = False
-                print "a", process_id
                 if sample_goal:
-                    print "b", process_id
 
                     other_dof = taskrrt.GetOtherDofIndices()
                     start_conf = np.empty(len(other_dof))
@@ -248,6 +242,7 @@ class PlannerRRT:
                         if goal_list == None or len(goal_list) == 0:
                             continue
                         for goal in goal_list:
+
                             if not isStateValid(goal, taskrrt.GetDofIndices()):
                                 continue
 
@@ -263,7 +258,6 @@ class PlannerRRT:
                                     max_tries = 1
                                 if max_tries > 1000:
                                     max_tries = 1000
-#                                print "len(other_dof), vol, dist_max, max_tries", len(other_dof), vol, dist_max, max_tries
                                 new_goal_available = False
                                 for try_idx in range(max_tries):
                                     goal_part = tree.uniformInBall(dist_max, limits, start_conf, ignore_dof=[])
@@ -299,16 +293,11 @@ class PlannerRRT:
                         if goal_found:
                             break
 
-                print "c", process_id
-
                 # a new goal is found - create a new tree
                 if goal_found:
-                    print "d", process_id
                     E_updates_start = []
-                    print "proc is pushing", process_id
                     queue_slave.put( ("addNode", None, E_updates_start, {-1:(q_new,None)}, goal_found, {}, job_id), False )
                 else:
-                    print "e", process_id
                     q_new_idx = 1000000 * (1+process_id)
                     updates_start = []
                     updates_goals = {}
@@ -317,30 +306,24 @@ class PlannerRRT:
 
                     # RRT-connect step 1
                     q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
-                    print "e1", process_id
                     status, update, q_new_idx = Extend(V, E, q_rand, q_new_idx)
                     if status != "trapped":
                         connect_idx = q_new_idx-1
                         updates_start.append(update)
-                        print "e2", process_id
                         q_new = V[connect_idx]
                         for tree_id in trees_goal:
                             gV, gE = trees_goal[tree_id]
                             status, updates, q_new_idx = Connect(gV, gE, q_new, q_new_idx)
-                            print "e3", process_id
                             trees_goal[tree_id] = (gV, gE)
                             if len(updates) > 0:
                                 updates_goals[tree_id] = updates
 
                             if status == "reached":
-                                print "e4", process_id
                                 path_start = tree.GetPath(E, connect_idx)
                                 path_goal = tree.GetPath(gE, q_new_idx-1)
                                 path_goal.reverse()
                                 paths_found[tree_id] = path_start[:-1] + path_goal
-                            print "e5", process_id
 
-                    print "f", process_id
                     # RRT-connect step 2
                     q_rand = SampleFree(taskrrt.GetDofIndices(), taskrrt.GetDofLimits(), V[0], shortest_path_len, best_q_idx, goal_V_ids, V, E)
                     for tree_id in trees_goal:
@@ -360,7 +343,6 @@ class PlannerRRT:
                                 path_goal = tree.GetPath(gE, connect_idx)
                                 path_goal.reverse()
                                 paths_found[tree_id] = path_start[:-1] + path_goal
-                    print "g", process_id
 
                     # RRT* for the main tree
                     E_updates_start = []
@@ -402,7 +384,6 @@ class PlannerRRT:
 
                         E[q_new_idx] = q_min_idx
                         E_update = []
-#                        E_update.append( (-1, q_min_idx) )
                         updates_start[update_idx] = V_update_q_new, child_id, q_min_idx
 
                         cost_q_new = tree.Cost(V, E, q_new_idx)
@@ -419,7 +400,6 @@ class PlannerRRT:
                                     E_update.append( (q_near_idx, -1) )
                                     E_updates_start.append( (q_near_idx, child_id) )
 
-                    print "proc is pushing", process_id
                     queue_slave.put( ("addNode", updates_start, E_updates_start, updates_goals, goal_found, paths_found, job_id), False )
 
 #              except:
@@ -510,7 +490,6 @@ class PlannerRRT:
             q_new_idx = 0
             tokens = 0
             for proc_id in range(self.num_proc):
-                print "master_send"
                 self.queue_master.put( ("addNode", (V, E), trees_goal, shortest_path_len, best_q_idx, goal_V_ids, job_id), True )
                 job_id += 1
                 tokens += 1
@@ -520,9 +499,7 @@ class PlannerRRT:
             for k in range(100000):
                 if (rospy.Time.now()-start_time).to_sec() > max_time:
                     break
-                print "master_wait"
                 resp = self.queue_slave.get(True)
-                print "master_send"
                 self.queue_master.put( ("addNode", (V, E), trees_goal, shortest_path_len, best_q_idx, goal_V_ids, job_id), False )
                 job_id += 1
                 if resp[0] != "addNode":
@@ -588,7 +565,6 @@ class PlannerRRT:
                                     print updates_goals[tree_id]
                                     print updates_start
                                     print parent_id
-#                                    continue
                                     exit(0)
                                 q_new_idx += 1
                                 ids_map[child_id] = q_new_idx
@@ -639,7 +615,6 @@ class PlannerRRT:
                 if True:
                     for goal_idx in goal_V_ids:
                         goal_cost = tree.Cost(V, E, goal_idx)
-#                        if shortest_path_len == None or shortest_path_len > goal_cost:
                         if goal_not_found or shortest_path_len > goal_cost:
                             goal_not_found = False
                             best_q_idx = goal_idx
@@ -708,9 +683,7 @@ class PlannerRRT:
                         for tree_id in rem_trees:
                             del trees_goal[tree_id]
 
-            print "time elapsed"
             for proc_id in range(self.num_proc):
-                print "waiting for proc", proc_id
                 resp = self.queue_slave.get(True)
                 if resp[0] != "addNode":
                     print "ERROR resp (addNode):", resp[0]

@@ -305,7 +305,7 @@ Class for velma robot.
         rospy.Subscriber('/'+self.prefix+'_arm/wrench', Wrench, self.wrenchCallback)
         joint_states_listener = rospy.Subscriber('/joint_states', JointState, self.jointStatesCallback)
 
-        self.pub_head_look_at = rospy.Publisher("/head_lookat_pose", geometry_msgs.msg.Pose)
+        self.pub_head_look_at = rospy.Publisher("/head_lookat_pose", geometry_msgs.msg.Pose, queue_size=100)
 
     def action_right_cart_traj_feedback_cb(self, feedback):
         self.action_right_cart_traj_feedback = copy.deepcopy(feedback)
@@ -441,16 +441,20 @@ Class for velma robot.
         self.joint_traj_active = True
         self.action_right_joint_traj_client.send_goal(goal)
 
-    def moveWristTrajJoint(self, traj, time_mult, max_wrench, start_time=0.01, stamp=None, abort_on_q5_singularity = False, abort_on_q5_q6_self_collision=False):
+    def moveWristTrajJoint(self, traj, joint_names, time_mult, max_wrench, start_time=0.01, stamp=None):
         if not (not self.cartesian_impedance_active and self.joint_impedance_active):
             print "FATAL ERROR: moveWristTrajJoint"
             exit(0)
         goal = FollowJointTrajectoryGoal()
-        goal.trajectory.joint_names = ['torso_0_joint', 'torso_1_joint',
-        'right_arm_0_joint', 'right_arm_1_joint', 'right_arm_2_joint', 'right_arm_3_joint', 'right_arm_4_joint', 'right_arm_5_joint', 'right_arm_6_joint',
-        'left_arm_0_joint', 'left_arm_1_joint', 'left_arm_2_joint', 'left_arm_3_joint', 'left_arm_4_joint', 'left_arm_5_joint', 'left_arm_6_joint']
+# TODO
+        return
 
-        move_joint_name_idx = {'right_arm_0_joint':0, 'right_arm_1_joint':1, 'right_arm_2_joint':2, 'right_arm_3_joint':3, 'right_arm_4_joint':4, 'right_arm_5_joint':5, 'right_arm_6_joint':6}
+        goal.trajectory.joint_names = joint_names
+#['torso_0_joint', 'torso_1_joint',
+#        'right_arm_0_joint', 'right_arm_1_joint', 'right_arm_2_joint', 'right_arm_3_joint', 'right_arm_4_joint', 'right_arm_5_joint', 'right_arm_6_joint',
+#        'left_arm_0_joint', 'left_arm_1_joint', 'left_arm_2_joint', 'left_arm_3_joint', 'left_arm_4_joint', 'left_arm_5_joint', 'left_arm_6_joint']
+
+#        move_joint_name_idx = {'right_arm_0_joint':0, 'right_arm_1_joint':1, 'right_arm_2_joint':2, 'right_arm_3_joint':3, 'right_arm_4_joint':4, 'right_arm_5_joint':5, 'right_arm_6_joint':6}
 
         pos = traj[0]
         vel = traj[1]

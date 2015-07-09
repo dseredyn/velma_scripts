@@ -234,9 +234,9 @@ class OpenraveInstance:
 #        print "collision options:", self.env.GetCollisionChecker().GetCollisionOptions()
 
     def runOctomap(self):
-#        RaveSetDebugLevel(Level_Debug)
-#        RaveLoadPlugin('or_octomap')
-#        RaveLoadPlugin('or_octomap_checker')
+#        RaveSetDebugLevel(5)
+#        print RaveLoadPlugin('or_octomap')
+#        print RaveLoadPlugin('or_octomap_checker')
         self.or_octomap = RaveCreateSensorSystem(self.env, "or_octomap")
         out = self.or_octomap.SendCommand("Enable")
         self.or_octomap_checker = RaveCreateCollisionChecker(self.env, "or_octomap_checker")

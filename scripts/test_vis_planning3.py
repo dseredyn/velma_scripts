@@ -109,6 +109,8 @@ class TestOrOctomap:
         openrave.startOpenraveURDF(env_file=env_file)
         openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
 
+        rrt.waitForInit()
+
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
 
         openrave.updateRobotConfigurationRos(self.velma.js_pos)

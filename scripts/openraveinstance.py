@@ -101,7 +101,6 @@ class OpenraveInstance:
         self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
 
     def readRobot(self, xacro_uri=None, urdf_uri=None, srdf_uri=None, srdf_path=None, env_file=None, collision=None):
-#        if (xacro_uri == None and urdf_uri == None) or (xacro_uri != None and urdf_uri != None):
         if xacro_uri == None or srdf_path == None or urdf_uri != None or srdf_uri != None:
             # TODO: exception
             print "ERROR: startOpenraveURDF:", xacro_uri, srdf_path, urdf_uri, srdf_uri
@@ -132,7 +131,6 @@ class OpenraveInstance:
         self.robots = {}
 
         for model_name in collision_models_urdf:
-#filename = str(uuid.uuid4())
             urdf_uri = "/tmp/" + str(uuid.uuid4()) + ".urdf"
             srdf_uri = collision_models_urdf[model_name][0]
             arg1 = collision_models_urdf[model_name][1]
@@ -156,7 +154,6 @@ class OpenraveInstance:
             robot.SetVisible(False)
 
         self.current_collision_model = "velmasimplified0"
-#        self.env.Add(self.robots[self.current_collision_model])
         self.robot_rave = self.robots[self.current_collision_model]
         self.robot_rave.Enable(True)
         self.robot_rave.SetVisible(True)
@@ -179,13 +176,6 @@ class OpenraveInstance:
             if not self.ikmodel[man_name].load():
                 self.ikmodel[man_name].autogenerate()
 
-#        self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
-#        if not self.ikmodel.load():
-#            self.ikmodel.autogenerate()
-
-#        print "freeindices right", self.ikmodel["right_arm"].freeindices, self.ikmodel["right_arm"].freeinc
-#        print "freeindices left", self.ikmodel["left_arm"].freeindices, self.ikmodel["left_arm"].freeinc
-
         self.manipulator_dof_indices_map = {}
         self.lower_lim = {}
         self.upper_lim = {}
@@ -202,20 +192,6 @@ class OpenraveInstance:
         plannername = "BiRRT"
         self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
         self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
-
-#        self.joint_name_dof_map = {}
-#        for joint in openrave.robot_rave.GetJoints():
-#            self.joint_name_dof_map[joint.GetName()] = joint.GetDOFIndex()
-
-#        self.dof_ranges = {}
-#        self.dof_ranges["head"] = (openrave.robot_rave.GetJoint("head_pan_joint").GetDOFIndex(), openrave.robot_rave.GetJoint("head_tilt_joint").GetDOFIndex() )
-#left_HandFingerOneKnuckleOneJoint
-#left_HandFingerOneKnuckleTwoJoint
-#left_HandFingerThreeKnuckleTwoJoint
-#left_HandFingerTwoKnuckleTwoJoint
-#        self.dof_ranges["left_hand"] = (openrave.robot_rave.GetJoint("head_pan_joint").GetDOFIndex(), openrave.robot_rave.GetJoint("head_tilt_joint").GetDOFIndex() )
-#        for joint in openrave.robot_rave.GetJoints():
-
 
     def switchCollisionModel(self, model_name):
         if model_name == self.current_collision_model:

@@ -435,10 +435,10 @@ class PlannerRRT:
             self.proc.append( Process(target=self.openraveWorker, args=(i, env_file, xacro_uri, srdf_path, self.queue_master, self.queue_master_special, self.queue_slave,)) )
             self.proc[-1].start()
 
+    def waitForInit(self):
         # receive n messages
         for i in range(self.num_proc):
             result = self.queue_slave.get()
-
         print "PlannerRRT: all processes initalized"
 
     def cleanup(self):

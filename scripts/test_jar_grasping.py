@@ -61,6 +61,7 @@ import velmautils
 from velma import Velma
 import openraveinstance
 import conversions as conv
+#import rrt_star_planner_ee
 import rrt_star_connect_planner
 import tree
 import rosparam
@@ -90,6 +91,7 @@ class TestOrOctomap:
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
         rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, xacro_uri, srdf_path)
+#        rrt = rrt_star_planner_ee.PlannerRRT(3, env_file, xacro_uri, srdf_path)
 
         print "creating interface for Velma..."
         # create the interface for Velma robot
@@ -115,6 +117,7 @@ class TestOrOctomap:
         openrave.startOpenraveURDF(env_file=env_file)
         openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
 
+        rrt.waitForInit()
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
 
         openrave.updateRobotConfigurationRos(self.velma.js_pos)

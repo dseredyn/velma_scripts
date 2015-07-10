@@ -60,9 +60,6 @@ import numpy as np
 
 import copy
 
-from urdf_parser_py.urdf import URDF
-from pykdl_utils.kdl_parser import kdl_tree_from_urdf_model
-
 import velma_fk_ik
 
 # reference frames:
@@ -120,28 +117,46 @@ Class for velma robot.
             self.js_pos[joint_name] = data.position[joint_idx]
             joint_idx += 1
 
-#                if self.abort_on_q5_q6_self_collision and self.getQ5Q6SpaceSector(self.qar[5], self.qar[6], margin=10.0/180.0*math.pi) < 0 and not self.aborted_on_q5_q6_self_collision:    # self-collision
-#                    try:
-#                        self.aborted_on_q5_q6_self_collision = True
-#                        self.action_right_cart_traj_client.cancel_goal()
-#                    except:
-#                        pass
+        if self.js_names_vector == None and self.fk_ik_solver != None:
+            self.js_names_vector = []
+            for joint_name in data.name:
+                if joint_name.startswith('right_Hand') or joint_name.startswith('left_Hand'):# or joint_name == 'torso_1_joint':
+                    continue
+                self.js_names_vector.append(joint_name)
+            vector_len = len(self.js_names_vector)
+            self.lim_lower = np.empty(vector_len)
+            self.lim_lower_soft = np.empty(vector_len)
+            self.lim_upper = np.empty(vector_len)
+            self.lim_upper_soft = np.empty(vector_len)
+            q_idx = 0
+            for joint_name in self.js_names_vector:
+                self.lim_lower[q_idx] = self.fk_ik_solver.joint_limit_map[joint_name].lower
+                self.lim_lower_soft[q_idx] = self.lim_lower[q_idx] + 10.0/180.0*math.pi
+                self.lim_upper[q_idx] = self.fk_ik_solver.joint_limit_map[joint_name].upper
+                self.lim_upper_soft[q_idx] = self.lim_upper[q_idx] - 10.0/180.0*math.pi
+                q_idx += 1
+
+    def getJointStatesVector(self):
+        q = np.empty(len(self.js_names_vector))
+        q_idx = 0
+        for joint_name in self.js_names_vector:
+            q[q_idx] = self.js_pos[joint_name]
+            q_idx += 1
+        return q
+
+    def getJointStatesVectorNames(self):
+        return self.js_names_vector
+
+    def getJointLimitsVectors(self):
+        return self.lim_lower, self.lim_upper
+
+    def getJointSoftLimitsVectors(self):
+        return self.lim_lower_soft, self.lim_upper_soft
 
     def setHeadLookAtPoint(self, pt):
         self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(pt)))
 
     def tactileCallback(self, data, hand_name):
-#        max_tactile_value = -1.0
-#        max_tactile_index = 0
-#        max_tactile_finger = 0
-#        fingers = [data.finger1_tip, data.finger2_tip, data.finger3_tip]
-#        val_sum = 0.0
-#        for f in range(0,3):
-#            for i in range(0, 24):
-#                if fingers[f][i] > max_tactile_value:
-#                    max_tactile_value = fingers[f][i]
-#                    max_tactile_index = i
-#                    max_tactile_finger = f
         self.tactile_lock[hand_name].acquire()
         self.tactile_data_index[hand_name] += 1
         if self.tactile_data_index[hand_name] >= self.tactile_data_len:
@@ -197,6 +212,8 @@ Class for velma robot.
 
     def __init__(self):
 
+        self.fk_ik_solver = None
+        self.js_names_vector = None
         self.js_pos = {}
 
         self.joint_impedance_active = False
@@ -307,6 +324,9 @@ Class for velma robot.
 
         self.pub_head_look_at = rospy.Publisher("/head_lookat_pose", geometry_msgs.msg.Pose, queue_size=100)
 
+    def initSolvers(self):
+        self.fk_ik_solver = velma_fk_ik.VelmaFkIkSolver(self.js_pos['torso_1_joint'])
+
     def action_right_cart_traj_feedback_cb(self, feedback):
         self.action_right_cart_traj_feedback = copy.deepcopy(feedback)
 
@@ -414,30 +434,37 @@ Class for velma robot.
 
         self.action_impedance_client.send_goal(action_impedance_goal)
 
-    def moveWristJoint(self, q_dest, time, max_wrench, start_time=0.01, stamp=None, abort_on_q5_singularity = False, abort_on_q5_q6_self_collision=False):
+    def moveJoint(self, q_dest, joint_names, time, start_time=0.2, stamp=None):
         if not (not self.cartesian_impedance_active and self.joint_impedance_active):
-            print "FATAL ERROR: moveWristJoint"
+            print "FATAL ERROR: moveJoint"
             exit(0)
         goal = FollowJointTrajectoryGoal()
-        goal.trajectory.joint_names = ['torso_0_joint', 'torso_1_joint',
-        'right_arm_0_joint', 'right_arm_1_joint', 'right_arm_2_joint', 'right_arm_3_joint', 'right_arm_4_joint', 'right_arm_5_joint', 'right_arm_6_joint',
-        'left_arm_0_joint', 'left_arm_1_joint', 'left_arm_2_joint', 'left_arm_3_joint', 'left_arm_4_joint', 'left_arm_5_joint', 'left_arm_6_joint']
+        goal.trajectory.joint_names = joint_names
+#['torso_0_joint', 'torso_1_joint',
+#        'right_arm_0_joint', 'right_arm_1_joint', 'right_arm_2_joint', 'right_arm_3_joint', 'right_arm_4_joint', 'right_arm_5_joint', 'right_arm_6_joint',
+#        'left_arm_0_joint', 'left_arm_1_joint', 'left_arm_2_joint', 'left_arm_3_joint', 'left_arm_4_joint', 'left_arm_5_joint', 'left_arm_6_joint']
 
-        move_joint_name_idx = {'right_arm_0_joint':0, 'right_arm_1_joint':1, 'right_arm_2_joint':2, 'right_arm_3_joint':3, 'right_arm_4_joint':4, 'right_arm_5_joint':5, 'right_arm_6_joint':6}
+        vel = []
         q_dest_all = []
-        for joint_name in goal.trajectory.joint_names:
-            if joint_name in move_joint_name_idx:
-                q = q_dest[move_joint_name_idx[joint_name]]
-            else:
-                q = self.js_pos[joint_name]
-            q_dest_all.append(q)
-        goal.trajectory.points.append(JointTrajectoryPoint(q_dest_all, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], [], [], rospy.Duration(time)))
+        for q_idx in range(len(q_dest)):
+            q_dest_all.append(q_dest[q_idx])
+            vel.append(0)
+
+#        move_joint_name_idx = {'right_arm_0_joint':0, 'right_arm_1_joint':1, 'right_arm_2_joint':2, 'right_arm_3_joint':3, 'right_arm_4_joint':4, 'right_arm_5_joint':5, 'right_arm_6_joint':6}
+#        q_dest_all = []
+#        for joint_name in goal.trajectory.joint_names:
+#            if joint_name in move_joint_name_idx:
+#                q = q_dest[move_joint_name_idx[joint_name]]
+#            else:
+#                q = self.js_pos[joint_name]
+#            q_dest_all.append(q)
+        goal.trajectory.points.append(JointTrajectoryPoint(q_dest_all, vel, [], [], rospy.Duration(time)))
         position_tol = 1.0/180.0 * math.pi
         velocity_tol = 1.0/180.0 * math.pi
         acceleration_tol = 1.0/180.0 * math.pi
         for joint_name in goal.trajectory.joint_names:
             goal.path_tolerance.append(JointTolerance(joint_name, position_tol, velocity_tol, acceleration_tol))
-        goal.trajectory.header.stamp = rospy.Time.now() + rospy.Duration(0.2)
+        goal.trajectory.header.stamp = rospy.Time.now() + rospy.Duration(start_time)
         self.joint_traj_active = True
         self.action_right_joint_traj_client.send_goal(goal)
 

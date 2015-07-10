@@ -41,6 +41,7 @@ import controller_manager_msgs.srv
 import std_srvs.srv
 import control_msgs.msg
 import rospkg
+from velma import Velma
 
 import tf
 from tf import *
@@ -72,8 +73,15 @@ class KinectFake:
 
         rospack = rospkg.RosPack()
         env_file=rospack.get_path('velma_scripts') + '/data/jar/cabinet_jar.env.xml'
+        xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
+        srdf_path=rospack.get_path('velma_description') + '/robots/'
 
         object_name = 'jar'
+
+        print "creating interface for Velma..."
+        # create the interface for Velma robot
+        self.velma = Velma()
+        print "done."
 
         self.listener = tf.TransformListener()
         rospy.sleep(0.5)
@@ -110,9 +118,12 @@ class KinectFake:
         #
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenraveURDF(env_file=env_file, viewer=False)
-        openrave.env.GetCollisionChecker().SetCollisionOptions(0)#4)
+#        openrave.env.GetCollisionChecker().SetCollisionOptions(0)#4)
+
+        openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
 
         while not rospy.is_shutdown():
+            openrave.updateRobotConfigurationRos(self.velma.js_pos)
             rospy.sleep(0.1)
             if self.listener.canTransform('world', 'head_kinect_rgb_optical_frame', rospy.Time(0)):
                 pose = self.listener.lookupTransform('world', 'head_kinect_rgb_optical_frame', rospy.Time(0))

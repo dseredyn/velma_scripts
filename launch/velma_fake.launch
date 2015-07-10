@@ -9,7 +9,7 @@
 
                 <node
                   name="velma_robot"
-                  pkg="velma_scripts" type="velma_fake.py">
+                  pkg="velma_scripts" type="velma_fake.py" output="screen">
                 </node>
 	</group>
 </launch>

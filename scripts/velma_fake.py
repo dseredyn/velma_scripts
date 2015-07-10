@@ -210,6 +210,7 @@ class MoveJointTrajectory(object):
     _result   = control_msgs.msg.FollowJointTrajectoryResult()
 
     def __init__(self, name, robot_state):
+        print "MoveJointTrajectory init"
         self.robot_state = robot_state
         self._action_name = name
         self._as = actionlib.SimpleActionServer(self._action_name, control_msgs.msg.FollowJointTrajectoryAction, execute_cb=self.execute_cb, auto_start = False)
@@ -219,11 +220,12 @@ class MoveJointTrajectory(object):
         # helper variables
         success = True
 
+        print "MoveJointTrajectory ", self._action_name, " points: ", len(goal.trajectory.points)
+
         if not self.robot_state.joint_impedance_active:
             self._result.error_code = 0
             self._as.set_succeeded(self._result)
-
-        print "MoveJointTrajectory ", self._action_name, " points: ", len(goal.trajectory.points)
+            print "ERROR MoveJointTrajectory wrong state"
 
         # verify the trajectory
         if len(goal.trajectory.points) == 0:
@@ -239,7 +241,7 @@ class MoveJointTrajectory(object):
 
         current_dest_point_idx = 0
         while True:
-
+#            print "MoveJointTrajectory"
             if self._as.is_preempt_requested():
                 rospy.loginfo('%s: Preempted' % self._action_name)
                 self._as.set_preempted()
@@ -248,7 +250,7 @@ class MoveJointTrajectory(object):
             time_now = rospy.Time.now()
             time_from_start = (time_now - goal.trajectory.header.stamp).to_sec()
             if time_from_start <= 0:
-                rospy.sleep(0.01)
+                rospy.sleep(0.001)
                 continue
             while time_from_start > goal.trajectory.points[current_dest_point_idx].time_from_start.to_sec():
                 current_dest_point_idx += 1
@@ -285,7 +287,7 @@ class MoveJointTrajectory(object):
 #            self._feedback.error =  pm.toMsg(PyKDL.Frame())
             self._as.publish_feedback(self._feedback)
 
-            rospy.sleep(0.01)
+            rospy.sleep(0.001)
 
         self._result.error_code = 0
         self._as.set_succeeded(self._result)
@@ -408,7 +410,7 @@ class VelmaFake:
                 js.position[i] = self.joint_name_limit_map[joint_name].upper
 
     def initJointStatePublisher(self):
-        self.pub_js = rospy.Publisher("/joint_states", sensor_msgs.msg.JointState)
+        self.pub_js = rospy.Publisher("/joint_states", sensor_msgs.msg.JointState, queue_size=100)
         self.robot = urdf_parser_py.urdf.URDF.from_parameter_server()
         self.mimic_joints_map = {}
         self.joint_name_limit_map = {}
@@ -418,7 +420,8 @@ class VelmaFake:
         joint_idx_ros = 0
         for i in range(len(self.robot.joints)):
             joint = self.robot.joints[i]
-            
+#            print joint.name
+
             if joint.joint_type == "fixed":
                 continue
             if joint.mimic != None:
@@ -431,6 +434,8 @@ class VelmaFake:
             self.js.position.append(0)
             joint_idx_ros += 1
 
+#        print "self.js.name"
+#        print self.js.name
         # the URDF does not contain mimic joint information for the grippers
         # the following code adds mimic joints for grippers
         hand_mimic = [
@@ -466,7 +471,7 @@ class VelmaFake:
         self.simSetJointPosition("right_arm_0_joint", 120.0/180.0*math.pi)
         self.simSetJointPosition("right_arm_1_joint", -90.0/180.0*math.pi)
         self.simSetJointPosition("right_arm_2_joint", 110.0/180.0*math.pi)
-        self.simSetJointPosition("right_arm_3_joint", 100.0/180.0*math.pi)
+        self.simSetJointPosition("right_arm_3_joint", 140.0/180.0*math.pi)
         self.simSetJointPosition("right_arm_4_joint", 0.0/180.0*math.pi)
         self.simSetJointPosition("right_arm_5_joint", 0.0/180.0*math.pi)
         self.simSetJointPosition("right_arm_6_joint", 0.0/180.0*math.pi)
@@ -490,8 +495,8 @@ class VelmaFake:
 
     def initTactilePublisher(self):
         self.pub_tact = {
-        "left":rospy.Publisher('/left_hand/BHPressureState', barrett_hand_controller_srvs.msg.BHPressureState),
-        "right":rospy.Publisher('/right_hand/BHPressureState', barrett_hand_controller_srvs.msg.BHPressureState)}
+        "left":rospy.Publisher('/left_hand/BHPressureState', barrett_hand_controller_srvs.msg.BHPressureState, queue_size=100),
+        "right":rospy.Publisher('/right_hand/BHPressureState', barrett_hand_controller_srvs.msg.BHPressureState, queue_size=100)}
         self.tact = {"left":barrett_hand_controller_srvs.msg.BHPressureState(), "right":barrett_hand_controller_srvs.msg.BHPressureState()}
 
         for gripper_name in self.tact:
@@ -509,7 +514,7 @@ class VelmaFake:
         self.initTactilePublisher()
         self.initJointStatePublisher()
         self.setInitialJointPosition()
-        self.fk_solver = velma_fk_ik.VelmaFkIkSolver()
+        self.fk_solver = velma_fk_ik.VelmaFkIkSolver(self.js.position[self.joint_name_idx_map["torso_1_joint"]])
         self.arm_cmd = {}
         self.arm_cmd["right_arm_7_link"] = self.fk_solver.calculateFk("right_arm_7_link", self.getJsPos())
         self.arm_cmd["left_arm_7_link"] = self.fk_solver.calculateFk("left_arm_7_link", self.getJsPos())
@@ -663,10 +668,9 @@ class VelmaFake:
 
             self.publishTactile()
 
-            rospy.sleep(0.01)
+            rospy.sleep(0.05)
 
 if __name__ == '__main__':
-
     rospy.init_node('velma_fake')
     v = VelmaFake()
     v.spin()

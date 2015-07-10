@@ -29,9 +29,40 @@ import roslib
 roslib.load_manifest('velma_scripts')
 
 import PyKDL
+import numpy as np
 
 from urdf_parser_py.urdf import URDF
-from pykdl_utils.kdl_parser import kdl_tree_from_urdf_model
+import pykdl_utils.kdl_parser as kdl_urdf
+
+# this hack in for fixed torso_1_joint
+def kdl_tree_from_urdf_model_velma(urdf, torso_1_joint_value):
+    root = urdf.get_root()
+    tree = PyKDL.Tree(root)
+    def add_children_to_tree(parent):
+        if parent in urdf.child_map:
+            for joint, child_name in urdf.child_map[parent]:
+                if parent == 'torso_link0' and child_name == 'torso_link1':
+                    joint_rot = torso_1_joint_value
+                    urdf.joint_map[joint].joint_type = 'fixed'
+                elif parent == 'torso_link1' and child_name == 'torso_link2':
+                    joint_rot = -torso_1_joint_value
+                    urdf.joint_map[joint].joint_type = 'fixed'
+                else:
+                    joint_rot = 0.0
+                child = urdf.link_map[child_name]
+                if child.inertial is not None:
+                    kdl_inert = kdl_urdf.urdf_inertial_to_kdl_rbi(child.inertial)
+                else:
+                    kdl_inert = PyKDL.RigidBodyInertia()
+                kdl_jnt = kdl_urdf.urdf_joint_to_kdl_joint(urdf.joint_map[joint])
+                kdl_origin = kdl_urdf.urdf_pose_to_kdl_frame(urdf.joint_map[joint].origin) * PyKDL.Frame(PyKDL.Rotation.RotZ(joint_rot))
+                kdl_sgm = PyKDL.Segment(child_name, kdl_jnt,
+                                      kdl_origin, kdl_inert)
+
+                tree.addSegment(kdl_sgm, parent)
+                add_children_to_tree(child_name)
+    add_children_to_tree(root)
+    return tree
 
 class VelmaFkIkSolver:
 
@@ -67,10 +98,66 @@ class VelmaFkIkSolver:
             q_end[i] = q_out[i]
         return q_end
 
-    def __init__(self):
+    def createJacobianSolver(self, base_name, end_name, joint_names_vector):
+        if not hasattr(self, 'jac_solver_chain_map'):
+            self.jac_solver_chain_map = {}
+            self.jac_solver_map = {}
+            self.jac_solver_names_map = {}
+            self.jac_solver_q_indices_map = {}
+            self.jac_solver_chain_len_map = {}
+        if not (base_name, end_name) in self.jac_solver_chain_map:
+            chain = self.tree.getChain(base_name, end_name)
+            self.jac_solver_chain_map[(base_name, end_name)] = chain
+            self.jac_solver_map[(base_name, end_name)] = PyKDL.ChainJntToJacSolver( chain )
+            self.jac_solver_names_map[(base_name, end_name)] = joint_names_vector
+            self.jac_solver_q_indices_map[(base_name, end_name)] = []
+            for chain_q_idx in range(chain.getNrOfSegments()):
+                joint = chain.getSegment(chain_q_idx).getJoint()
+                chain_joint_name = joint.getName()
+                chain_joint_type = joint.getType()
+#                print "chain", chain_joint_name, chain_joint_type
+                if chain_joint_type == PyKDL.Joint.None:
+                    continue
+                q_idx = 0
+                for joint_name in joint_names_vector:
+                    if joint_name == chain_joint_name:
+                        self.jac_solver_q_indices_map[(base_name, end_name)].append(q_idx)
+                        break
+                    q_idx += 1
+                if q_idx == len(joint_names_vector):
+                    print "ERROR: createJacobianSolver", chain_joint_name, " not in", joint_names_vector
+                    exit(0)
+            self.jac_solver_chain_len_map[(base_name, end_name)] = len(self.jac_solver_q_indices_map[(base_name, end_name)])
+#            print "joints in the chain:", self.jac_solver_chain_len_map[(base_name, end_name)]
+        else:
+            print "ERROR: createJacobianSolver: solver already exists"
+            exit(0)
+
+    def getJacobian(self, base_name, end_name, q):
+        # extract joint values for the chain
+        q_jac = PyKDL.JntArray( self.jac_solver_chain_len_map[(base_name, end_name)] )
+        q_jac_idx = 0
+        for q_idx in self.jac_solver_q_indices_map[(base_name, end_name)]:
+            q_jac[q_jac_idx] = q[q_idx]
+            q_jac_idx += 1
+        jac_small = PyKDL.Jacobian( self.jac_solver_chain_map[(base_name, end_name)].getNrOfJoints() )
+        self.jac_solver_map[(base_name, end_name)].JntToJac(q_jac, jac_small)
+
+        # create the jacobian for all joints
+        jac_big = np.matrix(np.zeros( (len(q), 6) ))
+
+        for col_idx in range(jac_small.columns()):
+            q_idx = self.jac_solver_q_indices_map[(base_name, end_name)][col_idx]
+            col = jac_small.getColumn(col_idx)
+            for row_idx in range(6):
+                jac_big[q_idx, row_idx] = col[row_idx]
+        return jac_big
+
+    def __init__(self, torso_1_joint_value):
         self.robot = URDF.from_parameter_server()
 
-        self.tree = kdl_tree_from_urdf_model(self.robot)
+        self.tree = kdl_tree_from_urdf_model_velma(self.robot, torso_1_joint_value)
+
         fk_links = [
         "torso_link2",
         "left_arm_7_link",
@@ -102,10 +189,10 @@ class VelmaFkIkSolver:
         "right_arm_7_link",
         ]
 
-        joint_limit_map = {}
+        self.joint_limit_map = {}
         for j in self.robot.joints:
             if j.limit != None:
-                joint_limit_map[j.name] = j.limit
+                self.joint_limit_map[j.name] = j.limit
 
         self.ik_fk_solver = {}
         self.vel_ik_solver = {}
@@ -128,8 +215,8 @@ class VelmaFkIkSolver:
                 if joint.getType() == PyKDL.Joint.None:
                     continue
                 joint_name = joint.getName()
-                self.q_min[link_name][j_idx] = joint_limit_map[joint_name].lower
-                self.q_max[link_name][j_idx] = joint_limit_map[joint_name].upper
+                self.q_min[link_name][j_idx] = self.joint_limit_map[joint_name].lower
+                self.q_max[link_name][j_idx] = self.joint_limit_map[joint_name].upper
                 self.ik_joint_state_name[link_name].append(joint_name)
                 j_idx += 1
             # prepare fk solver for ik solver

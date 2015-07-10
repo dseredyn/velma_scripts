@@ -210,7 +210,6 @@ class MoveJointTrajectory(object):
     _result   = control_msgs.msg.FollowJointTrajectoryResult()
 
     def __init__(self, name, robot_state):
-        print "MoveJointTrajectory init"
         self.robot_state = robot_state
         self._action_name = name
         self._as = actionlib.SimpleActionServer(self._action_name, control_msgs.msg.FollowJointTrajectoryAction, execute_cb=self.execute_cb, auto_start = False)
@@ -235,13 +234,11 @@ class MoveJointTrajectory(object):
 
         init_pos = []
         for joint_name in goal.trajectory.joint_names:
-            print joint_name
             joint_idx = self.robot_state.joint_name_idx_map[joint_name]
             init_pos.append(self.robot_state.js.position[joint_idx])
 
         current_dest_point_idx = 0
         while True:
-#            print "MoveJointTrajectory"
             if self._as.is_preempt_requested():
                 rospy.loginfo('%s: Preempted' % self._action_name)
                 self._as.set_preempted()

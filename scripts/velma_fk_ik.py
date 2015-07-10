@@ -42,10 +42,10 @@ def kdl_tree_from_urdf_model_velma(urdf, torso_1_joint_value):
         if parent in urdf.child_map:
             for joint, child_name in urdf.child_map[parent]:
                 if parent == 'torso_link0' and child_name == 'torso_link1':
-                    joint_rot = torso_1_joint_value
+                    joint_rot = -torso_1_joint_value
                     urdf.joint_map[joint].joint_type = 'fixed'
                 elif parent == 'torso_link1' and child_name == 'torso_link2':
-                    joint_rot = -torso_1_joint_value
+                    joint_rot = torso_1_joint_value
                     urdf.joint_map[joint].joint_type = 'fixed'
                 else:
                     joint_rot = 0.0
@@ -77,6 +77,17 @@ class VelmaFkIkSolver:
         self.fk_solvers[link_name].JntToCart(q, fr)
         return fr
 
+    def calculateFk2(self, base_name, end_name, q):
+        q_fk = PyKDL.JntArray( self.jac_solver_chain_len_map[(base_name, end_name)] )
+        q_fk_idx = 0
+        for q_idx in self.jac_solver_q_indices_map[(base_name, end_name)]:
+            q_fk[q_fk_idx] = q[q_idx]
+#            print q_fk_idx, q_idx, q_fk[q_fk_idx]
+            q_fk_idx += 1
+        fr = PyKDL.Frame()
+        self.fk_solver_map[(base_name, end_name)].JntToCart(q_fk, fr)
+        return fr
+
     def simulateTrajectory(self, link_name, init_js, T_B_Ed):
 
         chain_length = self.ik_chains[link_name].getNrOfJoints()
@@ -98,26 +109,28 @@ class VelmaFkIkSolver:
             q_end[i] = q_out[i]
         return q_end
 
-    def createJacobianSolver(self, base_name, end_name, joint_names_vector):
+    def createJacobianFkSolvers(self, base_name, end_name, joint_names_vector):
         if not hasattr(self, 'jac_solver_chain_map'):
             self.jac_solver_chain_map = {}
             self.jac_solver_map = {}
             self.jac_solver_names_map = {}
             self.jac_solver_q_indices_map = {}
             self.jac_solver_chain_len_map = {}
+            self.fk_solver_map = {}
         if not (base_name, end_name) in self.jac_solver_chain_map:
             chain = self.tree.getChain(base_name, end_name)
             self.jac_solver_chain_map[(base_name, end_name)] = chain
             self.jac_solver_map[(base_name, end_name)] = PyKDL.ChainJntToJacSolver( chain )
             self.jac_solver_names_map[(base_name, end_name)] = joint_names_vector
             self.jac_solver_q_indices_map[(base_name, end_name)] = []
+            self.fk_solver_map[(base_name, end_name)] = PyKDL.ChainFkSolverPos_recursive(chain)
             for chain_q_idx in range(chain.getNrOfSegments()):
                 joint = chain.getSegment(chain_q_idx).getJoint()
                 chain_joint_name = joint.getName()
                 chain_joint_type = joint.getType()
-#                print "chain", chain_joint_name, chain_joint_type
                 if chain_joint_type == PyKDL.Joint.None:
                     continue
+                print "chain", chain_joint_name, chain_joint_type
                 q_idx = 0
                 for joint_name in joint_names_vector:
                     if joint_name == chain_joint_name:
@@ -128,7 +141,7 @@ class VelmaFkIkSolver:
                     print "ERROR: createJacobianSolver", chain_joint_name, " not in", joint_names_vector
                     exit(0)
             self.jac_solver_chain_len_map[(base_name, end_name)] = len(self.jac_solver_q_indices_map[(base_name, end_name)])
-#            print "joints in the chain:", self.jac_solver_chain_len_map[(base_name, end_name)]
+            print "joints in the chain:", self.jac_solver_chain_len_map[(base_name, end_name)]
         else:
             print "ERROR: createJacobianSolver: solver already exists"
             exit(0)

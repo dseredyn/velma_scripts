@@ -117,8 +117,9 @@ Class for velma robot.
             self.js_pos[joint_name] = data.position[joint_idx]
             joint_idx += 1
 
-        if self.js_names_vector == None and self.fk_ik_solver != None:
+        if self.js_names_vector == None:
             self.js_names_vector = []
+            self.fk_ik_solver = velma_fk_ik.VelmaFkIkSolver(self.js_pos['torso_1_joint'])
             for joint_name in data.name:
                 if joint_name.startswith('right_Hand') or joint_name.startswith('left_Hand'):# or joint_name == 'torso_1_joint':
                     continue
@@ -135,6 +136,15 @@ Class for velma robot.
                 self.lim_upper[q_idx] = self.fk_ik_solver.joint_limit_map[joint_name].upper
                 self.lim_upper_soft[q_idx] = self.lim_upper[q_idx] - 10.0/180.0*math.pi
                 q_idx += 1
+
+    def waitForInit(self):
+        while not rospy.is_shutdown():
+            can_break = True
+            if self.js_names_vector == None:
+                can_break = False
+            if can_break:
+                break
+            rospy.sleep(0.1)
 
     def getJointStatesVector(self):
         q = np.empty(len(self.js_names_vector))
@@ -323,9 +333,6 @@ Class for velma robot.
         joint_states_listener = rospy.Subscriber('/joint_states', JointState, self.jointStatesCallback)
 
         self.pub_head_look_at = rospy.Publisher("/head_lookat_pose", geometry_msgs.msg.Pose, queue_size=100)
-
-    def initSolvers(self):
-        self.fk_ik_solver = velma_fk_ik.VelmaFkIkSolver(self.js_pos['torso_1_joint'])
 
     def action_right_cart_traj_feedback_cb(self, feedback):
         self.action_right_cart_traj_feedback = copy.deepcopy(feedback)

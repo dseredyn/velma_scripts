@@ -81,6 +81,38 @@ class TestHierarchyControl:
     def __init__(self):
         self.pub_marker = velmautils.MarkerPublisher()
 
+    # JntToJac(KDL::Jacobian& jac, int link_index, const KDL::Vector &x)
+#    def JntToJac(self, jac, link_index, x):
+#        #First we check all the sizes:
+#        if (jac.columns() != collision_model_->link_count_)
+#            return -1
+#        # Lets search the tree-element
+#        # If segmentname is not inside the tree, back out:
+#        # Let's make the jacobian zero:
+#        jac.data.setZero()
+#        T_total = PyKDL.Frame(x)
+#        l_index = link_index
+#        # Lets recursively iterate until we are in the root segment
+#        while l_index != collision_model_->root_index_:
+#            # get the corresponding q_nr for this TreeElement:
+#            # get the pose of the segment:
+#            KDL::Frame T_local = collision_model_->links_[l_index]->kdl_segment_->segment.pose(joint_positions_by_index_[l_index]);
+#            # calculate new T_end:
+#            T_total = T_local * T_total;
+#            # get the twist of the segment:
+#            KDL::Twist t_local = collision_model_->links_[l_index]->kdl_segment_->segment.twist(joint_positions_by_index_[l_index], 1.0);
+#            # transform the endpoint of the local twist to the global endpoint:
+#            t_local = t_local.RefPoint(T_total.p - T_local.p);
+#            # transform the base of the twist to the endpoint
+#            t_local = T_total.M.Inverse(t_local);
+#            # store the twist in the jacobian:
+#            jac.setColumn(l_index,t_local);
+#            # goto the parent
+#            l_index = collision_model_->links_[l_index]->parent_index_;
+#        # Change the base of the complete jacobian from the endpoint to the base
+#        changeBase(jac, T_total.M, jac);
+#        return 0;
+
     def spin(self):
 
         simulation = True
@@ -95,19 +127,33 @@ class TestHierarchyControl:
         velma = Velma()
         print "done."
 
-        rospy.sleep(0.5)
-        velma.switchToJoint()
+        #
+        # Initialise Openrave
+        #
 
-        velma.initSolvers()
-        rospy.sleep(0.5)
+        openrave = openraveinstance.OpenraveInstance()
+        openrave.startOpenraveURDF(env_file=env_file, viewer=True)
+        openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
+        openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
+
+        velma.waitForInit()
+
+        openrave.updateRobotConfigurationRos(velma.js_pos)
+
+        non_adj_links_ids = openrave.robot_rave.GetNonAdjacentLinks()
+
+        velma.switchToJoint()
 
         lim_bo_soft, lim_up_soft = velma.getJointSoftLimitsVectors()
         lim_bo, lim_up = velma.getJointLimitsVectors()
 
-        velma.fk_ik_solver.createJacobianSolver('torso_base', 'right_HandPalmLink', velma.getJointStatesVectorNames())
+        velma.fk_ik_solver.createJacobianFkSolvers('torso_base', 'right_HandPalmLink', velma.getJointStatesVectorNames())
 
-        x_HAND_targets = [PyKDL.Frame(PyKDL.Vector(0.5,0,1.8)),
-        PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.2,-0.5,1.0))]
+        x_HAND_targets = [
+        PyKDL.Frame(PyKDL.Vector(0.5,0,1.8)),
+        PyKDL.Frame(PyKDL.Rotation.RotY(170.0/180.0*math.pi), PyKDL.Vector(0.5,0,1.6)),
+        PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.2,-0.5,1.0)),
+        ]
         target_idx = 0
         x_HAND_target = x_HAND_targets[target_idx]
         target_idx += 1
@@ -119,7 +165,7 @@ class TestHierarchyControl:
         while not rospy.is_shutdown():
             if counter > 300:
                 x_HAND_target = x_HAND_targets[target_idx]
-                target_idx = (target_idx + 1)%2
+                target_idx = (target_idx + 1)%len(x_HAND_targets)
                 counter = 0
             counter += 1
 
@@ -138,36 +184,24 @@ class TestHierarchyControl:
                     delta_V_JLC[q_idx] = 0.0
                     J_JLC[q_idx,q_idx] = 0.0
 
-#            print delta_V_JLC
-#            print "J_JLC"
-#            print J_JLC
-
             J_JLC_inv = np.linalg.pinv(J_JLC)
-#            print "J_JLC_inv"
-#            print J_JLC_inv
 
             N_JLC = identityMatrix(len(q)) - (J_JLC_inv * J_JLC)
-#            print "N_JLC", N_JLC.shape
-#            print N_JLC
 
-            J_HAND = velma.fk_ik_solver.getJacobian('torso_base', 'right_HandPalmLink', q).transpose()
-            J_HAND_inv = np.linalg.pinv(J_HAND)
-#            print "J_HAND", J_HAND.shape
-#            print J_HAND
-
-            v_max_JLC = 10.0/180.0*math.pi
+            v_max_JLC = 20.0/180.0*math.pi
             kp_JLC = 1.0
             dx_JLC_des = kp_JLC * delta_V_JLC
 
             vv_JLC = min(1.0, v_max_JLC/np.linalg.norm(dx_JLC_des))
             dx_JLC_ref = - vv_JLC * dx_JLC_des
 
-#            print dx_JLC_ref
+            J_HAND = velma.fk_ik_solver.getJacobian('torso_base', 'right_HandPalmLink', q).transpose()
+            J_HAND_inv = np.linalg.pinv(J_HAND)
 
-            velma.updateTransformations()
-
-            x_HAND_current = velma.T_B_W * velma.T_W_E
+            T_B_E = velma.fk_ik_solver.calculateFk2('torso_base', 'right_HandPalmLink', q)
+            x_HAND_current = T_B_E
             x_HAND_diff = PyKDL.diff(x_HAND_target, x_HAND_current)
+            print x_HAND_diff.vel.Norm(), x_HAND_diff.rot.Norm()
             delta_V_HAND = np.empty(6)
             delta_V_HAND[0] = x_HAND_diff.vel[0]
             delta_V_HAND[1] = x_HAND_diff.vel[1]
@@ -176,35 +210,43 @@ class TestHierarchyControl:
             delta_V_HAND[4] = x_HAND_diff.rot[1]
             delta_V_HAND[5] = x_HAND_diff.rot[2]
 
-            v_max_HAND = 0.05
+            v_max_HAND = 0.5
             kp_HAND = 1.0
             dx_HAND_des = kp_HAND * delta_V_HAND
 
             vv_HAND = min(1.0, v_max_HAND/np.linalg.norm(dx_HAND_des))
-            print vv_JLC, vv_HAND
+#            print vv_JLC, vv_HAND
             dx_HAND_ref = - vv_JLC * dx_HAND_des
+
+            if False:
+                openrave.updateRobotConfiguration(q, velma.getJointStatesVectorNames())
+                openrave.switchCollisionModel("velmasimplified1")
+                col_chk = openrave.env.GetCollisionChecker()
+                col_opt = col_chk.GetCollisionOptions()
+                col_chk.SetCollisionOptions(0x04) # CO_Contacts(0x04), CO_AllLinkCollisions(0x20)
+                total_contacts = 0
+                for link1_idx, link2_idx in non_adj_links_ids:
+                    link1 = openrave.robot_rave.GetLinks()[link1_idx]
+                    link2 = openrave.robot_rave.GetLinks()[link2_idx]
+                    report = CollisionReport()
+                    if col_chk.CheckCollision(link1=link1, link2=link2, report=report):
+                        total_contacts += len(report.contacts)
+                col_chk.SetCollisionOptions(col_opt)
+                print total_contacts
+
 #            print dx_HAND_ref
-#            print "np.matrix(dx_HAND_ref).transpose()"
-#            print np.matrix(dx_HAND_ref).transpose()
             omega = J_JLC_inv * np.matrix(dx_JLC_ref).transpose()
             omega_HAND = (J_HAND_inv * np.matrix(dx_HAND_ref).transpose())
-#            print "omega_HAND", omega_HAND.shape
-#            print omega_HAND
             omega += N_JLC.transpose() * omega_HAND
 
 #            print "dx_JLC_ref"
 #            print dx_JLC_ref
 #            print "dx_HAND_ref"
 #            print dx_HAND_ref
-#            print omega
-
-#            raw_input("Press ENTER to continue...")
-#            exit(0)
 
             omega_vector = np.empty(len(q))
             for q_idx in range(len(q)):
                 omega_vector[q_idx] = omega[q_idx][0]
-#            print omega_vector
             q += omega_vector * 0.01
 
             
@@ -212,7 +254,6 @@ class TestHierarchyControl:
                 last_time = rospy.Time.now()
                 velma.moveJoint(q, velma.getJointStatesVectorNames(), 0.05, start_time=0.14, stamp=None)
 
-#            print q
             rospy.sleep(0.01)
 
 

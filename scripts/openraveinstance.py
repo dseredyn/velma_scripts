@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright (c) 2014, Robot Control and Pattern Recognition Group, Warsaw University of Technology
 # All rights reserved.
 # 
@@ -31,18 +29,10 @@ roslib.load_manifest('velma_scripts')
 import rospy
 import tf
 
-#import ar_track_alvar_msgs.msg
-#from ar_track_alvar_msgs.msg import *
 from std_msgs.msg import *
 from sensor_msgs.msg import *
 from geometry_msgs.msg import *
-#from barrett_hand_controller_srvs.msg import *
-#from barrett_hand_controller_srvs.srv import *
-#from cartesian_trajectory_msgs.msg import *
 from visualization_msgs.msg import *
-#import actionlib
-#from actionlib_msgs.msg import *
-from threading import RLock
 
 import tf
 from tf import *
@@ -54,7 +44,6 @@ import PyKDL
 import math
 import numpy as np
 import copy
-import thread
 from openravepy import *
 from optparse import OptionParser
 from openravepy.misc import OpenRAVEGlobalArguments
@@ -65,9 +54,27 @@ import subprocess
 import uuid
 import os
 
+#/// options for collision checker
+#enum CollisionOptions
+#{
+#    CO_Distance = 1, ///< Compute distance measurements, this is usually slow and not all checkers support it.
+#    CO_UseTolerance = 2, ///< not used
+#    CO_Contacts = 4, ///< Return the contact points of the collision in the \ref CollisionReport. Note that this takes longer to compute.
+#    CO_RayAnyHit = 8, ///< When performing collision with rays, if this is set, algorithm just returns any hit instead of the closest (can be faster)
+#
+#    /** Allows planners to greatly reduce redundant collision checks.
+#        If set and the target object is a robot, then only the links controlled by the currently set active DOFs and their attached bodies will be checked for collisions.
+#        The things that **will not be** checked for collision are:
+#        - links that do not remove with respect to each other as a result of moving the active dofs.
+#     */
+#    CO_ActiveDOFs = 0x10,
+#    CO_AllLinkCollisions = 0x20, ///< if set then all the link collisions will be returned inside CollisionReport::vLinkColliding. Collision is slower because more pairs have to be checked.
+#    CO_AllGeometryContacts = 0x40, ///< if set, then will return the contacts of all the colliding geometries. This option can be very slow.
+#};
+
 class OpenraveInstance:
 
-    def __init__(self):#, T_World_Br):
+    def __init__(self):
         self.joint_dof_idx_map = None
 
     def startOpenrave(self, filename_environment):
@@ -273,23 +280,16 @@ class OpenraveInstance:
             if j.IsStatic():
                 continue
             js_pos[j.GetName()] = j.GetValue(0)
-
         return js_pos
 
-    def updateRobotConfiguration(self, qt=None, qal=None, qhl=None, qar=None, qhr=None):
+    def updateRobotConfiguration(self, q, joint_names):
         dof_values = self.robot_rave.GetDOFValues()
-        print "len(dof_values)", len(dof_values)
-        if qt == None:
-            qt = dof_values[0:2]
-        if qal == None:
-            qal = dof_values[2:9]
-        if qhl == None:
-            qhl = dof_values[9:13]
-        if qar == None:
-            qar = dof_values[13:20]
-        if qhr == None:
-            qhr = dof_values[20:24]
-        dof_values = list(qt) + list(qal) + list(qhl) + list(qar) + list(qhr)
+        q_idx = 0
+        for joint_name in joint_names:
+            dof_idx = self.robot_rave.GetJoint(joint_name).GetDOFIndex()
+            if dof_idx >= 0:
+                dof_values[dof_idx] = q[q_idx]
+            q_idx += 1
         self.robot_rave.SetDOFValues(dof_values)
 
     def addRobotInterface(self, robot):
@@ -427,16 +427,6 @@ class OpenraveInstance:
                 for geom in link.GetGeometries():
                     geom.SetDiffuseColor([r,g,b])
                     geom.SetTransparency(a)
-
-    def run(self, args, *args2):
-        parser = OptionParser(description='Openrave Velma interface')
-        OpenRAVEGlobalArguments.addOptions(parser)
-        (options, leftargs) = parser.parse_args(args=args)
-        OpenRAVEGlobalArguments.parseAndCreateThreadedUser(options,self.main,defaultviewer=True)
-
-    def startNewThread(self):
-        # start thread for jar tf publishing and for visualization
-        thread.start_new_thread(self.run, (None,1))
 
     def prepareGraspingModule(self, target_name, force_load=False):
         if not hasattr(self, 'gmodel') or self.gmodel == None:

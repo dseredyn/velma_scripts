@@ -36,9 +36,20 @@ import pykdl_utils.kdl_parser as kdl_urdf
 
 # this hack in for fixed torso_1_joint
 def kdl_tree_from_urdf_model_velma(urdf, torso_1_joint_value):
+    segment_map = {}
+    segment_id = 0
+    segment_name_id_map = {}
+    segment_parent_map = {}
     root = urdf.get_root()
     tree = PyKDL.Tree(root)
-    def add_children_to_tree(parent):
+
+    segment_map[segment_id] = None
+    segment_parent_map[segment_id] = None
+    segment_name_id_map[root] = segment_id
+    segment_id += 1
+
+    def add_children_to_tree(parent, segment_id):
+        print "add_children_to_tree", parent, segment_id
         if parent in urdf.child_map:
             for joint, child_name in urdf.child_map[parent]:
                 if parent == 'torso_link0' and child_name == 'torso_link1':
@@ -59,10 +70,16 @@ def kdl_tree_from_urdf_model_velma(urdf, torso_1_joint_value):
                 kdl_sgm = PyKDL.Segment(child_name, kdl_jnt,
                                       kdl_origin, kdl_inert)
 
+                segment_map[segment_id] = kdl_sgm
+                segment_parent_map[segment_id] = segment_name_id_map[parent]
+                segment_name_id_map[child_name] = segment_id
+                segment_id += 1
+
                 tree.addSegment(kdl_sgm, parent)
-                add_children_to_tree(child_name)
-    add_children_to_tree(root)
-    return tree
+                segment_id = add_children_to_tree(child_name, segment_id)
+        return segment_id
+    add_children_to_tree(root, segment_id)
+    return tree, segment_map, segment_parent_map, segment_name_id_map
 
 class VelmaFkIkSolver:
 
@@ -108,6 +125,21 @@ class VelmaFkIkSolver:
         for i in range(chain_length):
             q_end[i] = q_out[i]
         return q_end
+
+    def createSegmentToJointMap(self, joint_names_vector):
+        self.segment_id_q_id_map = {}
+        for q_idx in range(len(joint_names_vector)):
+            joint_name = joint_names_vector[q_idx]
+            for seg_id in self.segment_map:
+                seg = self.segment_map[seg_id]
+                if seg == None:
+                    continue
+#                print "   ", seg.getJoint().getName()
+                if joint_name == seg.getJoint().getName():
+                    self.segment_id_q_id_map[seg_id] = q_idx
+                    print "createSegmentToJointMap", joint_name, seg_id, q_idx
+#        print "self.segment_id_q_id_map"
+#        print self.segment_id_q_id_map
 
     def createJacobianFkSolvers(self, base_name, end_name, joint_names_vector):
         if not hasattr(self, 'jac_solver_chain_map'):
@@ -169,7 +201,7 @@ class VelmaFkIkSolver:
     def __init__(self, torso_1_joint_value):
         self.robot = URDF.from_parameter_server()
 
-        self.tree = kdl_tree_from_urdf_model_velma(self.robot, torso_1_joint_value)
+        self.tree, self.segment_map, self.segment_parent_map, self.segment_name_id_map = kdl_tree_from_urdf_model_velma(self.robot, torso_1_joint_value)
 
         fk_links = [
         "torso_link2",

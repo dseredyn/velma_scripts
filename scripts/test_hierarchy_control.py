@@ -82,36 +82,51 @@ class TestHierarchyControl:
         self.pub_marker = velmautils.MarkerPublisher()
 
     # JntToJac(KDL::Jacobian& jac, int link_index, const KDL::Vector &x)
-#    def JntToJac(self, jac, link_index, x):
-#        #First we check all the sizes:
-#        if (jac.columns() != collision_model_->link_count_)
-#            return -1
-#        # Lets search the tree-element
-#        # If segmentname is not inside the tree, back out:
-#        # Let's make the jacobian zero:
-#        jac.data.setZero()
-#        T_total = PyKDL.Frame(x)
-#        l_index = link_index
-#        # Lets recursively iterate until we are in the root segment
-#        while l_index != collision_model_->root_index_:
-#            # get the corresponding q_nr for this TreeElement:
-#            # get the pose of the segment:
-#            KDL::Frame T_local = collision_model_->links_[l_index]->kdl_segment_->segment.pose(joint_positions_by_index_[l_index]);
-#            # calculate new T_end:
-#            T_total = T_local * T_total;
-#            # get the twist of the segment:
-#            KDL::Twist t_local = collision_model_->links_[l_index]->kdl_segment_->segment.twist(joint_positions_by_index_[l_index], 1.0);
-#            # transform the endpoint of the local twist to the global endpoint:
-#            t_local = t_local.RefPoint(T_total.p - T_local.p);
-#            # transform the base of the twist to the endpoint
-#            t_local = T_total.M.Inverse(t_local);
-#            # store the twist in the jacobian:
-#            jac.setColumn(l_index,t_local);
-#            # goto the parent
-#            l_index = collision_model_->links_[l_index]->parent_index_;
-#        # Change the base of the complete jacobian from the endpoint to the base
+    def JntToJac(self, fk_ik_solver, jac, link_name, x, q):
+        link_index = fk_ik_solver.segment_name_id_map[link_name]
+        #First we check all the sizes:
+##        if (jac.columns() != collision_model_->link_count_)
+##            return -1
+        # Lets search the tree-element
+        # If segmentname is not inside the tree, back out:
+        # Let's make the jacobian zero:
+        T_total = PyKDL.Frame(x)
+        root_index = fk_ik_solver.segment_name_id_map['torso_base']
+        l_index = link_index
+        # Lets recursively iterate until we are in the root segment
+        while l_index != root_index:
+            # get the corresponding q_nr for this TreeElement:
+            # get the pose of the segment:
+            seg_kdl = fk_ik_solver.segment_map[l_index]
+            if seg_kdl.getJoint().getType() == PyKDL.Joint.None:
+                q_idx = None
+                q_seg = 0.0
+            else:
+                q_idx = fk_ik_solver.segment_id_q_id_map[l_index]
+                q_seg = q[q_idx]
+            T_local = seg_kdl.pose(q_seg)
+            # calculate new T_end:
+            T_total = T_local * T_total
+            # get the twist of the segment:
+            t_local = fk_ik_solver.segment_map[l_index].twist(q_seg, 1.0)
+            # transform the endpoint of the local twist to the global endpoint:
+            t_local = t_local.RefPoint(T_total.p - T_local.p)
+            # transform the base of the twist to the endpoint
+            t_local = T_total.M.Inverse(t_local)
+            # store the twist in the jacobian:
+            print t_local
+            if q_idx != None:
+                jac.setColumn(q_idx,t_local)
+            else:
+                if t_local.vel.Norm() > 0.000001 or t_local.rot.Norm() > 0.000001:
+                    print "ERROR: JntToJac t_local != 0", t_local
+                    exit(0)
+            # goto the parent
+            l_index = fk_ik_solver.segment_parent_map[l_index]
+        # Change the base of the complete jacobian from the endpoint to the base
 #        changeBase(jac, T_total.M, jac);
-#        return 0;
+        jac.changeBase(T_total.M)
+        return 0;
 
     def spin(self):
 
@@ -148,6 +163,7 @@ class TestHierarchyControl:
         lim_bo, lim_up = velma.getJointLimitsVectors()
 
         velma.fk_ik_solver.createJacobianFkSolvers('torso_base', 'right_HandPalmLink', velma.getJointStatesVectorNames())
+        velma.fk_ik_solver.createSegmentToJointMap(velma.getJointStatesVectorNames())
 
         x_HAND_targets = [
         PyKDL.Frame(PyKDL.Vector(0.5,0,1.8)),
@@ -218,7 +234,8 @@ class TestHierarchyControl:
 #            print vv_JLC, vv_HAND
             dx_HAND_ref = - vv_JLC * dx_HAND_des
 
-            if False:
+            if True:
+                link_collision_map = {}
                 openrave.updateRobotConfiguration(q, velma.getJointStatesVectorNames())
                 openrave.switchCollisionModel("velmasimplified1")
                 col_chk = openrave.env.GetCollisionChecker()
@@ -230,9 +247,73 @@ class TestHierarchyControl:
                     link2 = openrave.robot_rave.GetLinks()[link2_idx]
                     report = CollisionReport()
                     if col_chk.CheckCollision(link1=link1, link2=link2, report=report):
+                        T_L1_W = conv.OpenraveToKDL(link1.GetTransform()).Inverse()
+                        TR_L1_W = PyKDL.Frame(T_L1_W.M)
+                        T_L2_W = conv.OpenraveToKDL(link2.GetTransform()).Inverse()
+                        TR_L2_W = PyKDL.Frame(T_L2_W.M)
+                        if link1_idx > link2_idx:
+                            link1_idx, link2_idx = link2_idx, link1_idx
+                        if not (link1_idx, link2_idx) in link_collision_map:
+                            link_collision_map[(link1_idx, link2_idx)] = []
+#                        if not link2_idx in link_collision_map:
+#                            link_collision_map[link2_idx] = []
+                        for contact in report.contacts:
+                            pos_W = PyKDL.Vector(contact.pos[0], contact.pos[1], contact.pos[2])
+                            norm_W = PyKDL.Vector(contact.norm[0], contact.norm[1], contact.norm[2])
+                            link_collision_map[(link1_idx, link2_idx)].append( (T_L1_W * pos_W, T_L2_W * pos_W, TR_L1_W * norm_W, TR_L2_W * norm_W, contact.depth) )
+#                            link_collision_map[link1_idx].append( (T_L1_W * pos_W, TR_L1_W * norm_W, contact.depth, T_L1_W, T_L2_W) )
+#                            link_collision_map[link2_idx].append( (T_L2_W * pos_W, TR_L2_W * (-norm_W), contact.depth, T_L2_W, T_L1_W) )
                         total_contacts += len(report.contacts)
                 col_chk.SetCollisionOptions(col_opt)
                 print total_contacts
+
+                print "links in contact:", len(link_collision_map)
+
+            for link1_idx, link2_idx in link_collision_map:
+#                link_name = openrave.robot_rave.GetLinks()[link_idx].GetName()
+                contacts = link_collision_map[ (link1_idx, link2_idx) ]
+# TODO
+#                for c in contacts:
+#                    pos_
+#                    jac = PyKDL.Jacobian(len(q))
+#                    self.JntToJac(velma.fk_ik_solver, jac, link_name, c[0], q)
+#
+#                    # eq. 8
+#                    #Frep_ij = Frep_mult_ * (distances[i].d_ - prop_d0_) * (distances[i].d_ - prop_d0_);
+#                    Frep_ij = Frep_mult_ * c[2] * c[2]   # vector field for the contact depth
+#                    # TODO: calculate jacobian for point
+#                    #KDL::Vector xj_Ti = transformations_by_index_[distances[i].i_].Inverse() * transformations_by_index_[distances[i].j_] * distances[i].xj_Tj_;
+#                    xj_Ti = transformations_by_index_[distances[i].i_].Inverse() * transformations_by_index_[distances[i].j_] * distances[i].xj_Tj_;
+#                    // eq. 4
+#                    KDL::Vector e_i = xj_Ti - distances[i].xi_Ti_;
+#                    e_i.Normalize();
+#                    // eq. 15
+#                    Jdi_(0,0) = e_i.x();
+#                    Jdi_(0,1) = e_i.y();
+#                    Jdi_(0,2) = e_i.z();
+#                    // rewrite the linear part of the jacobian
+#                    for (int j=0; j<prop_ctrl_joint_position_sequence_.size(); j++)
+#                    {
+#                    KDL::Vector v = Jxi.getColumn( joint_name_2_index_map_[prop_ctrl_joint_position_sequence_[i]] ).vel;
+#                    Jxi_(0, j) = v.x();
+#                    Jxi_(1, j) = v.y();
+#                    Jxi_(2, j) = v.z();
+#                    }
+#                    // eq. 16
+#                    Ji_.noalias() = Jdi_ * Jxi_;			// (1 x |ctrl_jnt_pos_|) = (1 x 3) * (3 x |ctrl_jnt_pos_|)
+#                    JiT_ = Ji_.transpose();
+#                    // eq. 18
+#                    tmp1n_.noalias() = Ji_ * mass_matrix_inv_;	// (1 x |ctrl_jnt_pos_|) = (1 x |ctrl_jnt_pos_|) * (|ctrl_jnt_pos_| x |ctrl_jnt_pos_|)
+#                    Mdi_inv_.noalias() = tmp1n_ * JiT_;			// (1 x 1) = (1 x |ctrl_jnt_pos_|) * (|ctrl_jnt_pos_| x 1)
+#                    Mdi_(0,0) = 1.0 / Mdi_inv_(0,0);
+#                    // eq. 21
+#                    double d2Vrep = -2.0 * Frep_mult_ * (distances[i].d_ - prop_d0_);
+#                    Kdij_(0,0) = d2Vrep;
+#                    Kdij_(1,1) = d2Vrep;
+#                    Kdij_(0,1) = -d2Vrep;
+#                    Kdij_(1,0) = -d2Vrep;
+
+
 
 #            print dx_HAND_ref
             omega = J_JLC_inv * np.matrix(dx_JLC_ref).transpose()

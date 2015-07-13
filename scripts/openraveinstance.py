@@ -248,6 +248,12 @@ class OpenraveInstance:
         out = self.or_octomap.SendCommand("Enable")
         self.or_octomap_checker = RaveCreateCollisionChecker(self.env, "or_octomap_checker")
 
+    def maskObject(self, name):
+#        RaveSetDebugLevel(5)
+#        print RaveLoadPlugin('or_octomap')
+#        print RaveLoadPlugin('or_octomap_checker')
+        self.or_octomap.SendCommand("Mask " + name)
+
     def pauseOctomap(self):
         self.or_octomap.SendCommand("TogglePause")
 

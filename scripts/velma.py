@@ -119,16 +119,19 @@ Class for velma robot.
 
         if self.js_names_vector == None:
             self.js_names_vector = []
-            self.fk_ik_solver = velma_fk_ik.VelmaFkIkSolver(self.js_pos['torso_1_joint'])
+            self.js_inactive_names_vector = []
             for joint_name in data.name:
-                if joint_name.startswith('right_Hand') or joint_name.startswith('left_Hand'):# or joint_name == 'torso_1_joint':
-                    continue
-                self.js_names_vector.append(joint_name)
+                if joint_name.startswith('right_Hand') or joint_name.startswith('left_Hand') or joint_name == 'torso_1_joint' or joint_name == 'torso_2_joint':
+                    self.js_inactive_names_vector.append(joint_name)
+                else:
+                    self.js_names_vector.append(joint_name)
             vector_len = len(self.js_names_vector)
             self.lim_lower = np.empty(vector_len)
             self.lim_lower_soft = np.empty(vector_len)
             self.lim_upper = np.empty(vector_len)
             self.lim_upper_soft = np.empty(vector_len)
+
+            self.fk_ik_solver = velma_fk_ik.VelmaFkIkSolver(self.js_inactive_names_vector, self.js_pos)
             q_idx = 0
             for joint_name in self.js_names_vector:
                 self.lim_lower[q_idx] = self.fk_ik_solver.joint_limit_map[joint_name].lower
@@ -154,8 +157,19 @@ Class for velma robot.
             q_idx += 1
         return q
 
+    def getInactiveJointStatesVector(self):
+        q = np.empty(len(self.js_inactive_names_vector))
+        q_idx = 0
+        for joint_name in self.js_inactive_names_vector:
+            q[q_idx] = self.js_pos[joint_name]
+            q_idx += 1
+        return q
+
     def getJointStatesVectorNames(self):
         return self.js_names_vector
+
+    def getInactiveJointStatesVectorNames(self):
+        return self.js_inactive_names_vector
 
     def getJointLimitsVectors(self):
         return self.lim_lower, self.lim_upper

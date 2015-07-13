@@ -90,7 +90,9 @@ class TestOrOctomap:
         print "creating interface for Velma..."
         # create the interface for Velma robot
         self.velma = Velma()
+        self.pub_head_look_at = rospy.Publisher("/head_lookat_pose", geometry_msgs.msg.Pose)
         print "done."
+
 
         rospy.sleep(0.5)
         self.velma.updateTransformations()
@@ -110,13 +112,14 @@ class TestOrOctomap:
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenraveURDF(env_file=env_file)
         openrave.runOctomap()
-
         openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
+        openrave.maskObject('velmasimplified0')
+        openrave.maskObject('velmasimplified1')
 
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
         openrave.updateRobotConfigurationRos(self.velma.js_pos)
 
-        rospy.sleep(3)
+#        rospy.sleep(3)
 #        openrave.pauseOctomap()
 
         while True:
@@ -136,6 +139,19 @@ class TestOrOctomap:
                 T_B_E_list.append(T_B_Ed)
 
         print "grasps:", len(T_B_E_list)
+
+        # look around
+        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
+        rospy.sleep(2)
+        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,-1,1.8))))
+        rospy.sleep(2)
+        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,1,1.8))))
+        rospy.sleep(2)
+        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
+        rospy.sleep(2)
+
+        openrave.maskObject('velmasimplified0')
+        openrave.maskObject('velmasimplified1')
 
         raw_input("Press ENTER to continue...")
 

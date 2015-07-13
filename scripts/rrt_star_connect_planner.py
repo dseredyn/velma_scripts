@@ -210,6 +210,9 @@ class PlannerRRT:
                 msg_s = queue_master_special.get()
                 cmd_s = msg_s[0]
                 if cmd_s == "setInitialConfiguration":
+                    openrave.maskObject('velmasimplified0')
+                    openrave.maskObject('velmasimplified1')
+                    print "masking the robot"
                     q = msg_s[1]
                     openrave.robot_rave.SetDOFValues(q)
                     queue_slave.put( ("setInitialConfiguration", True) )

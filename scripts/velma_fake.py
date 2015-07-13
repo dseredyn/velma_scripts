@@ -42,6 +42,7 @@ import std_srvs.srv
 import control_msgs.msg
 
 import velma_fk_ik
+import headkinematics
 
 import tf
 from tf import *
@@ -56,7 +57,6 @@ import numpy as np
 import copy
 
 import urdf_parser_py.urdf
-#from pykdl_utils.kdl_parser import kdl_tree_from_urdf_model
 
 class MoveHandAction(object):
     # create messages that are used to publish feedback/result
@@ -507,11 +507,15 @@ class VelmaFake:
         self.pub_tact["left"].publish(self.tact["left"])
         self.pub_tact["right"].publish(self.tact["right"])
 
+    def headLookAtCallback(self, msg):
+        T_B_Pla = pm.fromMsg(msg)
+        self.head_look_at = T_B_Pla.p
+
     def __init__(self):
         self.initTactilePublisher()
         self.initJointStatePublisher()
         self.setInitialJointPosition()
-        self.fk_solver = velma_fk_ik.VelmaFkIkSolver(self.js.position[self.joint_name_idx_map["torso_1_joint"]])
+        self.fk_solver = velma_fk_ik.VelmaFkIkSolver([], None)#self.js.position[self.joint_name_idx_map["torso_1_joint"]])
         self.arm_cmd = {}
         self.arm_cmd["right_arm_7_link"] = self.fk_solver.calculateFk("right_arm_7_link", self.getJsPos())
         self.arm_cmd["left_arm_7_link"] = self.fk_solver.calculateFk("left_arm_7_link", self.getJsPos())
@@ -519,7 +523,17 @@ class VelmaFake:
         self.T_W_T["right_arm_7_link"] = PyKDL.Frame()
         self.T_W_T["left_arm_7_link"] = PyKDL.Frame()
         self.joint_impedance_active = False
-#        self.gripper_cmd = {}
+
+        self.head_look_at = PyKDL.Vector(1,0,1.8)
+
+        v_rot = 0.800
+        v_lean = 0.375
+        v_head = 0.392
+        h_cam = 0.0
+        v_cam = 0.225
+        self.head_kin = headkinematics.HeadKinematics(v_rot, v_lean, v_head, h_cam, v_cam)
+
+        rospy.Subscriber('/head_lookat_pose', geometry_msgs.msg.Pose, self.headLookAtCallback)
 
     # conman switch fake service callback
     def handle_switch_controller(self, req):
@@ -652,6 +666,7 @@ class VelmaFake:
         move_hand = MoveHandAction("/right_hand/move_hand", self)#, "right")
         move_hand = MoveHandAction("/left_hand/move_hand", self)#, "left")
 
+        time_diff = 0.05
         print "fake Velma interface is running"
         while not rospy.is_shutdown():
             self.publishJointStates()
@@ -660,12 +675,31 @@ class VelmaFake:
             self.br.sendTransform([right_arm_cmd.position.x, right_arm_cmd.position.y, right_arm_cmd.position.z], [right_arm_cmd.orientation.x, right_arm_cmd.orientation.y, right_arm_cmd.orientation.z, right_arm_cmd.orientation.w], rospy.Time.now(), "right_arm_cmd", "torso_base")
             self.br.sendTransform([left_arm_cmd.position.x, left_arm_cmd.position.y, left_arm_cmd.position.z], [left_arm_cmd.orientation.x, left_arm_cmd.orientation.y, left_arm_cmd.orientation.z, left_arm_cmd.orientation.w], rospy.Time.now(), "left_arm_cmd", "torso_base")
 
+            self.head_kin.UpdateTorsoPose(self.getJsPos()["torso_0_joint"], self.getJsPos()["torso_1_joint"])
+            self.head_kin.UpdateTargetPosition(self.head_look_at.x(), self.head_look_at.y(), self.head_look_at.z())
+            self.head_kin.TransformTargetToHeadFrame()
+            joint_pan, joint_tilt = self.head_kin.CalculateHeadPose()
+            current_head_pan = self.getJsPos()["head_pan_joint"]
+            current_head_tilt = self.getJsPos()["head_tilt_joint"]
+            head_pan_diff = joint_pan - current_head_pan
+            head_tilt_diff = joint_tilt - current_head_tilt
+            if head_pan_diff > 45.0/180.0*math.pi*time_diff:
+                head_pan_diff = 45.0/180.0*math.pi*time_diff
+            elif head_pan_diff < -45.0/180.0*math.pi*time_diff:
+                head_pan_diff = -45.0/180.0*math.pi*time_diff
+            if head_tilt_diff > 45.0/180.0*math.pi*time_diff:
+                head_tilt_diff = 45.0/180.0*math.pi*time_diff
+            elif head_tilt_diff < -45.0/180.0*math.pi*time_diff:
+                head_tilt_diff = -45.0/180.0*math.pi*time_diff
+            self.simSetJointPosition("head_pan_joint", current_head_pan + head_pan_diff)
+            self.simSetJointPosition("head_tilt_joint", current_head_tilt + head_tilt_diff)
+
             self.sendToolTransform("right")
             self.sendToolTransform("left")
 
             self.publishTactile()
 
-            rospy.sleep(0.05)
+            rospy.sleep(time_diff)
 
 if __name__ == '__main__':
     rospy.init_node('velma_fake')

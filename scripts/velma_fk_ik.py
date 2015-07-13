@@ -35,7 +35,7 @@ from urdf_parser_py.urdf import URDF
 import pykdl_utils.kdl_parser as kdl_urdf
 
 # this hack in for fixed torso_1_joint
-def kdl_tree_from_urdf_model_velma(urdf, torso_1_joint_value):
+def kdl_tree_from_urdf_model_velma(urdf, js_inactive_names_vector, js_pos):
     segment_map = {}
     segment_id = 0
     segment_name_id_map = {}
@@ -51,12 +51,16 @@ def kdl_tree_from_urdf_model_velma(urdf, torso_1_joint_value):
     def add_children_to_tree(parent, segment_id):
         if parent in urdf.child_map:
             for joint, child_name in urdf.child_map[parent]:
-                if parent == 'torso_link0' and child_name == 'torso_link1':
-                    joint_rot = -torso_1_joint_value
+                if joint in js_inactive_names_vector:
+                    print "setting as fixed:", joint, js_pos[joint]
+                    joint_rot = -js_pos[joint]
                     urdf.joint_map[joint].joint_type = 'fixed'
-                elif parent == 'torso_link1' and child_name == 'torso_link2':
-                    joint_rot = torso_1_joint_value
-                    urdf.joint_map[joint].joint_type = 'fixed'
+#                if parent == 'torso_link0' and child_name == 'torso_link1':
+#                    joint_rot = -torso_1_joint_value
+#                    urdf.joint_map[joint].joint_type = 'fixed'
+#                elif parent == 'torso_link1' and child_name == 'torso_link2':
+#                    joint_rot = torso_1_joint_value
+#                    urdf.joint_map[joint].joint_type = 'fixed'
                 else:
                     joint_rot = 0.0
                 child = urdf.link_map[child_name]
@@ -125,7 +129,7 @@ class VelmaFkIkSolver:
             q_end[i] = q_out[i]
         return q_end
 
-    def createSegmentToJointMap(self, joint_names_vector):
+    def createSegmentToJointMap(self, joint_names_vector, inactive_joint_names):
         self.segment_id_q_id_map = {}
         for q_idx in range(len(joint_names_vector)):
             joint_name = joint_names_vector[q_idx]
@@ -133,12 +137,20 @@ class VelmaFkIkSolver:
                 seg = self.segment_map[seg_id]
                 if seg == None:
                     continue
-#                print "   ", seg.getJoint().getName()
                 if joint_name == seg.getJoint().getName():
                     self.segment_id_q_id_map[seg_id] = q_idx
-                    print "createSegmentToJointMap", joint_name, seg_id, q_idx
-#        print "self.segment_id_q_id_map"
-#        print self.segment_id_q_id_map
+#                    print "createSegmentToJointMap", joint_name, seg_id, q_idx
+
+        self.inactive_segment_id_q_id_map = {}
+        for q_idx in range(len(inactive_joint_names)):
+            joint_name = inactive_joint_names[q_idx]
+            for seg_id in self.segment_map:
+                seg = self.segment_map[seg_id]
+                if seg == None:
+                    continue
+                if joint_name == seg.getJoint().getName():
+                    self.inactive_segment_id_q_id_map[seg_id] = q_idx
+#                    print "createSegmentToJointMap", joint_name, seg_id, q_idx
 
     def createJacobianFkSolvers(self, base_name, end_name, joint_names_vector):
         if not hasattr(self, 'jac_solver_chain_map'):
@@ -188,17 +200,17 @@ class VelmaFkIkSolver:
         self.jac_solver_map[(base_name, end_name)].JntToJac(q_jac, jac_small)
 
         # create the jacobian for all joints
-        jac_big = np.matrix(np.zeros( (len(q), 6) ))
+        jac_big = np.matrix(np.zeros( (6, len(q)) ))
 
         for col_idx in range(jac_small.columns()):
             q_idx = self.jac_solver_q_indices_map[(base_name, end_name)][col_idx]
             col = jac_small.getColumn(col_idx)
             for row_idx in range(6):
-                jac_big[q_idx, row_idx] = col[row_idx]
+                jac_big[row_idx, q_idx] = col[row_idx]
         return jac_big
 
     # JntToJac(KDL::Jacobian& jac, int link_index, const KDL::Vector &x)
-    def getJacobianForX(self, jac, link_name, x, q):
+    def getJacobianForX(self, jac, link_name, x, q, iq):
         link_index = self.segment_name_id_map[link_name]
         #First we check all the sizes:
 ##        if (jac.columns() != collision_model_->link_count_)
@@ -217,9 +229,18 @@ class VelmaFkIkSolver:
             if seg_kdl.getJoint().getType() == PyKDL.Joint.None:
                 q_idx = None
                 q_seg = 0.0
-            else:
-                q_idx = self.segment_id_q_id_map[l_index]
+            elif l_index in self.segment_id_q_id_map:
+                try:
+                    q_idx = self.segment_id_q_id_map[l_index]
+                except KeyError as ke:
+                    print ke.errno, ke.strerror
+                    print "joint type", seg_kdl.getJoint().getType(), " joint name", seg_kdl.getJoint().getName()
+                    exit(0)
                 q_seg = q[q_idx]
+            else:
+                q_idx = self.inactive_segment_id_q_id_map[l_index]
+                q_seg = iq[q_idx]
+
             T_local = seg_kdl.pose(q_seg)
             # calculate new T_end:
             T_total = T_local * T_total
@@ -243,10 +264,10 @@ class VelmaFkIkSolver:
         jac.changeBase(T_total.M)
         return 0;
 
-    def __init__(self, torso_1_joint_value):
+    def __init__(self, js_inactive_names_vector, js_pos):
         self.robot = URDF.from_parameter_server()
 
-        self.tree, self.segment_map, self.segment_parent_map, self.segment_name_id_map = kdl_tree_from_urdf_model_velma(self.robot, torso_1_joint_value)
+        self.tree, self.segment_map, self.segment_parent_map, self.segment_name_id_map = kdl_tree_from_urdf_model_velma(self.robot, js_inactive_names_vector, js_pos)
 
         fk_links = [
         "torso_link2",

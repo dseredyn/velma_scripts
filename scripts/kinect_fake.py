@@ -125,8 +125,9 @@ class KinectFake:
         while not rospy.is_shutdown():
             openrave.updateRobotConfigurationRos(self.velma.js_pos)
             rospy.sleep(0.1)
-            if self.listener.canTransform('world', 'head_kinect_rgb_optical_frame', rospy.Time(0)):
-                pose = self.listener.lookupTransform('world', 'head_kinect_rgb_optical_frame', rospy.Time(0))
+            time_now = rospy.Time.now()-rospy.Duration(0.5)
+            if self.listener.canTransform('world', 'head_kinect_rgb_optical_frame', time_now):
+                pose = self.listener.lookupTransform('world', 'head_kinect_rgb_optical_frame', time_now)
             else:
                 print 'cannot transform'
                 continue
@@ -161,7 +162,7 @@ class KinectFake:
 
 #            print "valid_points", valid_points
             self.point_cloud.header.seq += 1
-            self.point_cloud.header.stamp = rospy.Time.now()
+            self.point_cloud.header.stamp = time_now#rospy.Time.now()
             self.point_cloud_pub.publish(self.point_cloud)
 
             T_W_J = openrave.getPoseW(object_name)

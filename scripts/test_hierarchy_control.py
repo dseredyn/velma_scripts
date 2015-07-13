@@ -116,11 +116,13 @@ class TestHierarchyControl:
         lim_bo, lim_up = velma.getJointLimitsVectors()
 
         velma.fk_ik_solver.createJacobianFkSolvers('torso_base', 'right_HandPalmLink', velma.getJointStatesVectorNames())
-        velma.fk_ik_solver.createSegmentToJointMap(velma.getJointStatesVectorNames())
+        velma.fk_ik_solver.createSegmentToJointMap(velma.getJointStatesVectorNames(), velma.getInactiveJointStatesVector())
 
+        print velma.getJointStatesVectorNames()
         x_HAND_targets = [
-        PyKDL.Frame(PyKDL.Vector(0.5,0,1.8)),
-        PyKDL.Frame(PyKDL.Rotation.RotY(170.0/180.0*math.pi), PyKDL.Vector(0.5,0,1.6)),
+#        PyKDL.Frame(PyKDL.Vector(0.5,0,1.8)),
+#        PyKDL.Frame(PyKDL.Rotation.RotY(170.0/180.0*math.pi), PyKDL.Vector(0.5,0,1.6)),
+        PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.2,0.0,1.0)),
         PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.2,-0.5,1.0)),
         ]
         target_idx = 0
@@ -129,6 +131,7 @@ class TestHierarchyControl:
 
         last_time = rospy.Time.now()
         q = velma.getJointStatesVector()
+        iq = velma.getInactiveJointStatesVector()
 
         counter = 0
         while not rospy.is_shutdown():
@@ -161,16 +164,20 @@ class TestHierarchyControl:
             kp_JLC = 1.0
             dx_JLC_des = kp_JLC * delta_V_JLC
 
-            vv_JLC = min(1.0, v_max_JLC/np.linalg.norm(dx_JLC_des))
+            # min(1.0, v_max_JLC/np.linalg.norm(dx_JLC_des))
+            if v_max_JLC > np.linalg.norm(dx_JLC_des):
+                 vv_JLC = 1.0
+            else:
+                vv_JLC = v_max_JLC/np.linalg.norm(dx_JLC_des)
             dx_JLC_ref = - vv_JLC * dx_JLC_des
 
-            J_HAND = velma.fk_ik_solver.getJacobian('torso_base', 'right_HandPalmLink', q).transpose()
+            J_HAND = velma.fk_ik_solver.getJacobian('torso_base', 'right_HandPalmLink', q)
             J_HAND_inv = np.linalg.pinv(J_HAND)
 
             T_B_E = velma.fk_ik_solver.calculateFk2('torso_base', 'right_HandPalmLink', q)
             x_HAND_current = T_B_E
             x_HAND_diff = PyKDL.diff(x_HAND_target, x_HAND_current)
-            print x_HAND_diff.vel.Norm(), x_HAND_diff.rot.Norm()
+#            print x_HAND_diff.vel.Norm(), x_HAND_diff.rot.Norm()
             delta_V_HAND = np.empty(6)
             delta_V_HAND[0] = x_HAND_diff.vel[0]
             delta_V_HAND[1] = x_HAND_diff.vel[1]
@@ -179,17 +186,22 @@ class TestHierarchyControl:
             delta_V_HAND[4] = x_HAND_diff.rot[1]
             delta_V_HAND[5] = x_HAND_diff.rot[2]
 
-            v_max_HAND = 0.5
-            kp_HAND = 1.0
+            v_max_HAND = 2.0
+            kp_HAND = 2.0
             dx_HAND_des = kp_HAND * delta_V_HAND
 
-            vv_HAND = min(1.0, v_max_HAND/np.linalg.norm(dx_HAND_des))
-#            print vv_JLC, vv_HAND
-            dx_HAND_ref = - vv_JLC * dx_HAND_des
+#            vv_HAND = min(1.0, v_max_HAND/np.linalg.norm(dx_HAND_des))
+            if v_max_HAND > np.linalg.norm(dx_HAND_des):
+                vv_HAND = 1.0
+            else:
+                vv_HAND = v_max_HAND/np.linalg.norm(dx_HAND_des)
 
+#            print vv_JLC, vv_HAND
+            dx_HAND_ref = - vv_HAND * dx_HAND_des
+
+            link_collision_map = {}
+            openrave.updateRobotConfiguration(q, velma.getJointStatesVectorNames())
             if True:
-                link_collision_map = {}
-                openrave.updateRobotConfiguration(q, velma.getJointStatesVectorNames())
                 openrave.switchCollisionModel("velmasimplified1")
                 col_chk = openrave.env.GetCollisionChecker()
                 col_opt = col_chk.GetCollisionOptions()
@@ -204,20 +216,26 @@ class TestHierarchyControl:
                         TR_L1_W = PyKDL.Frame(T_L1_W.M)
                         T_L2_W = conv.OpenraveToKDL(link2.GetTransform()).Inverse()
                         TR_L2_W = PyKDL.Frame(T_L2_W.M)
+                        swapped = False
                         if link1_idx > link2_idx:
                             link1_idx, link2_idx = link2_idx, link1_idx
+                            swapped = True
                         if not (link1_idx, link2_idx) in link_collision_map:
                             link_collision_map[(link1_idx, link2_idx)] = []
                         for contact in report.contacts:
                             pos_W = PyKDL.Vector(contact.pos[0], contact.pos[1], contact.pos[2])
                             norm_W = PyKDL.Vector(contact.norm[0], contact.norm[1], contact.norm[2])
-                            link_collision_map[(link1_idx, link2_idx)].append( (pos_W, norm_W, T_L1_W * pos_W, T_L2_W * pos_W, TR_L1_W * norm_W, TR_L2_W * norm_W, contact.depth) )
+                            if swapped:
+                                link_collision_map[(link1_idx, link2_idx)].append( (pos_W, -norm_W, T_L2_W * pos_W, T_L1_W * pos_W, TR_L2_W * (-norm_W), TR_L1_W * (-norm_W), contact.depth) )
+                            else:
+                                link_collision_map[(link1_idx, link2_idx)].append( (pos_W, norm_W, T_L1_W * pos_W, T_L2_W * pos_W, TR_L1_W * norm_W, TR_L2_W * norm_W, contact.depth) )
                         total_contacts += len(report.contacts)
                 col_chk.SetCollisionOptions(col_opt)
-                print total_contacts
 
-                print "links in contact:", len(link_collision_map)
+                print "links in contact:", len(link_collision_map), "total contacts:", total_contacts
 
+            omega_col = np.matrix(np.zeros( (len(q),1) ))
+            Ncol = identityMatrix(len(q))
             for link1_idx, link2_idx in link_collision_map:
                 link1_name = openrave.robot_rave.GetLinks()[link1_idx].GetName()
                 link2_name = openrave.robot_rave.GetLinks()[link2_idx].GetName()
@@ -225,68 +243,101 @@ class TestHierarchyControl:
                 for c in contacts:
                     pos_W, norm_W, pos_L1, pos_L2, norm_L1, norm_L2, depth = c
 
+                    m_id = self.pub_marker.publishVectorMarker(pos_W, pos_W + norm_W*0.05, 1, 1, 0, 0, frame='world', namespace='default', scale=0.005)
+
                     if depth < 0:
                         print "ERROR: depth < 0:", depth
                         exit(0)
 
                     jac1 = PyKDL.Jacobian(len(q))
-                    velma.fk_ik_solver.getJacobianForX(jac1, link1_name, pos_L1, q)
+                    velma.fk_ik_solver.getJacobianForX(jac1, link1_name, pos_L1, q, iq)
                     jac2 = PyKDL.Jacobian(len(q))
-                    velma.fk_ik_solver.getJacobianForX(jac2, link2_name, pos_L2, q)
+                    velma.fk_ik_solver.getJacobianForX(jac2, link2_name, pos_L2, q, iq)
 
-                    # zero the rotational part
-                    jac1_mx = np.matrix(np.zeros( (len(q), 6) ))
-                    jac2_mx = np.matrix(np.zeros( (len(q), 6) ))
+                    # repulsive velocity
+                    V_max = 0.1
+                    depth_max = 0.002
+                    if depth > depth_max:
+                        depth = depth_max
+                    Vrep = V_max * depth * depth / (depth_max * depth_max)
+
+                    # the mapping between motions along contact normal and the Cartesian coordinates
+                    e1 = norm_L1
+                    e2 = norm_L2
+                    Jd1 = np.matrix([e1[0], e1[1], e1[2]])
+                    Jd2 = np.matrix([e2[0], e2[1], e2[2]])
+#                    print "Jd1.shape", Jd1.shape
+
+                    # rewrite the linear part of the jacobian
+                    jac1_mx = np.matrix(np.zeros( (3, len(q)) ))
+                    jac2_mx = np.matrix(np.zeros( (3, len(q)) ))
                     for q_idx in range(len(q)):
                         col1 = jac1.getColumn(q_idx)
                         col2 = jac2.getColumn(q_idx)
                         for row_idx in range(3):
-                            jac1_mx[q_idx, row_idx] = col1[row_idx]
-                            jac2_mx[q_idx, row_idx] = col2[row_idx]
+                            jac1_mx[row_idx, q_idx] = col1[row_idx]
+                            jac2_mx[row_idx, q_idx] = col2[row_idx]
 
+#                    print "jac1_mx.shape", jac1_mx.shape
+                    Jcol1 = Jd1 * jac1_mx
+                    Jcol2 = Jd2 * jac2_mx
+#                    print "Jcol2.shape", Jcol2.shape
 
-#
-#                    # eq. 8
-#                    #Frep_ij = Frep_mult_ * (distances[i].d_ - prop_d0_) * (distances[i].d_ - prop_d0_);
-#                    Frep_ij = Frep_mult_ * c[2] * c[2]   # vector field for the contact depth
-#                    # TODO: calculate jacobian for point
-#                    #KDL::Vector xj_Ti = transformations_by_index_[distances[i].i_].Inverse() * transformations_by_index_[distances[i].j_] * distances[i].xj_Tj_;
-#                    xj_Ti = transformations_by_index_[distances[i].i_].Inverse() * transformations_by_index_[distances[i].j_] * distances[i].xj_Tj_;
-#                    // eq. 4
-#                    KDL::Vector e_i = xj_Ti - distances[i].xi_Ti_;
-#                    e_i.Normalize();
-#                    // eq. 15
-#                    Jdi_(0,0) = e_i.x();
-#                    Jdi_(0,1) = e_i.y();
-#                    Jdi_(0,2) = e_i.z();
-#                    // rewrite the linear part of the jacobian
-#                    for (int j=0; j<prop_ctrl_joint_position_sequence_.size(); j++)
-#                    {
-#                    KDL::Vector v = Jxi.getColumn( joint_name_2_index_map_[prop_ctrl_joint_position_sequence_[i]] ).vel;
-#                    Jxi_(0, j) = v.x();
-#                    Jxi_(1, j) = v.y();
-#                    Jxi_(2, j) = v.z();
-#                    }
-#                    // eq. 16
-#                    Ji_.noalias() = Jdi_ * Jxi_;			// (1 x |ctrl_jnt_pos_|) = (1 x 3) * (3 x |ctrl_jnt_pos_|)
-#                    JiT_ = Ji_.transpose();
-#                    // eq. 18
-#                    tmp1n_.noalias() = Ji_ * mass_matrix_inv_;	// (1 x |ctrl_jnt_pos_|) = (1 x |ctrl_jnt_pos_|) * (|ctrl_jnt_pos_| x |ctrl_jnt_pos_|)
-#                    Mdi_inv_.noalias() = tmp1n_ * JiT_;			// (1 x 1) = (1 x |ctrl_jnt_pos_|) * (|ctrl_jnt_pos_| x 1)
-#                    Mdi_(0,0) = 1.0 / Mdi_inv_(0,0);
-#                    // eq. 21
-#                    double d2Vrep = -2.0 * Frep_mult_ * (distances[i].d_ - prop_d0_);
-#                    Kdij_(0,0) = d2Vrep;
-#                    Kdij_(1,1) = d2Vrep;
-#                    Kdij_(0,1) = -d2Vrep;
-#                    Kdij_(1,0) = -d2Vrep;
+                    Jcol = np.matrix(np.zeros( (2, len(q)) ))
+                    for q_idx in range(len(q)):
+                        Jcol[0, q_idx] = Jcol1[0, q_idx]
+                        Jcol[1, q_idx] = Jcol2[0, q_idx]
 
+#                    print Jcol.shape
+#                    print "Jcol"
+#                    print Jcol
+                    Jcol_pinv = np.linalg.pinv(Jcol)
+#                    print "Jcol_pinv"
+#                    print Jcol_pinv
 
+#                    Ncol1 = identityMatrix(len(q)) - np.linalg.pinv(Jcol1) * Jcol1
+#                    Ncol2 = identityMatrix(len(q)) - np.linalg.pinv(Jcol2) * Jcol2
+#                    Ncol = Ncol * Ncol1
+#                    Ncol = Ncol * Ncol2
+#                    omega_col += np.linalg.pinv(Jcol1) * (-Vrep)
+#                    omega_col += np.linalg.pinv(Jcol2) * (Vrep)
+#                    continue
 
+#                    activation = min(1.0, depth/0.001)
+#                    a_des = np.matrix(np.zeros( (len(q),len(q)) ))
+#                    a_des[0,0] = a_des[1,1] = 1.0#activation
+
+#                    U, S, V = numpy.linalg.svd(Jcol, full_matrices=True, compute_uv=True)
+
+#                    print "V"
+#                    print V
+#                    print "S"
+#                    print S
+
+                    Ncol12 = identityMatrix(len(q)) - Jcol_pinv * Jcol
+#                    Ncol12 = identityMatrix(len(q)) - Jcol.transpose() * (Jcol_pinv).transpose()
+#                    Ncol12 = identityMatrix(len(q)) - (V * a_des * V.transpose())
+#                    Ncol12 = identityMatrix(len(q)) - (Jcol.transpose() * a_des * Jcol)
+                    Ncol = Ncol * Ncol12
+                    d_omega = Jcol_pinv * np.matrix([-Vrep, Vrep]).transpose()
+                    print "d_omega", d_omega
+                    print "Vrep", Vrep
+                    print "Jcol", Jcol
+                    print "Jcol_pinv", Jcol_pinv
+#                    print "a_des", a_des
+
+                    omega_col += d_omega
+
+                    print "depth", depth
+                    raw_input(".")
+
+            print "omega_col", omega_col
 #            print dx_HAND_ref
-            omega = J_JLC_inv * np.matrix(dx_JLC_ref).transpose()
+
             omega_HAND = (J_HAND_inv * np.matrix(dx_HAND_ref).transpose())
-            omega += N_JLC.transpose() * omega_HAND
+
+            omega = J_JLC_inv * np.matrix(dx_JLC_ref).transpose() + N_JLC.transpose() * (omega_col + Ncol * omega_HAND)
+            print "omega", omega
 
 #            print "dx_JLC_ref"
 #            print dx_JLC_ref
@@ -296,14 +347,14 @@ class TestHierarchyControl:
             omega_vector = np.empty(len(q))
             for q_idx in range(len(q)):
                 omega_vector[q_idx] = omega[q_idx][0]
-            q += omega_vector * 0.01
+            q += omega_vector * 0.001
 
             
             if time_elapsed.to_sec() > 0.2:
                 last_time = rospy.Time.now()
                 velma.moveJoint(q, velma.getJointStatesVectorNames(), 0.05, start_time=0.14, stamp=None)
 
-            rospy.sleep(0.01)
+#            rospy.sleep(0.01)
 
 
 

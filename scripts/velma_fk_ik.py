@@ -49,7 +49,6 @@ def kdl_tree_from_urdf_model_velma(urdf, torso_1_joint_value):
     segment_id += 1
 
     def add_children_to_tree(parent, segment_id):
-        print "add_children_to_tree", parent, segment_id
         if parent in urdf.child_map:
             for joint, child_name in urdf.child_map[parent]:
                 if parent == 'torso_link0' and child_name == 'torso_link1':
@@ -197,6 +196,52 @@ class VelmaFkIkSolver:
             for row_idx in range(6):
                 jac_big[q_idx, row_idx] = col[row_idx]
         return jac_big
+
+    # JntToJac(KDL::Jacobian& jac, int link_index, const KDL::Vector &x)
+    def getJacobianForX(self, jac, link_name, x, q):
+        link_index = self.segment_name_id_map[link_name]
+        #First we check all the sizes:
+##        if (jac.columns() != collision_model_->link_count_)
+##            return -1
+        # Lets search the tree-element
+        # If segmentname is not inside the tree, back out:
+        # Let's make the jacobian zero:
+        T_total = PyKDL.Frame(x)
+        root_index = self.segment_name_id_map['torso_base']
+        l_index = link_index
+        # Lets recursively iterate until we are in the root segment
+        while l_index != root_index:
+            # get the corresponding q_nr for this TreeElement:
+            # get the pose of the segment:
+            seg_kdl = self.segment_map[l_index]
+            if seg_kdl.getJoint().getType() == PyKDL.Joint.None:
+                q_idx = None
+                q_seg = 0.0
+            else:
+                q_idx = self.segment_id_q_id_map[l_index]
+                q_seg = q[q_idx]
+            T_local = seg_kdl.pose(q_seg)
+            # calculate new T_end:
+            T_total = T_local * T_total
+            # get the twist of the segment:
+            t_local = self.segment_map[l_index].twist(q_seg, 1.0)
+            # transform the endpoint of the local twist to the global endpoint:
+            t_local = t_local.RefPoint(T_total.p - T_local.p)
+            # transform the base of the twist to the endpoint
+            t_local = T_total.M.Inverse(t_local)
+            # store the twist in the jacobian:
+            if q_idx != None:
+                jac.setColumn(q_idx,t_local)
+            else:
+                if t_local.vel.Norm() > 0.000001 or t_local.rot.Norm() > 0.000001:
+                    print "ERROR: JntToJac t_local != 0", t_local
+                    exit(0)
+            # goto the parent
+            l_index = self.segment_parent_map[l_index]
+        # Change the base of the complete jacobian from the endpoint to the base
+#        changeBase(jac, T_total.M, jac);
+        jac.changeBase(T_total.M)
+        return 0;
 
     def __init__(self, torso_1_joint_value):
         self.robot = URDF.from_parameter_server()

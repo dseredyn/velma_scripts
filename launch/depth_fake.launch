@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <launch>
-  <include file="$(find freenect_launch)/launch/freenect.launch">
-    <arg name="camera" value="head_kinect" />
-    <arg name="depth_registration" default="true" />
-  </include>
+  <node
+    name="kinect"
+    pkg="velma_scripts" type="kinect_fake.py" output="screen">
+  </node>
   <node pkg="octomap_server" type="octomap_server_node" name="octomap_server">
-    <param name="resolution" value="0.05" />
+    <param name="resolution" value="0.025" />
     <!-- fixed map frame (set to 'map' if SLAM or localization running!) -->
     <param name="frame_id" type="string" value="map" />
     <!-- maximum range to integrate (speedup!) -->

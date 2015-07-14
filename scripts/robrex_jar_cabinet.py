@@ -83,7 +83,8 @@ class TestOrOctomap:
         xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
-        rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, xacro_uri, srdf_path)
+# TODO: 3 processes
+        rrt = rrt_star_connect_planner.PlannerRRT(0, env_file, xacro_uri, srdf_path)
 
         self.listener = tf.TransformListener()
 
@@ -115,6 +116,13 @@ class TestOrOctomap:
         openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
         openrave.maskObject('velmasimplified0')
         openrave.maskObject('velmasimplified1')
+
+# TODO
+        for link in openrave.robot_rave.GetLinks():
+            print link.GetName(), len(link.GetCollisionData().vertices), len(link.GetGeometries())
+            for geom in link.GetGeometries():
+                print "   ", geom.GetType(), geom.IsVisible(), geom.GetSphereRadius()
+        exit(0)
 
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
         openrave.updateRobotConfigurationRos(self.velma.js_pos)

@@ -86,7 +86,6 @@ class KinectFake:
         self.listener = tf.TransformListener()
         rospy.sleep(0.5)
 
-#        self.object_pose_pub = rospy.Publisher("/poses/jar", geometry_msgs.msg.PoseStamped, queue_size=100)
         self.br = tf.TransformBroadcaster()
 
         self.point_cloud_pub = rospy.Publisher("/head_kinect/depth_registered/points", sensor_msgs.msg.PointCloud2, queue_size=100)
@@ -162,7 +161,7 @@ class KinectFake:
 
 #            print "valid_points", valid_points
             self.point_cloud.header.seq += 1
-            self.point_cloud.header.stamp = time_now#rospy.Time.now()
+            self.point_cloud.header.stamp = time_now
             self.point_cloud_pub.publish(self.point_cloud)
 
             T_W_J = openrave.getPoseW(object_name)

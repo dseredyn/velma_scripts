@@ -26,7 +26,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import roslib
-roslib.load_manifest('barrett_hand_controller')
+roslib.load_manifest('velma_scripts')
 
 import rospy
 import tf
@@ -299,6 +299,7 @@ Class for velma robot.
         self.action_move_hand_client = {}
         self.action_move_hand_client["right"] = actionlib.SimpleActionClient("/right_hand/move_hand", BHMoveAction)
         self.action_move_hand_client["right"].wait_for_server()
+
         self.action_move_hand_client["left"] = actionlib.SimpleActionClient("/left_hand/move_hand", BHMoveAction)
         self.action_move_hand_client["left"].wait_for_server()
 

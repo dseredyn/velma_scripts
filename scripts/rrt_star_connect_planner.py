@@ -42,13 +42,10 @@ import operator
 class PlannerRRT:
 
     def openraveWorker(self, process_id, env_file, xacro_uri, srdf_path, queue_master, queue_master_special, queue_slave):
-#      rospy.init_node('test_or_octomap_proc_'+str(process_id))
       openrave = openraveinstance.OpenraveInstance()
       openrave.startOpenraveURDF(env_file=env_file, viewer=False)
       openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
       openrave.runOctomap()
-#      rospy.sleep(5)
-#      openrave.pauseOctomap()
 
       with openrave.env:
 
@@ -203,6 +200,7 @@ class PlannerRRT:
         while True:
             msg = queue_master.get()
             cmd = msg[0]
+
             if cmd == "exit":
                 break
             elif cmd == "specialCommand":
@@ -210,9 +208,7 @@ class PlannerRRT:
                 msg_s = queue_master_special.get()
                 cmd_s = msg_s[0]
                 if cmd_s == "setInitialConfiguration":
-                    openrave.maskObject('velmasimplified0')
-                    openrave.maskObject('velmasimplified1')
-                    print "masking the robot"
+                    openrave.updateOctomap()
                     q = msg_s[1]
                     openrave.robot_rave.SetDOFValues(q)
                     queue_slave.put( ("setInitialConfiguration", True) )
@@ -502,6 +498,7 @@ class PlannerRRT:
             for k in range(100000):
                 if (rospy.Time.now()-start_time).to_sec() > max_time:
                     break
+
                 resp = self.queue_slave.get(True)
                 self.queue_master.put( ("addNode", (V, E), trees_goal, shortest_path_len, best_q_idx, goal_V_ids, job_id), False )
                 job_id += 1
@@ -685,6 +682,8 @@ class PlannerRRT:
                         print "removing trees", rem_trees
                         for tree_id in rem_trees:
                             del trees_goal[tree_id]
+
+            print "planning finished, waiting for all jobs..."
 
             for proc_id in range(self.num_proc):
                 resp = self.queue_slave.get(True)

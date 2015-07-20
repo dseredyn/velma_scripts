@@ -83,8 +83,7 @@ class TestOrOctomap:
         xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
-# TODO: 3 processes
-        rrt = rrt_star_connect_planner.PlannerRRT(0, env_file, xacro_uri, srdf_path)
+        rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, xacro_uri, srdf_path)
 
         self.listener = tf.TransformListener()
 
@@ -113,22 +112,18 @@ class TestOrOctomap:
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenraveURDF(env_file=env_file)
         openrave.runOctomap()
+
         openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
-        openrave.maskObject('velmasimplified0')
-        openrave.maskObject('velmasimplified1')
 
 # TODO
-        for link in openrave.robot_rave.GetLinks():
-            print link.GetName(), len(link.GetCollisionData().vertices), len(link.GetGeometries())
-            for geom in link.GetGeometries():
-                print "   ", geom.GetType(), geom.IsVisible(), geom.GetSphereRadius()
-        exit(0)
+#        for link in openrave.robot_rave.GetLinks():
+#            print link.GetName(), len(link.GetCollisionData().vertices), len(link.GetGeometries())
+#            for geom in link.GetGeometries():
+#                print "   ", geom.GetType(), geom.IsVisible(), geom.GetSphereRadius()
+#        exit(0)
 
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
         openrave.updateRobotConfigurationRos(self.velma.js_pos)
-
-#        rospy.sleep(3)
-#        openrave.pauseOctomap()
 
         while True:
             if self.listener.canTransform('world', 'jar', rospy.Time(0)):
@@ -158,12 +153,13 @@ class TestOrOctomap:
         self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
         rospy.sleep(2)
 
-        openrave.maskObject('velmasimplified0')
-        openrave.maskObject('velmasimplified1')
-
         raw_input("Press ENTER to continue...")
 
-        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("left", T_B_E_list), 120.0)
+        openrave.updateOctomap()
+
+        print "octomap updated"
+
+        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("right", T_B_E_list), 120.0)
 
         traj = []
         for i in range(len(path)-1):

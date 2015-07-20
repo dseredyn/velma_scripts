@@ -40,6 +40,8 @@ from tf.transformations import *
 import tf_conversions.posemath as pm
 from tf2_msgs.msg import *
 
+import conversions as conv
+
 import PyKDL
 import math
 import numpy as np
@@ -85,7 +87,7 @@ class OpenraveInstance:
         self.env.Load(filename_environment)
         self.robot_rave = self.env.GetRobot("velma")
         base_link = self.robot_rave.GetLink("torso_base")
-        self.T_World_Br = self.OpenraveToKDL(base_link.GetTransform())
+        self.T_World_Br = conv.OpenraveToKDL(base_link.GetTransform())
 # TODO: ikmodel for both arms
 #        self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
 #        if not self.ikmodel.load():
@@ -110,7 +112,7 @@ class OpenraveInstance:
     def readRobot(self, xacro_uri=None, urdf_uri=None, srdf_uri=None, srdf_path=None, env_file=None, collision=None):
         if xacro_uri == None or srdf_path == None or urdf_uri != None or srdf_uri != None:
             # TODO: exception
-            print "ERROR: startOpenraveURDF:", xacro_uri, srdf_path, urdf_uri, srdf_uri
+            print "ERROR: readRobot:", xacro_uri, srdf_path, urdf_uri, srdf_uri
             exit(0)
 
         if not hasattr(self, 'urdf_module') or self.urdf_module == None:
@@ -169,7 +171,7 @@ class OpenraveInstance:
             print joint
 
         base_link = self.robot_rave.GetLink("torso_base")
-        self.T_World_Br = self.OpenraveToKDL(base_link.GetTransform())
+        self.T_World_Br = conv.OpenraveToKDL(base_link.GetTransform())
 
         self.free_joint = {"right_arm":"right_arm_2_joint", "left_arm":"left_arm_2_joint"}
         manipulators = self.robot_rave.GetManipulators()
@@ -243,19 +245,14 @@ class OpenraveInstance:
     def runOctomap(self):
 #        RaveSetDebugLevel(5)
 #        print RaveLoadPlugin('or_octomap')
+#        print RaveLoadPlugin('or_octomap_client')
 #        print RaveLoadPlugin('or_octomap_checker')
-        self.or_octomap = RaveCreateSensorSystem(self.env, "or_octomap")
+
+        self.or_octomap = RaveCreateSensorSystem(self.env, "or_octomap_client")
         out = self.or_octomap.SendCommand("Enable")
-        self.or_octomap_checker = RaveCreateCollisionChecker(self.env, "or_octomap_checker")
 
-    def maskObject(self, name):
-#        RaveSetDebugLevel(5)
-#        print RaveLoadPlugin('or_octomap')
-#        print RaveLoadPlugin('or_octomap_checker')
-        self.or_octomap.SendCommand("Mask " + name)
-
-    def pauseOctomap(self):
-        self.or_octomap.SendCommand("TogglePause")
+    def updateOctomap(self):
+        out = self.or_octomap.SendCommand("Update")
 
     def setCamera(self, cam_pos, target_pos):
             cam_z = target_pos - cam_pos
@@ -268,7 +265,7 @@ class OpenraveInstance:
             cam_z.Normalize()
             cam_T = PyKDL.Frame(PyKDL.Rotation(cam_x,cam_y,cam_z), cam_pos)
             
-            self.env.GetViewer().SetCamera(self.KDLToOpenrave(cam_T), focalDistance)
+            self.env.GetViewer().SetCamera(conv.KDLToOpenrave(cam_T), focalDistance)
 
     def updateRobotConfigurationRos(self, js_pos):
         dof_values = self.robot_rave.GetDOFValues()
@@ -300,19 +297,6 @@ class OpenraveInstance:
 
     def addRobotInterface(self, robot):
         self.robot = robot
-
-    def KDLToOpenrave(self, T):
-        ret = numpy.array([
-        [T.M[0,0], T.M[0,1], T.M[0,2], T.p.x()],
-        [T.M[1,0], T.M[1,1], T.M[1,2], T.p.y()],
-        [T.M[2,0], T.M[2,1], T.M[2,2], T.p.z()],
-        [0, 0, 0, 1]])
-        return ret
-
-    def OpenraveToKDL(self, T):
-        rot = PyKDL.Rotation(T[0][0],T[0][1],T[0][2],T[1][0],T[1][1],T[1][2],T[2][0],T[2][1],T[2][2])
-        pos = PyKDL.Vector(T[0][3], T[1][3], T[2][3])
-        return PyKDL.Frame(rot, pos)
 
     def addBox(self, name, x_size, y_size, z_size):
         body = RaveCreateKinBody(self.env,'')
@@ -374,7 +358,7 @@ class OpenraveInstance:
         with self.env:
             body = self.env.GetKinBody(name)
             if body != None:
-                body.SetTransform(self.KDLToOpenrave(self.T_World_Br*T_Br_Bo))
+                body.SetTransform(conv.KDLToOpenrave(self.T_World_Br*T_Br_Bo))
             else:
 #                print "openrave: could not find body: %s"%(name)
                 pass
@@ -383,13 +367,13 @@ class OpenraveInstance:
     def getPose(self, name):
         body = self.env.GetKinBody(name)
         if body != None:
-            return self.T_World_Br.Inverse() * self.OpenraveToKDL(body.GetTransform())
+            return self.T_World_Br.Inverse() * conv.OpenraveToKDL(body.GetTransform())
         return None
 
     def getPoseW(self, name):
         body = self.env.GetKinBody(name)
         if body != None:
-            return self.OpenraveToKDL(body.GetTransform())
+            return conv.OpenraveToKDL(body.GetTransform())
         return None
 
     def getLinkPose(self, name, qt=None, qar=None, qal=None, qhr=None, qhl=None):
@@ -414,7 +398,7 @@ class OpenraveInstance:
                     self.env.UpdatePublishedBodies()
                     link = self.robot_rave.GetLink(name)
                     if link != None:
-                        T_World_L = self.OpenraveToKDL(link.GetTransform())
+                        T_World_L = conv.OpenraveToKDL(link.GetTransform())
                         self.robot_rave_update_lock.release()
                         return self.T_World_Br.Inverse() * T_World_L
                     else:
@@ -423,7 +407,7 @@ class OpenraveInstance:
         else:
             link = self.robot_rave.GetLink(name)
             if link != None:
-                return self.T_World_Br.Inverse() * self.OpenraveToKDL(link.GetTransform())
+                return self.T_World_Br.Inverse() * conv.OpenraveToKDL(link.GetTransform())
         return None
 
     def changeColor(self, name, r, g, b, a):
@@ -562,7 +546,7 @@ class OpenraveInstance:
         return validindices
 
     def getGraspTransform(self, target_name, grasp, collisionfree=False):
-        return self.T_World_Br.Inverse()*self.OpenraveToKDL( self.gmodel[target_name].getGlobalGraspTransform(grasp,collisionfree=collisionfree) )
+        return self.T_World_Br.Inverse()*conv.OpenraveToKDL( self.gmodel[target_name].getGlobalGraspTransform(grasp,collisionfree=collisionfree) )
 
     def showGrasp(self, target_name, grasp):
         self.robot_rave_update_lock.acquire()
@@ -759,7 +743,7 @@ class OpenraveInstance:
             contacts_ret_O = None
         else:
             body = self.env.GetKinBody(target_name)
-            T_World_O = self.OpenraveToKDL(body.GetTransform())
+            T_World_O = conv.OpenraveToKDL(body.GetTransform())
             T_O_World = T_World_O.Inverse()
             contacts_ret_O = []
             normals_O = []
@@ -988,7 +972,7 @@ class OpenraveInstance:
                     dof_values = list(qt) + list(qal) + list(qhl) + list(qar) + list(qhr)
                     self.robot_rave.SetDOFValues(dof_values)
                     body = self.env.GetKinBody(name)
-                    T_World_O = self.OpenraveToKDL(body.GetTransform())
+                    T_World_O = conv.OpenraveToKDL(body.GetTransform())
                     hits = 0
                     all_hits = 0
                     for p in points:
@@ -1018,7 +1002,7 @@ class OpenraveInstance:
         else:
             body = self.env.GetKinBody(name)
 
-            T_World_O = self.OpenraveToKDL(body.GetTransform())
+            T_World_O = conv.OpenraveToKDL(body.GetTransform())
             hits = 0
             all_hits = 0
             for p in points:
@@ -1050,10 +1034,10 @@ class OpenraveInstance:
         return float(hits)/float(len(points))
 
     def findIkSolution(self, T_Br_E, man_name="right_arm", freevalues=None):
-        return self.manipulators[man_name].FindIKSolution(self.KDLToOpenrave(self.T_World_Br * T_Br_E), freevalues, IkFilterOptions.CheckEnvCollisions)
+        return self.manipulators[man_name].FindIKSolution(conv.KDLToOpenrave(self.T_World_Br * T_Br_E), freevalues, IkFilterOptions.CheckEnvCollisions)
 
     def findIkSolutions(self, T_Br_E, man_name="right_arm", freevalues=None):
-        return self.manipulators[man_name].FindIKSolutions(self.KDLToOpenrave(self.T_World_Br * T_Br_E), freevalues, IkFilterOptions.CheckEnvCollisions)
+        return self.manipulators[man_name].FindIKSolutions(conv.KDLToOpenrave(self.T_World_Br * T_Br_E), freevalues, IkFilterOptions.CheckEnvCollisions)
 
     def getConfigurationPenalty(self, q):
         # punish for singularities in end configuration
@@ -1114,7 +1098,7 @@ class OpenraveInstance:
                         while True:
                             v = self.normals_sphere_5_deg[random.randint(0, len(self.normals_sphere_5_deg)-1)]
                             P_Br = T_Br_T2 * (Pc_T2 + v * dist_from_shoulder)
-                            wrist_sphere.SetTransform(self.KDLToOpenrave(self.T_World_Br*PyKDL.Frame(PyKDL.Vector(P_Br))))
+                            wrist_sphere.SetTransform(conv.KDLToOpenrave(self.T_World_Br*PyKDL.Frame(PyKDL.Vector(P_Br))))
                             report = CollisionReport()
                             self.env.CheckCollision(wrist_sphere, report)
 

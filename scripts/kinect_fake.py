@@ -73,7 +73,6 @@ class KinectFake:
 
         rospack = rospkg.RosPack()
         env_file=rospack.get_path('velma_scripts') + '/data/jar/cabinet_jar.env.xml'
-        xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
         object_name = 'jar'
@@ -119,7 +118,7 @@ class KinectFake:
         openrave.startOpenraveURDF(env_file=env_file, viewer=False)
 #        openrave.env.GetCollisionChecker().SetCollisionOptions(0)#4)
 
-        openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
+        openrave.readRobot(srdf_path=srdf_path)
 
         while not rospy.is_shutdown():
             openrave.updateRobotConfigurationRos(self.velma.js_pos)

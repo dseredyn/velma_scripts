@@ -41,10 +41,10 @@ import operator
 
 class PlannerRRT:
 
-    def openraveWorker(self, process_id, env_file, xacro_uri, srdf_path, queue_master, queue_master_special, queue_slave):
+    def openraveWorker(self, process_id, env_file, srdf_path, queue_master, queue_master_special, queue_slave):
       openrave = openraveinstance.OpenraveInstance()
       openrave.startOpenraveURDF(env_file=env_file, viewer=False)
-      openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
+      openrave.readRobot(srdf_path=srdf_path)
       openrave.runOctomap()
 
       with openrave.env:
@@ -421,7 +421,7 @@ class PlannerRRT:
                 print "ERROR resp", msg[0], resp[0]
                 exit(0)
 
-    def __init__(self, num_proc, env_file, xacro_uri, srdf_path, debug=True):
+    def __init__(self, num_proc, env_file, srdf_path, debug=True):
         self.debug = debug
         if self.debug:
             self.pub_marker = velmautils.MarkerPublisher()
@@ -432,7 +432,7 @@ class PlannerRRT:
         self.queue_master_special = Queue(maxsize=self.num_proc)
         self.queue_slave = Queue(maxsize=20)
         for i in range(self.num_proc):
-            self.proc.append( Process(target=self.openraveWorker, args=(i, env_file, xacro_uri, srdf_path, self.queue_master, self.queue_master_special, self.queue_slave,)) )
+            self.proc.append( Process(target=self.openraveWorker, args=(i, env_file, srdf_path, self.queue_master, self.queue_master_special, self.queue_slave,)) )
             self.proc[-1].start()
 
     def waitForInit(self):

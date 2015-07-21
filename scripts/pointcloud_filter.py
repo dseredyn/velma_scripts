@@ -85,7 +85,6 @@ class PointCloudFilter:
         s2 = struct.Struct('B B B B B B B B B B B B B B B B B B B B B B B B B B B B B B B B')
 
         rospack = rospkg.RosPack()
-        xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
         self.listener = tf.TransformListener()
@@ -106,7 +105,7 @@ class PointCloudFilter:
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenraveURDF(env_file=None, viewer=False)
 #        openrave.env.GetCollisionChecker().SetCollisionOptions(0)#4)
-        openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
+        openrave.readRobot(srdf_path=srdf_path)
         sphere_probe = openrave.addSphere('sphere_probe', 0.05)
 
         while not rospy.is_shutdown():

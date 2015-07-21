@@ -109,19 +109,21 @@ class OpenraveInstance:
         self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
         self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
 
-    def readRobot(self, xacro_uri=None, urdf_uri=None, srdf_uri=None, srdf_path=None, env_file=None, collision=None):
-        if xacro_uri == None or srdf_path == None or urdf_uri != None or srdf_uri != None:
+    def readRobot(self, srdf_path=None, env_file=None, collision=None):
+        if srdf_path == None:
             # TODO: exception
-            print "ERROR: readRobot:", xacro_uri, srdf_path, urdf_uri, srdf_uri
+            print "ERROR: readRobot:", srdf_path
             exit(0)
 
         if not hasattr(self, 'urdf_module') or self.urdf_module == None:
             self.urdf_module = RaveCreateModule(self.env, 'urdf')
 
+        xacro_uri = srdf_path + "velma.urdf.xacro"
+
         collision_models_urdf = {
 #        "velmafull" : ("velma.srdf", "collision_model_full:=true", "collision_model_simplified:=false", "collision_model_enlargement:=0.0", "collision_model_no_hands:=false"),
-        "velmasimplified0" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.0", "collision_model_no_hands:=false"),
-        "velmasimplified1" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.01", "collision_model_no_hands:=false"),
+        "velmasimplified0" : ("velma_simplified.srdf", False, True, 0.0, False),
+        "velmasimplified1" : ("velma_simplified.srdf", False, True, 0.01, False),
 #        "velmasimplified2" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=false"),
 #        "velmanohands" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=true"),
         }
@@ -140,15 +142,17 @@ class OpenraveInstance:
         self.robots = {}
 
         for model_name in collision_models_urdf:
-            urdf_uri = "/tmp/" + str(uuid.uuid4()) + ".urdf"
-            srdf_uri = collision_models_urdf[model_name][0]
-            arg1 = collision_models_urdf[model_name][1]
-            arg2 = collision_models_urdf[model_name][2]
-            arg3 = collision_models_urdf[model_name][3]
-            arg4 = collision_models_urdf[model_name][4]
-            subprocess.call(["rosrun", "xacro", "xacro", "-o", urdf_uri, xacro_uri, arg1, arg2, arg3, arg4])
-            robot_name = self.urdf_module.SendCommand('load ' + urdf_uri + ' ' + srdf_path + srdf_uri)
-            os.remove(urdf_uri)
+            urdf_uri = srdf_path + collision_models_urdf[model_name][0] + str(collision_models_urdf[model_name][1]) + \
+                str(collision_models_urdf[model_name][2]) + str(collision_models_urdf[model_name][3]) + str(collision_models_urdf[model_name][4]) + ".urdf"
+            srdf_uri = srdf_path + collision_models_urdf[model_name][0]
+            arg1 = "collision_model_full:=" + ("true" if collision_models_urdf[model_name][1]==True else "false")
+            arg2 = "collision_model_simplified:=" + ("true" if collision_models_urdf[model_name][2]==True else "false")
+            arg3 = "collision_model_enlargement:=" + str(collision_models_urdf[model_name][3])
+            arg4 = "collision_model_no_hands:=" + ("true" if collision_models_urdf[model_name][4]==True else "false")
+
+            if not os.path.isfile(urdf_uri):
+                subprocess.call(["rosrun", "xacro", "xacro", "-o", urdf_uri, xacro_uri, arg1, arg2, arg3, arg4])
+            robot_name = self.urdf_module.SendCommand('load ' + urdf_uri + ' ' + srdf_uri)
             robot = self.env.GetRobot(robot_name)
             self.env.Remove(robot)
             robot.SetName(model_name)

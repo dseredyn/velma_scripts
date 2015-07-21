@@ -80,10 +80,9 @@ class TestOrOctomap:
 
         rospack = rospkg.RosPack()
         env_file=rospack.get_path('velma_scripts') + '/data/common/velma_room.env.xml'
-        xacro_uri=rospack.get_path('velma_description') + '/robots/velma.urdf.xacro'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
-        rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, xacro_uri, srdf_path)
+        rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, srdf_path)
 
         self.listener = tf.TransformListener()
 
@@ -113,7 +112,7 @@ class TestOrOctomap:
         openrave.startOpenraveURDF(env_file=env_file)
         openrave.runOctomap()
 
-        openrave.readRobot(xacro_uri=xacro_uri, srdf_path=srdf_path)
+        openrave.readRobot(srdf_path=srdf_path)
 
 # TODO
 #        for link in openrave.robot_rave.GetLinks():

@@ -47,6 +47,35 @@ class PlannerRRT:
       openrave.readRobot(srdf_path=srdf_path)
       openrave.runOctomap()
 
+      joints_max_step = {
+      "head_pan_joint" : 15.0/180.0*math.pi,
+      "head_tilt_joint" : 15.0/180.0*math.pi,
+      "left_HandFingerOneKnuckleOneJoint" : 10.0/180.0*math.pi,
+      "left_HandFingerOneKnuckleTwoJoint" : 10.0/180.0*math.pi,
+      "left_HandFingerThreeKnuckleTwoJoint" : 10.0/180.0*math.pi,
+      "left_HandFingerTwoKnuckleTwoJoint" : 10.0/180.0*math.pi,
+      "left_arm_0_joint" : 3.0/180.0*math.pi,
+      "left_arm_1_joint" : 3.0/180.0*math.pi,
+      "left_arm_2_joint" : 3.0/180.0*math.pi,
+      "left_arm_3_joint" : 5.0/180.0*math.pi,
+      "left_arm_4_joint" : 10.0/180.0*math.pi,
+      "left_arm_5_joint" : 10.0/180.0*math.pi,
+      "left_arm_6_joint" : 10.0/180.0*math.pi,
+      "right_HandFingerOneKnuckleOneJoint" : 10.0/180.0*math.pi,
+      "right_HandFingerOneKnuckleTwoJoint" : 10.0/180.0*math.pi,
+      "right_HandFingerThreeKnuckleTwoJoint" : 10.0/180.0*math.pi,
+      "right_HandFingerTwoKnuckleTwoJoint" : 10.0/180.0*math.pi,
+      "right_arm_0_joint" : 4.0/180.0*math.pi,
+      "right_arm_1_joint" : 4.0/180.0*math.pi,
+      "right_arm_2_joint" : 4.0/180.0*math.pi,
+      "right_arm_3_joint" : 5.0/180.0*math.pi,
+      "right_arm_4_joint" : 10.0/180.0*math.pi,
+      "right_arm_5_joint" : 10.0/180.0*math.pi,
+      "right_arm_6_joint" : 10.0/180.0*math.pi,
+      "torso_0_joint" : 2.0/180.0*math.pi,
+      "torso_1_joint" : 2.0/180.0*math.pi,
+      }
+
       with openrave.env:
 
         ETA = 60.0/180.0*math.pi
@@ -65,16 +94,22 @@ class PlannerRRT:
             return True
 
         def CollisionFree(q1, q2, dof_indices):
-                dist = max(abs(q1-q2))
-                steps = int(dist / (5.0/180.0*math.pi))
-                if steps < 2:
-                    steps = 2
-                for i in range(1, steps):
-                    t = float(i)/float(steps-1)
-                    current_q = q1 * (1.0-t) + q2 * t
-                    if not isStateValid(current_q, dof_indices):
-                        return False
-                return True
+            q_diff = abs(q2-q1)
+            max_steps = 0
+            for q_idx in range(len(q_diff)):
+                q_steps = int(q_diff[q_idx] / dof_max_step[q_idx])
+                if q_steps > max_steps:
+                    max_steps = q_steps
+
+            steps = max_steps
+            if steps < 2:
+                steps = 2
+            for i in range(1, steps):
+                t = float(i)/float(steps-1)
+                current_q = q1 * (1.0-t) + q2 * t
+                if not isStateValid(current_q, dof_indices):
+                    return False
+            return True
 
         def SampleFree(dof_indices, dof_limits, start_q, shortest_path_len, best_q_idx, goal_V_ids, V, E):
                 num_dof = len(dof_limits)
@@ -214,6 +249,9 @@ class PlannerRRT:
                     queue_slave.put( ("setInitialConfiguration", True) )
                 if cmd_s == "setTaskSpec":
                     taskrrt = msg_s[1](openrave, msg_s[2])
+                    dof_max_step = []
+                    for joint_name in taskrrt.GetDofNames():
+                        dof_max_step.append( joints_max_step[joint_name] )
                     queue_slave.put( ("setTaskSpec", True) )
 
             elif cmd == "addFirstNode":

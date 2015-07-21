@@ -126,7 +126,7 @@ class PointCloudFilter:
                     print 'cannot transform'
                     continue
 
-                openrave.updateRobotConfigurationRos(self.velma.js_pos)
+                openrave.updateRobotConfigurationRos(self.velma.getJointStateAtTime(time_stamp))
 
                 pointcloud.header = self.pointcloud_orig.header
                 pointcloud.height = self.pointcloud_orig.height

@@ -142,15 +142,16 @@ class TestOrOctomap:
 
         print "grasps:", len(T_B_E_list)
 
-        # look around
-        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
-        rospy.sleep(2)
-        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,-1,1.8))))
-        rospy.sleep(2)
-        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,1,1.8))))
-        rospy.sleep(2)
-        self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
-        rospy.sleep(2)
+        if False:
+            # look around
+            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
+            rospy.sleep(2)
+            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,-1,1.8))))
+            rospy.sleep(2)
+            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,1,1.8))))
+            rospy.sleep(2)
+            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
+            rospy.sleep(2)
 
         raw_input("Press ENTER to continue...")
 
@@ -158,7 +159,7 @@ class TestOrOctomap:
 
         print "octomap updated"
 
-        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("right", T_B_E_list), 120.0)
+        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("left", T_B_E_list), 60.0)
 
         traj = []
         for i in range(len(path)-1):
@@ -172,9 +173,19 @@ class TestOrOctomap:
                 break
             openrave.showTrajectory(dof_names, 10.0, traj)
 
+        traj = self.velma.prepareTrajectory(path, self.velma.getJointStatesByNames(dof_names))
+        self.velma.switchToJoint()
+        self.velma.moveJointTraj(traj, dof_names, start_time=0.2)
+
+        raw_input("Press ENTER to continue...")
+
+        path.reverse()
+        traj = self.velma.prepareTrajectory(path, self.velma.getJointStatesByNames(dof_names))
+        self.velma.moveJointTraj(traj, dof_names, start_time=0.2)
+
+        raw_input("Press ENTER to continue...")
+
         rrt.cleanup()
-#        raw_input("Press ENTER to exit...")
-        exit(0)
 
 if __name__ == '__main__':
 

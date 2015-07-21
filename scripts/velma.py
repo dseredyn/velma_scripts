@@ -111,11 +111,37 @@ Class for velma robot.
         except rospy.ServiceException, e:
             print "Service call failed: %s"%e
 
+    def getJointStatesByNames(self, dof_names):
+        js = []
+        for joint_name in dof_names:
+            js.append( self.js_pos[joint_name] )
+        return js
+
+    def getJointStateAtTime(self, time):
+        hist_len = len(self.js_pos_history)
+        for step in range(hist_len-1):
+            h1_idx = (self.js_pos_history_idx - step - 1) % hist_len
+            h2_idx = (self.js_pos_history_idx - step) % hist_len
+            if self.js_pos_history[h1_idx] == None or self.js_pos_history[h2_idx] == None:
+                return None
+
+            time1 = self.js_pos_history[h1_idx][0]
+            time2 = self.js_pos_history[h2_idx][0]
+            if time > time1 and time <= time2:
+                factor = (time - time1).to_sec() / (time2 - time1).to_sec()
+                js_pos = {}
+                for joint_name in self.js_pos_history[h1_idx][1]:
+                    js_pos[joint_name] = self.js_pos_history[h1_idx][1][joint_name] * (1.0 - factor) + self.js_pos_history[h2_idx][1][joint_name] * factor
+                return js_pos
+
     def jointStatesCallback(self, data):
         joint_idx = 0
         for joint_name in data.name:
             self.js_pos[joint_name] = data.position[joint_idx]
             joint_idx += 1
+
+        self.js_pos_history_idx = (self.js_pos_history_idx + 1) % len(self.js_pos_history)
+        self.js_pos_history[self.js_pos_history_idx] = (data.header.stamp, copy.copy(self.js_pos))
 
         if self.js_names_vector == None:
             self.js_names_vector = []
@@ -239,6 +265,10 @@ Class for velma robot.
         self.fk_ik_solver = None
         self.js_names_vector = None
         self.js_pos = {}
+        self.js_pos_history = []
+        for i in range(200):
+            self.js_pos_history.append( None )
+        self.js_pos_history_idx = 0
 
         self.joint_impedance_active = False
         self.cartesian_impedance_active = False
@@ -456,15 +486,12 @@ Class for velma robot.
 
         self.action_impedance_client.send_goal(action_impedance_goal)
 
-    def moveJoint(self, q_dest, joint_names, time, start_time=0.2, stamp=None):
+    def moveJoint(self, q_dest, joint_names, time, start_time=0.2):
         if not (not self.cartesian_impedance_active and self.joint_impedance_active):
             print "FATAL ERROR: moveJoint"
             exit(0)
         goal = FollowJointTrajectoryGoal()
         goal.trajectory.joint_names = joint_names
-#['torso_0_joint', 'torso_1_joint',
-#        'right_arm_0_joint', 'right_arm_1_joint', 'right_arm_2_joint', 'right_arm_3_joint', 'right_arm_4_joint', 'right_arm_5_joint', 'right_arm_6_joint',
-#        'left_arm_0_joint', 'left_arm_1_joint', 'left_arm_2_joint', 'left_arm_3_joint', 'left_arm_4_joint', 'left_arm_5_joint', 'left_arm_6_joint']
 
         vel = []
         q_dest_all = []
@@ -472,14 +499,6 @@ Class for velma robot.
             q_dest_all.append(q_dest[q_idx])
             vel.append(0)
 
-#        move_joint_name_idx = {'right_arm_0_joint':0, 'right_arm_1_joint':1, 'right_arm_2_joint':2, 'right_arm_3_joint':3, 'right_arm_4_joint':4, 'right_arm_5_joint':5, 'right_arm_6_joint':6}
-#        q_dest_all = []
-#        for joint_name in goal.trajectory.joint_names:
-#            if joint_name in move_joint_name_idx:
-#                q = q_dest[move_joint_name_idx[joint_name]]
-#            else:
-#                q = self.js_pos[joint_name]
-#            q_dest_all.append(q)
         goal.trajectory.points.append(JointTrajectoryPoint(q_dest_all, vel, [], [], rospy.Duration(time)))
         position_tol = 1.0/180.0 * math.pi
         velocity_tol = 1.0/180.0 * math.pi
@@ -490,55 +509,55 @@ Class for velma robot.
         self.joint_traj_active = True
         self.action_right_joint_traj_client.send_goal(goal)
 
-    def moveWristTrajJoint(self, traj, joint_names, time_mult, max_wrench, start_time=0.01, stamp=None):
+    def moveJointTraj(self, traj, joint_names, start_time=0.2):
         if not (not self.cartesian_impedance_active and self.joint_impedance_active):
-            print "FATAL ERROR: moveWristTrajJoint"
+            print "FATAL ERROR: moveJointTraj"
             exit(0)
         goal = FollowJointTrajectoryGoal()
-# TODO
-        return
-
         goal.trajectory.joint_names = joint_names
-#['torso_0_joint', 'torso_1_joint',
-#        'right_arm_0_joint', 'right_arm_1_joint', 'right_arm_2_joint', 'right_arm_3_joint', 'right_arm_4_joint', 'right_arm_5_joint', 'right_arm_6_joint',
-#        'left_arm_0_joint', 'left_arm_1_joint', 'left_arm_2_joint', 'left_arm_3_joint', 'left_arm_4_joint', 'left_arm_5_joint', 'left_arm_6_joint']
-
-#        move_joint_name_idx = {'right_arm_0_joint':0, 'right_arm_1_joint':1, 'right_arm_2_joint':2, 'right_arm_3_joint':3, 'right_arm_4_joint':4, 'right_arm_5_joint':5, 'right_arm_6_joint':6}
 
         pos = traj[0]
         vel = traj[1]
         acc = traj[2]
         dti = traj[3]
         time = 0.0
-        for i in range(0, len(pos)):
-            time += dti[i] * time_mult
-            if vel != None:
-                v = [0.0, 0.0, vel[i][0]/time_mult, vel[i][1]/time_mult, vel[i][2]/time_mult, vel[i][3]/time_mult, vel[i][4]/time_mult, vel[i][5]/time_mult, vel[i][6]/time_mult, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-            else:
-                v = []
-            if acc != None:
-                a = [0.0, 0.0] + acc[i] + [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-            else:
-                a = []
 
+        for node_idx in range(0, len(pos)):
+            time += dti[node_idx]
             q_dest_all = []
-            for joint_name in goal.trajectory.joint_names:
-                if joint_name in move_joint_name_idx:
-                    q = pos[i][move_joint_name_idx[joint_name]]
-                else:
-                    q = self.js_pos[joint_name]
-                q_dest_all.append(q)
+            vel_dest_all = []
+            for q_idx in range(len(pos[node_idx])):
+                q_dest_all.append(pos[node_idx][q_idx])
+            if vel != None:
+                for q_idx in range(len(pos[node_idx])):
+                    vel_dest_all.append(vel[node_idx][q_idx])
+            goal.trajectory.points.append(JointTrajectoryPoint(q_dest_all, vel_dest_all, [], [], rospy.Duration(time)))
 
-            goal.trajectory.points.append(JointTrajectoryPoint(q_dest_all, v, a, [], rospy.Duration(time)))
-
-        position_tol = 7.0/180.0 * math.pi
-        velocity_tol = 7.0/180.0 * math.pi
-        acceleration_tol = 7.0/180.0 * math.pi
+        position_tol = 1.0/180.0 * math.pi
+        velocity_tol = 1.0/180.0 * math.pi
+        acceleration_tol = 1.0/180.0 * math.pi
         for joint_name in goal.trajectory.joint_names:
             goal.path_tolerance.append(JointTolerance(joint_name, position_tol, velocity_tol, acceleration_tol))
-        goal.trajectory.header.stamp = rospy.Time.now() + rospy.Duration(1.0)
+        goal.trajectory.header.stamp = rospy.Time.now() + rospy.Duration(start_time)
         self.joint_traj_active = True
         self.action_right_joint_traj_client.send_goal(goal)
+
+    def prepareTrajectory(self, path, q_start):
+        max_vel = 10.0/180.0*math.pi
+        traj_pos = []
+        traj_time = []
+        q_prev = q_start
+        for i in range(len(path)):
+            q = path[i]
+            max_dist = None
+            for q_idx in range(len(q)):
+                dist = q[q_idx] - q_prev[q_idx]
+                if max_dist == None or dist > max_dist:
+                    max_dist = dist
+            traj_pos.append( q )
+            traj_time.append( max_dist / max_vel )      # t = s / v
+            q_prev = q
+        return [traj_pos, None, None, traj_time]
 
     def stopArm(self):
 #        if self.action_right_cart_traj_client.gh:

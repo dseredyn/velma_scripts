@@ -43,7 +43,7 @@ class PlannerRRT:
 
     def openraveWorker(self, process_id, env_file, srdf_path, queue_master, queue_master_special, queue_slave):
       openrave = openraveinstance.OpenraveInstance()
-      openrave.startOpenraveURDF(env_file=env_file, viewer=False)
+      openrave.startOpenraveURDF(env_file=env_file, viewer=False, collision='fcl')
       openrave.readRobot(srdf_path=srdf_path)
       openrave.runOctomap()
 

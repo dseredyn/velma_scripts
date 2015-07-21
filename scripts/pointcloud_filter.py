@@ -103,10 +103,13 @@ class PointCloudFilter:
         # Initialise Openrave
         #
         openrave = openraveinstance.OpenraveInstance()
-        openrave.startOpenraveURDF(env_file=None, viewer=False)
-#        openrave.env.GetCollisionChecker().SetCollisionOptions(0)#4)
-        openrave.readRobot(srdf_path=srdf_path)
-        sphere_probe = openrave.addSphere('sphere_probe', 0.05)
+        openrave.startOpenraveURDF(env_file=None, viewer=False, collision='fcl')
+
+        collision_models_urdf = {
+        "velmasimplified0" : ("velma_simplified.srdf", False, True, 0.0, False),
+        }
+        openrave.readRobot(srdf_path=srdf_path, collision_models_urdf=collision_models_urdf)
+        sphere_probe = openrave.addSphere('sphere_probe', 0.1)
 
         while not rospy.is_shutdown():
             self.mutex.acquire()

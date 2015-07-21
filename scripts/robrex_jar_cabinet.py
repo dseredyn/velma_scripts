@@ -109,7 +109,7 @@ class TestOrOctomap:
         #
 
         openrave = openraveinstance.OpenraveInstance()
-        openrave.startOpenraveURDF(env_file=env_file)
+        openrave.startOpenraveURDF(env_file=env_file, collision='fcl')
         openrave.runOctomap()
 
         openrave.readRobot(srdf_path=srdf_path)
@@ -118,7 +118,7 @@ class TestOrOctomap:
 #        for link in openrave.robot_rave.GetLinks():
 #            print link.GetName(), len(link.GetCollisionData().vertices), len(link.GetGeometries())
 #            for geom in link.GetGeometries():
-#                print "   ", geom.GetType(), geom.IsVisible(), geom.GetSphereRadius()
+#                print "   ", geom.GetType(), geom.IsVisible(), geom.GetSphereRadius(), len(geom.GetCollisionMesh().vertices), geom.GetBoxExtents()
 #        exit(0)
 
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))

@@ -370,7 +370,7 @@ class KeyRotTaskRRT:
             q_goal[self.torso_0_joint_idx] = random.uniform(self.dof_limits[self.torso_0_joint_idx][0]+0.01, self.dof_limits[self.torso_0_joint_idx][1]-0.01)
 
             self.openrave.robot_rave.SetDOFValues(q_goal, self.dof_indices)
-            solutions = self.openrave.findIkSolutions(T_B_E, man_name="right_arm", freevalues=freevalues)
+            solutions = self.openrave.findIkSolutions(T_B_E, man_name="right_arm", freevalues=freevalues, filter_options=0)
 
 #            solutions_dist = []
 #            # sort the solutions
@@ -622,7 +622,7 @@ class GraspTaskRRT:
             q_goal[self.torso_0_joint_idx] = random.uniform(self.dof_limits[self.torso_0_joint_idx][0]+0.01, self.dof_limits[self.torso_0_joint_idx][1]-0.01)
 
             self.openrave.robot_rave.SetDOFValues(q_goal, self.dof_indices)
-            solutions = self.openrave.findIkSolutions(T_B_Ed, man_name=self.gripper+"_arm", freevalues=freevalues)
+            solutions = self.openrave.findIkSolutions(T_B_Ed, man_name=self.gripper+"_arm", freevalues=freevalues, filter_options=0)
             if len(solutions) == 0:
                 continue
 

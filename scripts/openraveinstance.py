@@ -109,7 +109,7 @@ class OpenraveInstance:
         self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
         self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
 
-    def readRobot(self, srdf_path=None, env_file=None, collision=None):
+    def readRobot(self, srdf_path=None, env_file=None, collision=None, collision_models_urdf=None):
         if srdf_path == None:
             # TODO: exception
             print "ERROR: readRobot:", srdf_path
@@ -120,13 +120,14 @@ class OpenraveInstance:
 
         xacro_uri = srdf_path + "velma.urdf.xacro"
 
-        collision_models_urdf = {
-#        "velmafull" : ("velma.srdf", "collision_model_full:=true", "collision_model_simplified:=false", "collision_model_enlargement:=0.0", "collision_model_no_hands:=false"),
-        "velmasimplified0" : ("velma_simplified.srdf", False, True, 0.0, False),
-        "velmasimplified1" : ("velma_simplified.srdf", False, True, 0.01, False),
-#        "velmasimplified2" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=false"),
-#        "velmanohands" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=true"),
-        }
+        if collision_models_urdf == None:
+            collision_models_urdf = {
+#            "velmafull" : ("velma.srdf", "collision_model_full:=true", "collision_model_simplified:=false", "collision_model_enlargement:=0.0", "collision_model_no_hands:=false"),
+            "velmasimplified0" : ("velma_simplified.srdf", False, True, 0.0, False),
+            "velmasimplified1" : ("velma_simplified.srdf", False, True, 0.01, False),
+#            "velmasimplified2" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=false"),
+#            "velmanohands" : ("velma_simplified.srdf", "collision_model_full:=false", "collision_model_simplified:=true", "collision_model_enlargement:=0.02", "collision_model_no_hands:=true"),
+            }
 
         mimic_joints = [
         ("right_HandFingerTwoKnuckleOneJoint", "right_HandFingerOneKnuckleOneJoint*1.0", "|right_HandFingerOneKnuckleOneJoint 1.0", ""),
@@ -1040,8 +1041,8 @@ class OpenraveInstance:
     def findIkSolution(self, T_Br_E, man_name="right_arm", freevalues=None):
         return self.manipulators[man_name].FindIKSolution(conv.KDLToOpenrave(self.T_World_Br * T_Br_E), freevalues, IkFilterOptions.CheckEnvCollisions)
 
-    def findIkSolutions(self, T_Br_E, man_name="right_arm", freevalues=None):
-        return self.manipulators[man_name].FindIKSolutions(conv.KDLToOpenrave(self.T_World_Br * T_Br_E), freevalues, IkFilterOptions.CheckEnvCollisions)
+    def findIkSolutions(self, T_Br_E, man_name="right_arm", freevalues=None, filter_options=IkFilterOptions.CheckEnvCollisions):
+        return self.manipulators[man_name].FindIKSolutions(conv.KDLToOpenrave(self.T_World_Br * T_Br_E), freevalues, filter_options)
 
     def getConfigurationPenalty(self, q):
         # punish for singularities in end configuration

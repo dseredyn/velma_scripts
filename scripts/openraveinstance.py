@@ -223,25 +223,25 @@ class OpenraveInstance:
 #        print RaveLoadPlugin('or_octomap')
 #        print RaveLoadPlugin('or_octomap_checker')
 
-        self.or_octomap = RaveCreateSensorSystem(self.env, "or_octomap_server")
-        out = self.or_octomap.SendCommand("Enable")
+        self.or_octomap_server = RaveCreateSensorSystem(self.env, "or_octomap_server")
+        out = self.or_octomap_server.SendCommand("Enable")
 
     def runOctomapClient(self):
 #        RaveSetDebugLevel(5)
 #        print RaveLoadPlugin('or_octomap')
 #        print RaveLoadPlugin('or_octomap_checker')
 
-        self.or_octomap = RaveCreateSensorSystem(self.env, "or_octomap_client")
-        out = self.or_octomap.SendCommand("Enable")
+        self.or_octomap_client = RaveCreateSensorSystem(self.env, "or_octomap_client")
+        out = self.or_octomap_client.SendCommand("Enable")
 
     def updateOctomap(self):
-        out = self.or_octomap.SendCommand("Update")
+        out = self.or_octomap_client.SendCommand("Update")
 
     def addMaskedObjectToOctomap(self, name):
-        out = self.or_octomap.SendCommand("Mask " + name)
+        out = self.or_octomap_server.SendCommand("Mask " + name)
 
     def removeMaskedObjectFromOctomap(self, name):
-        out = self.or_octomap.SendCommand("Unmask " + name)
+        out = self.or_octomap_server.SendCommand("Unmask " + name)
 
     def setCamera(self, cam_pos, target_pos):
             cam_z = target_pos - cam_pos

@@ -43,6 +43,7 @@ import control_msgs.msg
 import rospkg
 from velma import Velma
 import conversions as conv
+import objectstate
 
 import tf
 from tf import *
@@ -62,13 +63,6 @@ import openraveinstance
 import struct
 import binascii
 
-class ObjectState:
-    def __init__(self):
-        self.kinbody = None
-        self.masked = False
-        self.last_update = None
-        self.T_W_O = None
-
 class StateServer:
 
     def __init__(self):
@@ -83,7 +77,10 @@ class StateServer:
         rospack.get_path('velma_scripts') + '/data/jar/jar.kinbody.xml'
         ]
 
-        obj_list = []
+#        obj_filenames = [
+#        rospack.get_path('velma_scripts') + '/data/jar/jar.kinbody.xml'
+#        ]
+#        obj_list = []
 
         print "creating interface for Velma..."
         # create the interface for Velma robot
@@ -107,10 +104,11 @@ class StateServer:
         }
         openrave.readRobot(srdf_path=srdf_path, collision_models_urdf=collision_models_urdf)
 
-        for filename in obj_filenames:
-            obj = ObjectState()
-            obj.kinbody = openrave.readBodyFromFile(filename)
-            obj_list.append(obj)
+        mo_state = objectstate.MovableObjectsState(self.listener, openrave.env, obj_filenames)
+#        for filename in obj_filenames:
+#            obj = ObjectState()
+#            obj.kinbody = openrave.readBodyFromFile(filename)
+#            obj_list.append(obj)
 
         openrave.addMaskedObjectToOctomap("velmasimplified0");
 
@@ -119,23 +117,31 @@ class StateServer:
             openrave.updateRobotConfigurationRos(js)
 
             time_tf = rospy.Time.now()-rospy.Duration(0.5)
-            for obj in obj_list:
-                obj_name = obj.kinbody.GetName()
-                if self.listener.canTransform('world', obj_name, time_tf):
-                    pose = self.listener.lookupTransform('world', obj_name, time_tf)
-                    obj.T_W_O = pm.fromTf(pose)
-                    if not obj.masked:
-                        obj.kinbody.SetTransform(conv.KDLToOpenrave(obj.T_W_O))
-                        openrave.env.Add(obj.kinbody)
-                        openrave.addMaskedObjectToOctomap(obj_name);
-                        obj.masked = True
-                    obj.last_update = time_tf
-                else:
-                    if obj.masked:
-                        if (time_tf - obj.last_update).to_sec() > 2.0:
-                            openrave.removeMaskedObjectFromOctomap(obj_name);
-                            openrave.env.Remove(obj.kinbody)
-                            obj.masked = False
+            added, removed = mo_state.update(time_tf)
+
+            for obj in added:
+                openrave.addMaskedObjectToOctomap(obj.kinbody.GetName())
+
+            for obj in removed:
+                openrave.removeMaskedObjectFromOctomap(obj.kinbody.GetName())
+                
+#            for obj in obj_list:
+#                obj_name = obj.kinbody.GetName()
+#                if self.listener.canTransform('world', obj_name, time_tf):
+#                    pose = self.listener.lookupTransform('world', obj_name, time_tf)
+#                    obj.T_W_O = pm.fromTf(pose)
+#                    if not obj.masked:
+#                        obj.kinbody.SetTransform(conv.KDLToOpenrave(obj.T_W_O))
+#                        openrave.env.Add(obj.kinbody)
+#                        openrave.addMaskedObjectToOctomap(obj_name)
+#                        obj.masked = True
+#                    obj.last_update = time_tf
+#                else:
+#                    if obj.masked:
+#                        if (time_tf - obj.last_update).to_sec() > 2.0:
+#                            openrave.removeMaskedObjectFromOctomap(obj_name)
+#                            openrave.env.Remove(obj.kinbody)
+#                            obj.masked = False
 
             rospy.sleep(0.01)
 

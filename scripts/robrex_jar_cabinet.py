@@ -65,6 +65,7 @@ import rrt_star_connect_planner
 import tree
 import rosparam
 import tasks
+import objectstate
 
 class TestOrOctomap:
     """
@@ -76,7 +77,7 @@ class TestOrOctomap:
 
     def spin(self):
 
-        if True:
+        if False:
             tab2=[
             [-0.397855401039,-2.90307354927],
             [2.12894010544,-2.90307354927],
@@ -109,7 +110,11 @@ class TestOrOctomap:
         env_file=rospack.get_path('velma_scripts') + '/data/common/velma_room.env.xml'
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
-        rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, srdf_path)
+        obj_filenames = [
+        rospack.get_path('velma_scripts') + '/data/jar/jar.kinbody.xml'
+        ]
+
+        rrt = rrt_star_connect_planner.PlannerRRT(0, env_file, srdf_path)
 
         self.listener = tf.TransformListener()
 
@@ -134,17 +139,22 @@ class TestOrOctomap:
         #
 
         openrave = openraveinstance.OpenraveInstance()
-        openrave.startOpenraveURDF(env_file=env_file, collision='fcl')
-        openrave.runOctomap()
+        openrave.startOpenrave(collision='fcl')
+        openrave.loadEnv(env_file)
+
+        openrave.runOctomapClient()
+
 
         openrave.readRobot(srdf_path=srdf_path)
+
+
+#        mo_state = objectstate.MovableObjectsState(self.listener, openrave.env, obj_filenames)
 
 # TODO
 #        for link in openrave.robot_rave.GetLinks():
 #            print link.GetName(), len(link.GetCollisionData().vertices), len(link.GetGeometries())
 #            for geom in link.GetGeometries():
 #                print "   ", geom.GetType(), geom.IsVisible(), geom.GetSphereRadius(), len(geom.GetCollisionMesh().vertices), geom.GetBoxExtents()
-#        exit(0)
 
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
         openrave.updateRobotConfigurationRos(self.velma.js_pos)
@@ -169,7 +179,7 @@ class TestOrOctomap:
 
         print "grasps:", len(T_B_E_list)
 
-        if False:
+        if True:
             # look around
             self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
             rospy.sleep(2)
@@ -183,6 +193,8 @@ class TestOrOctomap:
         raw_input("Press ENTER to continue...")
 
         openrave.updateOctomap()
+#        time_tf = rospy.Time.now()-rospy.Duration(0.5)
+#        added, removed = mo_state.update(time_tf)
 
         print "octomap updated"
 

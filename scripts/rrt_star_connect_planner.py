@@ -43,9 +43,11 @@ class PlannerRRT:
 
     def openraveWorker(self, process_id, env_file, srdf_path, queue_master, queue_master_special, queue_slave):
       openrave = openraveinstance.OpenraveInstance()
-      openrave.startOpenraveURDF(env_file=env_file, viewer=False, collision='fcl')
+      openrave.startOpenrave(viewer=False, collision='fcl')
+      openrave.loadEnv(env_file)
       openrave.readRobot(srdf_path=srdf_path)
-      openrave.runOctomap()
+      openrave.runOctomapClient()
+#      mo_state = objectstate.MovableObjectsState(self.listener, openrave.env, obj_filenames)
 
       joints_max_step = {
       "head_pan_joint" : 15.0/180.0*math.pi,
@@ -244,6 +246,8 @@ class PlannerRRT:
                 cmd_s = msg_s[0]
                 if cmd_s == "setInitialConfiguration":
                     openrave.updateOctomap()
+#                    time_tf = rospy.Time.now()-rospy.Duration(0.5)
+#                    added, removed = mo_state.update(time_tf)
                     q = msg_s[1]
                     openrave.robot_rave.SetDOFValues(q)
                     queue_slave.put( ("setInitialConfiguration", True) )

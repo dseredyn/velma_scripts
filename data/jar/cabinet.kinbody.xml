@@ -1,0 +1,42 @@
+<KinBody name="Cabinet">
+  <Body name="base" type="dynamic">
+    <!-- horizontal shelf -->
+    <Geom type="box">
+      <Translation>0 0 0.685</Translation>
+      <extents>0.121 0.331 0.009</extents>
+      <diffusecolor>0.8 0.4 0.1</diffusecolor>
+    </Geom>
+    <Geom type="box">
+      <Translation>0 0 0.547</Translation>
+      <extents>0.121 0.331 0.009</extents>
+      <diffusecolor>0.8 0.4 0.1</diffusecolor>
+    </Geom>
+    <Geom type="box">
+      <Translation>0 0 0.244</Translation>
+      <extents>0.121 0.331 0.009</extents>
+      <diffusecolor>0.8 0.4 0.1</diffusecolor>
+    </Geom>
+    <Geom type="box">
+      <Translation>0 0 0.021</Translation>
+      <extents>0.121 0.331 0.021</extents>
+      <diffusecolor>0.8 0.4 0.1</diffusecolor>
+    </Geom>
+    <!-- vertical -->
+    <Geom type="box">
+      <Translation>0 0.322 0.347</Translation>
+      <extents>0.121 0.009 0.347</extents>
+      <diffusecolor>0.8 0.4 0.1</diffusecolor>
+    </Geom>
+    <Geom type="box">
+      <Translation>0 -0.322 0.347</Translation>
+      <extents>0.121 0.009 0.347</extents>
+      <diffusecolor>0.8 0.4 0.1</diffusecolor>
+    </Geom>
+    <Geom type="box">
+      <Translation>-0.12 0 0.347</Translation>
+      <extents>0.001 0.331 0.347</extents>
+      <diffusecolor>0.8 0.4 0.1</diffusecolor>
+    </Geom>
+  </Body>
+</KinBody>
+

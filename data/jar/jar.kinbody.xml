@@ -1,0 +1,11 @@
+<KinBody name="jar">
+  <Body type="dynamic">
+    <Geom type="cylinder">
+      <radius>0.045</radius>
+      <height>0.200</height>
+      <diffuseColor>.0 .0 .9</diffuseColor>
+      <ambientColor>0.6 0.6 0.6</ambientColor>
+    </Geom>
+  </Body>
+</KinBody>
+

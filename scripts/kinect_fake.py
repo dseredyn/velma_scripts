@@ -107,16 +107,12 @@ class KinectFake:
         self.point_cloud.row_step = self.point_cloud.point_step * self.point_cloud.width
         self.point_cloud.is_dense = False
 
-        jar_pose = geometry_msgs.msg.PoseStamped()
-        jar_pose.header.seq = 0
-        jar_pose.header.frame_id = 'torso_base'
-
         #
         # Initialise Openrave
         #
         openrave = openraveinstance.OpenraveInstance()
-        openrave.startOpenrave(viewer=True)
-        openrave.runOctomapServer()
+        openrave.startOpenrave(viewer=False)
+#        openrave.runOctomapServer()
         openrave.loadEnv(env_file)
 #        openrave.env.GetCollisionChecker().SetCollisionOptions(0)#4)
         collision_models_urdf = {
@@ -124,7 +120,7 @@ class KinectFake:
         }
         openrave.readRobot(srdf_path=srdf_path, collision_models_urdf=collision_models_urdf)
 
-        openrave.addMaskedObjectOctomap("velmasimplified0");
+#        openrave.addMaskedObjectOctomap("velmasimplified0");
 
         while not rospy.is_shutdown():
             time_now, js = velma.getLastJointState()

@@ -237,8 +237,11 @@ class OpenraveInstance:
     def updateOctomap(self):
         out = self.or_octomap.SendCommand("Update")
 
-    def addMaskedObjectOctomap(self, name):
+    def addMaskedObjectToOctomap(self, name):
         out = self.or_octomap.SendCommand("Mask " + name)
+
+    def removeMaskedObjectFromOctomap(self, name):
+        out = self.or_octomap.SendCommand("Unmask " + name)
 
     def setCamera(self, cam_pos, target_pos):
             cam_z = target_pos - cam_pos
@@ -298,6 +301,10 @@ class OpenraveInstance:
         mesh.indices = copy.deepcopy(faces)
         body.InitFromTrimesh(mesh, True)
         self.env.Add(body,True)
+
+    def readBodyFromFile(self, filename):
+        body = self.env.ReadKinBodyXMLFile(filename)
+        return body
 
     def addCBeam(self, name, w, h, l, t):
 #          h

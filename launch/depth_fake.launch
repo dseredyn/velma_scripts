@@ -4,18 +4,5 @@
     name="kinect"
     pkg="velma_scripts" type="kinect_fake.py" output="screen">
   </node>
-  <node
-    name="pointcloud_filter"
-    pkg="velma_scripts" type="pointcloud_filter.py" output="screen">
-  </node>
-  <node pkg="octomap_server" type="octomap_server_node" name="octomap_server">
-    <param name="resolution" value="0.025" />
-    <!-- fixed map frame (set to 'map' if SLAM or localization running!) -->
-    <param name="frame_id" type="string" value="map" />
-    <!-- maximum range to integrate (speedup!) -->
-    <param name="sensor_model/max_range" value="5.0" />
-    <!-- data source to integrate (PointCloud2) -->
-    <remap from="cloud_in" to="/pointcloud_filter/points" />
-  </node>
 </launch>
 

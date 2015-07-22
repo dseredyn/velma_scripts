@@ -76,6 +76,33 @@ class TestOrOctomap:
 
     def spin(self):
 
+        if True:
+            tab2=[
+            [-0.397855401039,-2.90307354927],
+            [2.12894010544,-2.90307354927],
+            [2.12043237686,-1.87363839149],
+            [1.92475450039,-1.43123674393],
+            [0.77621114254,-1.39720571041],
+            [0.350824713707,-1.00585031509],
+            [0.401871085167,-0.571956157684],
+            [0.810242056847,0.414940297604],
+            [1.34622907639,0.942419290543],
+            [2.11192464828,1.01898884773],
+            [2.12894010544,2.8906891346],
+            [-0.814733862877,2.8906891346],
+            [-1.22310483456,2.27813267708],
+            [-2.21850919724,2.29514837265],
+            [-2.22701668739,-1.32063627243],
+            [-1.81013822556,-1.66945314407],
+            [-0.814733862877,-1.73751521111],
+            [-0.423378348351,-2.09483933449],
+            ]
+            m_id = 0
+            for pt in tab2:
+                m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(pt[0], pt[1], 0.0), m_id, r=1, g=1, b=1, m_type=Marker.SPHERE, frame_id='world', namespace='edges', scale=Vector3(0.05, 0.05, 0.05))
+                rospy.sleep(0.01)
+            exit(0)
+
         simulation = True
 
         rospack = rospkg.RosPack()
@@ -92,7 +119,6 @@ class TestOrOctomap:
         self.pub_head_look_at = rospy.Publisher("/head_lookat_pose", geometry_msgs.msg.Pose)
         print "done."
 
-
         rospy.sleep(0.5)
         self.velma.updateTransformations()
 
@@ -103,7 +129,6 @@ class TestOrOctomap:
         self.velma.moveHandRight([30.0/180.0*math.pi, 30.0/180.0*math.pi, 30.0/180.0*math.pi, 0], hv, ht, 5000, True)
 
         rospy.sleep(1.0)
-
         #
         # Initialise Openrave
         #
@@ -125,12 +150,14 @@ class TestOrOctomap:
         openrave.updateRobotConfigurationRos(self.velma.js_pos)
 
         while True:
-            if self.listener.canTransform('world', 'jar', rospy.Time(0)):
-                pose = self.listener.lookupTransform('world', 'jar', rospy.Time(0))
+            if self.listener.canTransform('torso_base', 'jar', rospy.Time(0)):
+                pose = self.listener.lookupTransform('torso_base', 'jar', rospy.Time(0))
                 T_B_J = pm.fromTf(pose)
                 break
 
+        print "waiting for planner..."
         rrt.waitForInit()
+        print "planner initialized"
 
         T_B_E_list = []
         for angle_jar_axis in np.arange(0.0, math.pi*2.0, 10.0/180.0*math.pi):
@@ -189,7 +216,7 @@ class TestOrOctomap:
 
 if __name__ == '__main__':
 
-    rospy.init_node('test_or_octomap')
+    rospy.init_node('robrex_jar_cabinet')
 
     task = TestOrOctomap()
     rospy.sleep(1)

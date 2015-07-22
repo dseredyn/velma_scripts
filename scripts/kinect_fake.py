@@ -79,7 +79,7 @@ class KinectFake:
 
         print "creating interface for Velma..."
         # create the interface for Velma robot
-        self.velma = Velma()
+        velma = Velma()
         print "done."
 
         self.listener = tf.TransformListener()
@@ -115,22 +115,32 @@ class KinectFake:
         # Initialise Openrave
         #
         openrave = openraveinstance.OpenraveInstance()
-        openrave.startOpenraveURDF(env_file=env_file, viewer=False)
+        openrave.startOpenrave(viewer=True)
+        openrave.runOctomapServer()
+        openrave.loadEnv(env_file)
 #        openrave.env.GetCollisionChecker().SetCollisionOptions(0)#4)
+        collision_models_urdf = {
+        "velmasimplified0" : ("velma_simplified.srdf", False, True, 0.0, False),
+        }
+        openrave.readRobot(srdf_path=srdf_path, collision_models_urdf=collision_models_urdf)
 
-        openrave.readRobot(srdf_path=srdf_path)
+        openrave.addMaskedObjectOctomap("velmasimplified0");
 
         while not rospy.is_shutdown():
-            openrave.updateRobotConfigurationRos(self.velma.js_pos)
+            time_now, js = velma.getLastJointState()
+            T_B_C = velma.fk_ik_solver.calculateFk('head_kinect_rgb_optical_frame', js)
+
+            openrave.updateRobotConfigurationRos(js)
             rospy.sleep(0.1)
-            time_now = rospy.Time.now()-rospy.Duration(0.5)
-            if self.listener.canTransform('world', 'head_kinect_rgb_optical_frame', time_now):
-                pose = self.listener.lookupTransform('world', 'head_kinect_rgb_optical_frame', time_now)
+            time_tf = rospy.Time.now()-rospy.Duration(0.5)
+            if self.listener.canTransform('world', 'torso_base', time_tf):
+                pose = self.listener.lookupTransform('world', 'torso_base', time_tf)
             else:
                 print 'cannot transform'
                 continue
 
-            T_W_C = pm.fromTf(pose)
+            T_W_B = pm.fromTf(pose)
+            T_W_C = T_W_B * T_B_C
             T_C_W = T_W_C.Inverse()
 
             valid_points = 0
@@ -158,7 +168,6 @@ class KinectFake:
                         for i in range(32):
                             self.point_cloud.data.append(255)
 
-#            print "valid_points", valid_points
             self.point_cloud.header.seq += 1
             self.point_cloud.header.stamp = time_now
             self.point_cloud_pub.publish(self.point_cloud)
@@ -170,7 +179,7 @@ class KinectFake:
 
 if __name__ == '__main__':
 
-    rospy.init_node('kinect_fake')
+    rospy.init_node('kinect')
     v = KinectFake()
     v.spin()
 

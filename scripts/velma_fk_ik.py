@@ -209,6 +209,52 @@ class VelmaFkIkSolver:
                 jac_big[row_idx, q_idx] = col[row_idx]
         return jac_big
 
+    def isParentRec(self, parent_idx, child_idx):
+        if child_idx == None:
+            return False
+        if child_idx == parent_idx:
+            return True
+        return self.isParentRec(parent_idx, self.segment_parent_map[child_idx])
+
+    def isParent(self, parent_name, child_name):
+        parent_idx = self.segment_name_id_map[parent_name]
+        child_idx = self.segment_name_id_map[child_name]
+        return self.isParentRec( parent_idx, child_idx)
+
+    def getChain(self, link_idx):
+        chain = []
+        while link_idx != None:
+            chain.append(link_idx)
+            link_idx = self.segment_parent_map[link_idx]
+        return chain
+
+    def getAffectedDof(self, link1_name, link2_name):
+        link1_idx = self.segment_name_id_map[link1_name]
+        link2_idx = self.segment_name_id_map[link2_name]
+        ch1 = self.getChain(link1_idx)
+        ch2 = self.getChain(link2_idx)
+        ch1.reverse()
+        ch2.reverse()
+
+        last_common_link_idx = None
+        for ch_idx in range(min(len(ch1), len(ch2))):
+            if ch1[ch_idx] != ch2[ch_idx]:
+                break
+            last_common_link_idx = ch1[ch_idx]
+
+        ch1.reverse()
+        ch2.reverse()
+
+        affected_dofs = []
+        for l_idx in ch1:
+            if l_idx == last_common_link_idx:
+                break
+            if l_idx in self.segment_id_q_id_map:
+                dof_idx = self.segment_id_q_id_map[l_idx]
+                if not dof_idx in affected_dofs:
+                    affected_dofs.append(dof_idx)
+        return affected_dofs
+
     # JntToJac(KDL::Jacobian& jac, int link_index, const KDL::Vector &x)
     def getJacobianForX(self, jac, link_name, x, q, iq):
         link_index = self.segment_name_id_map[link_name]
@@ -218,6 +264,9 @@ class VelmaFkIkSolver:
         # Lets search the tree-element
         # If segmentname is not inside the tree, back out:
         # Let's make the jacobian zero:
+        for q_idx in range(len(q)):
+            jac.setColumn(q_idx, PyKDL.Twist())
+
         T_total = PyKDL.Frame(x)
         root_index = self.segment_name_id_map['torso_base']
         l_index = link_index
@@ -226,6 +275,7 @@ class VelmaFkIkSolver:
             # get the corresponding q_nr for this TreeElement:
             # get the pose of the segment:
             seg_kdl = self.segment_map[l_index]
+#            print "getJacobianForX", link_name, ":", seg_kdl.getJoint().getName()
             if seg_kdl.getJoint().getType() == PyKDL.Joint.None:
                 q_idx = None
                 q_seg = 0.0
@@ -275,6 +325,7 @@ class VelmaFkIkSolver:
         "right_arm_7_link",
         "left_HandPalmLink",
         "right_HandPalmLink",
+        'head_kinect_rgb_optical_frame',
         ]
         self.fk_chains = {}
         self.fk_solvers = {}

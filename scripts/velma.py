@@ -117,12 +117,20 @@ Class for velma robot.
             js.append( self.js_pos[joint_name] )
         return js
 
+    def getLastJointState(self):
+        self.joint_states_lock.acquire()
+        js = self.js_pos_history[self.js_pos_history_idx]
+        self.joint_states_lock.release()
+        return js
+
     def getJointStateAtTime(self, time):
+        self.joint_states_lock.acquire()
         hist_len = len(self.js_pos_history)
         for step in range(hist_len-1):
             h1_idx = (self.js_pos_history_idx - step - 1) % hist_len
             h2_idx = (self.js_pos_history_idx - step) % hist_len
             if self.js_pos_history[h1_idx] == None or self.js_pos_history[h2_idx] == None:
+                self.joint_states_lock.release()
                 return None
 
             time1 = self.js_pos_history[h1_idx][0]
@@ -132,9 +140,13 @@ Class for velma robot.
                 js_pos = {}
                 for joint_name in self.js_pos_history[h1_idx][1]:
                     js_pos[joint_name] = self.js_pos_history[h1_idx][1][joint_name] * (1.0 - factor) + self.js_pos_history[h2_idx][1][joint_name] * factor
+                self.joint_states_lock.release()
                 return js_pos
+        self.joint_states_lock.release()
+        return None
 
     def jointStatesCallback(self, data):
+        self.joint_states_lock.acquire()
         joint_idx = 0
         for joint_name in data.name:
             self.js_pos[joint_name] = data.position[joint_idx]
@@ -142,6 +154,7 @@ Class for velma robot.
 
         self.js_pos_history_idx = (self.js_pos_history_idx + 1) % len(self.js_pos_history)
         self.js_pos_history[self.js_pos_history_idx] = (data.header.stamp, copy.copy(self.js_pos))
+        self.joint_states_lock.release()
 
         if self.js_names_vector == None:
             self.js_names_vector = []
@@ -291,6 +304,8 @@ Class for velma robot.
         self.exit_on_emergency_stop = True
 
         self.last_contact_time = rospy.Time.now()
+
+        self.joint_states_lock = Lock()
 
         self.tactile_lock = {"left":Lock(), "right":Lock()}
 

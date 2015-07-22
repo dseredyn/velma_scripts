@@ -79,36 +79,6 @@ class OpenraveInstance:
     def __init__(self):
         self.joint_dof_idx_map = None
 
-    def startOpenrave(self, filename_environment):
-        parser = OptionParser(description='Openrave Velma interface')
-        OpenRAVEGlobalArguments.addOptions(parser)
-        (options, leftargs) = parser.parse_args()
-        self.env = OpenRAVEGlobalArguments.parseAndCreate(options,defaultviewer=True)
-        self.env.Load(filename_environment)
-        self.robot_rave = self.env.GetRobot("velma")
-        base_link = self.robot_rave.GetLink("torso_base")
-        self.T_World_Br = conv.OpenraveToKDL(base_link.GetTransform())
-# TODO: ikmodel for both arms
-#        self.ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot_rave,iktype=IkParameterizationType.Transform6D)
-#        if not self.ikmodel.load():
-#            self.ikmodel.autogenerate()
-
-        self.manipulator_dof_indices_map = {}
-        self.lower_lim = {}
-        self.upper_lim = {}
-        self.manipulators = {}
-        manipulators = self.robot_rave.GetManipulators()
-        for man in manipulators:
-            man_name = man.GetName()
-            self.manipulators[man_name] = man
-            self.manipulator_dof_indices_map[man_name] = man.GetArmIndices()
-            self.lower_lim[man_name], self.upper_lim[man_name] = self.robot_rave.GetDOFLimits(self.manipulator_dof_indices_map[man_name])
-
-        self.minimumgoalpaths = 1
-        plannername = "BiRRT"
-        self.basemanip = interfaces.BaseManipulation(self.robot_rave,plannername=plannername)
-        self.basemanip.prob.SendCommand('SetMinimumGoalPaths %d'%self.minimumgoalpaths)
-
     def readRobot(self, srdf_path=None, env_file=None, collision=None, collision_models_urdf=None):
         if srdf_path == None:
             # TODO: exception
@@ -232,7 +202,7 @@ class OpenraveInstance:
                             link.Enable(True)
         self.env.UpdatePublishedBodies()
 
-    def startOpenraveURDF(self, env_file=None, collision=None, viewer=True):
+    def startOpenrave(self, collision=None, viewer=True):
 
         parser = OptionParser(description='Openrave Velma interface')
         OpenRAVEGlobalArguments.addOptions(parser)
@@ -241,16 +211,24 @@ class OpenraveInstance:
             options._collision = collision
         self.env = OpenRAVEGlobalArguments.parseAndCreate(options,defaultviewer=viewer)
 
+    def loadEnv(self, env_file):
         if env_file != None:
             self.env.Load(env_file)
 
 #        self.env.GetCollisionChecker().SetCollisionOptions(4)
 #        print "collision options:", self.env.GetCollisionChecker().GetCollisionOptions()
 
-    def runOctomap(self):
+    def runOctomapServer(self):
 #        RaveSetDebugLevel(5)
 #        print RaveLoadPlugin('or_octomap')
-#        print RaveLoadPlugin('or_octomap_client')
+#        print RaveLoadPlugin('or_octomap_checker')
+
+        self.or_octomap = RaveCreateSensorSystem(self.env, "or_octomap_server")
+        out = self.or_octomap.SendCommand("Enable")
+
+    def runOctomapClient(self):
+#        RaveSetDebugLevel(5)
+#        print RaveLoadPlugin('or_octomap')
 #        print RaveLoadPlugin('or_octomap_checker')
 
         self.or_octomap = RaveCreateSensorSystem(self.env, "or_octomap_client")
@@ -258,6 +236,9 @@ class OpenraveInstance:
 
     def updateOctomap(self):
         out = self.or_octomap.SendCommand("Update")
+
+    def addMaskedObjectOctomap(self, name):
+        out = self.or_octomap.SendCommand("Mask " + name)
 
     def setCamera(self, cam_pos, target_pos):
             cam_z = target_pos - cam_pos

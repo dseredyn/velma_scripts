@@ -114,7 +114,7 @@ class TestOrOctomap:
         rospack.get_path('velma_scripts') + '/data/jar/jar.kinbody.xml'
         ]
 
-        rrt = rrt_star_connect_planner.PlannerRRT(0, env_file, srdf_path)
+        rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, obj_filenames, srdf_path)
 
         self.listener = tf.TransformListener()
 
@@ -141,14 +141,17 @@ class TestOrOctomap:
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenrave(collision='fcl')
         openrave.loadEnv(env_file)
-
         openrave.runOctomapClient()
-
-
         openrave.readRobot(srdf_path=srdf_path)
 
+        for filename in obj_filenames:
+            body = openrave.env.ReadKinBodyXMLFile(filename)
+            body.Enable(True)
+            body.SetVisible(True)
+            openrave.env.Add(body)
 
-#        mo_state = objectstate.MovableObjectsState(self.listener, openrave.env, obj_filenames)
+
+        mo_state = objectstate.MovableObjectsState(openrave.env, obj_filenames)
 
 # TODO
 #        for link in openrave.robot_rave.GetLinks():
@@ -179,7 +182,7 @@ class TestOrOctomap:
 
         print "grasps:", len(T_B_E_list)
 
-        if True:
+        if False:
             # look around
             self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
             rospy.sleep(2)
@@ -193,12 +196,12 @@ class TestOrOctomap:
         raw_input("Press ENTER to continue...")
 
         openrave.updateOctomap()
-#        time_tf = rospy.Time.now()-rospy.Duration(0.5)
-#        added, removed = mo_state.update(time_tf)
+        time_tf = rospy.Time.now()-rospy.Duration(0.5)
+        mo_state.update(self.listener, time_tf)
 
         print "octomap updated"
 
-        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), tasks.GraspTaskRRT, ("left", T_B_E_list), 60.0)
+        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tasks.GraspTaskRRT, ("left", T_B_E_list), 60.0)
 
         traj = []
         for i in range(len(path)-1):

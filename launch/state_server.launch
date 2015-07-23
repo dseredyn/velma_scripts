@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<launch>
+
+  <group ns="or_octomap_server">
+    <param name="resolution" value="0.025" />
+    <param name="frame_id" type="string" value="map" />
+    <param name="sensor_model/max_range" value="5.0" />
+    <param name="point_cloud_topic" value="/head_kinect/depth_registered/points" />
+  </group>
+
+  <node
+    name="state_server"
+    pkg="velma_scripts" type="state_server.py" output="screen">
+  </node>
+
+</launch>
+

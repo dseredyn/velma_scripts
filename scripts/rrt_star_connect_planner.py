@@ -35,19 +35,27 @@ import openraveinstance
 import velmautils
 import tree
 from prolatehyperspheroid import ProlateHyperspheroid
+import objectstate
+
 import random
 from openravepy import *
 import operator
 
 class PlannerRRT:
 
-    def openraveWorker(self, process_id, env_file, srdf_path, queue_master, queue_master_special, queue_slave):
+    def openraveWorker(self, process_id, env_file, obj_filenames, srdf_path, queue_master, queue_master_special, queue_slave):
       openrave = openraveinstance.OpenraveInstance()
       openrave.startOpenrave(viewer=False, collision='fcl')
       openrave.loadEnv(env_file)
       openrave.readRobot(srdf_path=srdf_path)
       openrave.runOctomapClient()
-#      mo_state = objectstate.MovableObjectsState(self.listener, openrave.env, obj_filenames)
+      for filename in obj_filenames:
+          body = openrave.env.ReadKinBodyXMLFile(filename)
+          body.Enable(True)
+          body.SetVisible(True)
+          openrave.env.Add(body)
+
+      mo_state = objectstate.MovableObjectsState(openrave.env, obj_filenames)
 
       joints_max_step = {
       "head_pan_joint" : 15.0/180.0*math.pi,
@@ -246,9 +254,9 @@ class PlannerRRT:
                 cmd_s = msg_s[0]
                 if cmd_s == "setInitialConfiguration":
                     openrave.updateOctomap()
-#                    time_tf = rospy.Time.now()-rospy.Duration(0.5)
-#                    added, removed = mo_state.update(time_tf)
                     q = msg_s[1]
+                    mo_state.obj_map = msg_s[2]
+                    mo_state.updateOpenrave(openrave.env)
                     openrave.robot_rave.SetDOFValues(q)
                     queue_slave.put( ("setInitialConfiguration", True) )
                 if cmd_s == "setTaskSpec":
@@ -463,7 +471,7 @@ class PlannerRRT:
                 print "ERROR resp", msg[0], resp[0]
                 exit(0)
 
-    def __init__(self, num_proc, env_file, srdf_path, debug=True):
+    def __init__(self, num_proc, env_file, obj_filenames, srdf_path, debug=True):
         self.debug = debug
         if self.debug:
             self.pub_marker = velmautils.MarkerPublisher()
@@ -474,7 +482,7 @@ class PlannerRRT:
         self.queue_master_special = Queue(maxsize=self.num_proc)
         self.queue_slave = Queue(maxsize=20)
         for i in range(self.num_proc):
-            self.proc.append( Process(target=self.openraveWorker, args=(i, env_file, srdf_path, self.queue_master, self.queue_master_special, self.queue_slave,)) )
+            self.proc.append( Process(target=self.openraveWorker, args=(i, env_file, obj_filenames, srdf_path, self.queue_master, self.queue_master_special, self.queue_slave,)) )
             self.proc[-1].start()
 
     def waitForInit(self):
@@ -489,7 +497,7 @@ class PlannerRRT:
         for proc in self.proc:
             proc.join()
 
-    def RRTstar(self, q_init, classTaskRRT, taskArgs, max_time):
+    def RRTstar(self, q_init, obj_map, classTaskRRT, taskArgs, max_time):
 
             def DrawPath(V, E, q_idx):
                 if not q_idx in E:
@@ -513,7 +521,7 @@ class PlannerRRT:
             E = {}
             goal_V_ids = []
 
-            self.sendToAll( ("setInitialConfiguration", q_init) )
+            self.sendToAll( ("setInitialConfiguration", q_init, obj_map,) )
 
             self.sendToAll( ("setTaskSpec", classTaskRRT, taskArgs) )
 

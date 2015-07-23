@@ -47,10 +47,7 @@ class ProlateHyperspheroid:
             circleTol = 1E-9;
             if self.minTransverseDiameter_ < circleTol:
                 #rotationWorldFromEllipse_.setIdentity(dim_, dim_);
-                rotationWorldFromEllipse_ = np.matrix(np.zeros([dim_, dim_]))
-                for i in range(dim_):
-                    rotationWorldFromEllipse_[i,i] = 1.0
-                np.identity(self.dim_)
+                rotationWorldFromEllipse_ = np.identity(self.dim_)
             else:
                 # Variables
                 # The transverse axis of the PHS expressed in the world frame.

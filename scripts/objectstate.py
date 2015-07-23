@@ -36,13 +36,10 @@ class ObjectState:
 
 class MovableObjectsState:
     def __init__(self, env, filename_list):
-        self.current_vis_set = set()
         self.obj_map = {}
         for filename in filename_list:
             obj = ObjectState()
-            print filename
             obj.name = env.ReadKinBodyXMLFile(filename).GetName()
-            print obj.name
             self.obj_map[obj.name] = obj
 
     def update(self, tf_listener, time_tf):
@@ -53,15 +50,13 @@ class MovableObjectsState:
             if tf_listener.canTransform('world', obj_name, time_tf):
                 pose = tf_listener.lookupTransform('world', obj_name, time_tf)
                 obj.T_W_O = pm.fromTf(pose)
-                if not obj_name in self.current_vis_set:
+                if not obj.enabled:
                     added.append(obj_name)
-                    self.current_vis_set.add(obj_name)
                     obj.enabled = True
                 obj.last_update = time_tf
             else:
-                if obj_name in self.current_vis_set and (time_tf - obj.last_update).to_sec() > 2.0:
+                if obj.enabled and (time_tf - obj.last_update).to_sec() > 2.0:
                     removed.append(obj_name)
-                    self.current_vis_set.remove(obj_name)
                     obj.enabled = False
         return added, removed
 
@@ -69,44 +64,18 @@ class MovableObjectsState:
         for obj_name in self.obj_map:
             obj = self.obj_map[obj_name]
             body = env.GetKinBody(obj_name)
-            if obj_name in self.current_vis_set:
+
+#            print "updateOpenrave", obj_name
+            if obj.enabled:
                 if not body.IsEnabled():
+#                    print "updateOpenrave enable"
                     body.Enable(True)
                     body.SetVisible(True)
+#                print "updateOpenrave", obj.T_W_O
                 body.SetTransform(conv.KDLToOpenrave(obj.T_W_O))
             else:
                 if body.IsEnabled():
+#                    print "updateOpenrave disable"
                     body.Enable(False)
                     body.SetVisible(False)
-
-
-#class MovableObjectsState:
-#    def __init__(self, tf_listener, env, filename_list):
-#        self.env = env
-#        self.listener = tf_listener
-#
-#        self.obj_list = []
-#        for filename in filename_list:
-#            obj = ObjectState()
-#            obj.kinbody = self.env.ReadKinBodyXMLFile(filename)
-#            self.obj_list.append(obj)
-#
-#    def update(self, time_tf):
-#        added = []
-#        removed = []
-#        for obj in self.obj_list:
-#            obj_name = obj.kinbody.GetName()
-#            if self.listener.canTransform('world', obj_name, time_tf):
-#                pose = self.listener.lookupTransform('world', obj_name, time_tf)
-#                obj.T_W_O = pm.fromTf(pose)
-#                if obj.kinbody.GetEnvironmentId() == 0:
-#                    obj.kinbody.SetTransform(conv.KDLToOpenrave(obj.T_W_O))
-#                    self.env.Add(obj.kinbody)
-#                    added.append(obj)
-#                obj.last_update = time_tf
-#            else:
-#                if obj.kinbody.GetEnvironmentId() != 0 and (time_tf - obj.last_update).to_sec() > 2.0:
-#                    self.env.Remove(obj.kinbody)
-#                    removed.append(obj)
-#        return added, removed
 

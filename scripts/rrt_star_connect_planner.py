@@ -51,8 +51,8 @@ class PlannerRRT:
       openrave.runOctomapClient()
       for filename in obj_filenames:
           body = openrave.env.ReadKinBodyXMLFile(filename)
-          body.Enable(True)
-          body.SetVisible(True)
+          body.Enable(False)
+          body.SetVisible(False)
           openrave.env.Add(body)
 
       mo_state = objectstate.MovableObjectsState(openrave.env, obj_filenames)
@@ -96,7 +96,7 @@ class PlannerRRT:
             current_q = openrave.robot_rave.GetDOFValues(dof_indices)
             openrave.robot_rave.SetDOFValues(q, dof_indices)
             report = CollisionReport()
- 	    if openrave.env.CheckCollision(openrave.robot_rave, report):
+            if openrave.env.CheckCollision(openrave.robot_rave, report):
                 return False
             report = CollisionReport()
             if openrave.robot_rave.CheckSelfCollision(report):
@@ -258,6 +258,7 @@ class PlannerRRT:
                     mo_state.obj_map = msg_s[2]
                     mo_state.updateOpenrave(openrave.env)
                     openrave.robot_rave.SetDOFValues(q)
+                    openrave.env.UpdatePublishedBodies()
                     queue_slave.put( ("setInitialConfiguration", True) )
                 if cmd_s == "setTaskSpec":
                     taskrrt = msg_s[1](openrave, msg_s[2])

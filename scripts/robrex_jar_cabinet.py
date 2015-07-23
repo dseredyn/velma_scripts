@@ -130,8 +130,8 @@ class TestOrOctomap:
         if simulation:
             hv = [3.2, 3.2, 3.2, 3.2]
         ht = [3000, 3000, 3000, 3000]
-        self.velma.moveHandLeft([30.0/180.0*math.pi, 30.0/180.0*math.pi, 30.0/180.0*math.pi, 0], hv, ht, 5000, True)
-        self.velma.moveHandRight([30.0/180.0*math.pi, 30.0/180.0*math.pi, 30.0/180.0*math.pi, 0], hv, ht, 5000, True)
+        self.velma.moveHandLeft([45.0/180.0*math.pi, 45.0/180.0*math.pi, 45.0/180.0*math.pi, 0], hv, ht, 5000, True)
+        self.velma.moveHandRight([45.0/180.0*math.pi, 45.0/180.0*math.pi, 45.0/180.0*math.pi, 0], hv, ht, 5000, True)
 
         rospy.sleep(1.0)
         #
@@ -146,8 +146,8 @@ class TestOrOctomap:
 
         for filename in obj_filenames:
             body = openrave.env.ReadKinBodyXMLFile(filename)
-            body.Enable(True)
-            body.SetVisible(True)
+            body.Enable(False)
+            body.SetVisible(False)
             openrave.env.Add(body)
 
 
@@ -175,9 +175,9 @@ class TestOrOctomap:
         T_B_E_list = []
         for angle_jar_axis in np.arange(0.0, math.pi*2.0, 10.0/180.0*math.pi):
             for translation_jar_axis in np.linspace(-0.03, 0.03, 7):
-                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.20))
+                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.17))
                 T_B_E_list.append(T_B_Ed)
-                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.20))
+                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.17))
                 T_B_E_list.append(T_B_Ed)
 
         print "grasps:", len(T_B_E_list)
@@ -196,12 +196,16 @@ class TestOrOctomap:
         raw_input("Press ENTER to continue...")
 
         openrave.updateOctomap()
-        time_tf = rospy.Time.now()-rospy.Duration(0.5)
-        mo_state.update(self.listener, time_tf)
+        for i in range(10):
+            time_tf = rospy.Time.now()-rospy.Duration(0.5)
+            mo_state.update(self.listener, time_tf)
+            mo_state.updateOpenrave(openrave.env)
+            rospy.sleep(0.1)
 
         print "octomap updated"
 
-        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tasks.GraspTaskRRT, ("left", T_B_E_list), 60.0)
+        target_gripper = "left"
+        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
 
         traj = []
         for i in range(len(path)-1):
@@ -221,11 +225,63 @@ class TestOrOctomap:
 
         raw_input("Press ENTER to continue...")
 
+        openrave.updateRobotConfigurationRos(self.velma.js_pos)
+
+        print "before grasp"
+        report = CollisionReport()
+        if openrave.env.CheckCollision(openrave.robot_rave, report):
+            print "collision"
+        else:
+            print "no collision"
+        report = CollisionReport()
+        if openrave.robot_rave.CheckSelfCollision(report):
+            print "self-collision"
+        else:
+            print "no self-collision"
+
+        if target_gripper == "left":
+            self.velma.moveHandLeft([70.0/180.0*math.pi, 70.0/180.0*math.pi, 70.0/180.0*math.pi, 0], hv, ht, 5000, True)
+        else:
+            self.velma.moveHandRight([70.0/180.0*math.pi, 70.0/180.0*math.pi, 70.0/180.0*math.pi, 0], hv, ht, 5000, True)
+
+        raw_input("Press ENTER to continue...")
+        openrave.updateRobotConfigurationRos(self.velma.js_pos)
+
+        print "after grasp"
+        report = CollisionReport()
+        if openrave.env.CheckCollision(openrave.robot_rave, report):
+            print "collision"
+        else:
+            print "no collision"
+        report = CollisionReport()
+        if openrave.robot_rave.CheckSelfCollision(report):
+            print "self-collision"
+        else:
+            print "no self-collision"
+
+        openrave.robot_rave.SetActiveManipulator(target_gripper+"_arm")
+        openrave.robot_rave.Grab(openrave.env.GetKinBody("jar"))
+
+        print "after grab"
+        report = CollisionReport()
+        if openrave.env.CheckCollision(openrave.robot_rave, report):
+            print "collision"
+        else:
+            print "no collision"
+        report = CollisionReport()
+        if openrave.robot_rave.CheckSelfCollision(report):
+            print "self-collision"
+        else:
+            print "no self-collision"
+
         path.reverse()
         traj = self.velma.prepareTrajectory(path, self.velma.getJointStatesByNames(dof_names))
         self.velma.moveJointTraj(traj, dof_names, start_time=0.2)
 
         raw_input("Press ENTER to continue...")
+        openrave.updateRobotConfigurationRos(self.velma.js_pos)
+
+        raw_input("Press ENTER to exit...")
 
         rrt.cleanup()
 

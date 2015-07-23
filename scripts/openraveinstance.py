@@ -211,6 +211,9 @@ class OpenraveInstance:
             options._collision = collision
         self.env = OpenRAVEGlobalArguments.parseAndCreate(options,defaultviewer=viewer)
 
+        self.velma_q5q6_checker = RaveCreateCollisionChecker(self.env, "or_velma_q5q6_checker")
+        self.env.SetCollisionChecker(self.velma_q5q6_checker)
+
     def loadEnv(self, env_file):
         if env_file != None:
             self.env.Load(env_file)

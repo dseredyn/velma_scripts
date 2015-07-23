@@ -242,7 +242,7 @@ class PlannerRRT:
 
         queue_slave.put( ("init_complete",) )
 
-        while True:
+        while not rospy.is_shutdown():
             msg = queue_master.get()
             cmd = msg[0]
 

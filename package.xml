@@ -33,5 +33,7 @@
   <run_depend>rtt_std_srvs</run_depend> 
   <run_depend>rtt_barrett_hand_controller</run_depend>
   <run_depend>rtt_barrett_hand_controller_srvs</run_depend>
+  <run_depend>velma_common</run_depend> 
+  <run_depend>velma_openrave</run_depend> 
 
 </package>

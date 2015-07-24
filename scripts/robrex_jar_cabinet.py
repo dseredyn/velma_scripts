@@ -46,28 +46,19 @@ import PyKDL
 import math
 import numpy as np
 import copy
-import matplotlib.pyplot as plt
-import thread
-import random
 import openravepy
 from openravepy import *
-from optparse import OptionParser
-from openravepy.misc import OpenRAVEGlobalArguments
-import itertools
 import rospkg
-import multiprocessing
 
 import velmautils
 from velma import Velma
 import openraveinstance
 import conversions as conv
 import rrt_star_connect_planner
-import tree
-import rosparam
 import tasks
 import objectstate
 
-class TestOrOctomap:
+class RobrexJarCabinet:
     """
 
 """
@@ -93,20 +84,29 @@ class TestOrOctomap:
 
         print "creating interface for Velma..."
         # create the interface for Velma robot
-        self.velma = Velma()
+        velma = Velma()
         self.pub_head_look_at = rospy.Publisher("/head_lookat_pose", geometry_msgs.msg.Pose)
         print "done."
 
         rospy.sleep(0.5)
-        self.velma.updateTransformations()
+        velma.updateTransformations()
 
-        if simulation:
-            hv = [3.2, 3.2, 3.2, 3.2]
+        hv = [1.2, 1.2, 1.2, 1.2]
         ht = [3000, 3000, 3000, 3000]
-        self.velma.moveHandLeft([45.0/180.0*math.pi, 45.0/180.0*math.pi, 45.0/180.0*math.pi, 0], hv, ht, 5000, True)
-        self.velma.moveHandRight([45.0/180.0*math.pi, 45.0/180.0*math.pi, 45.0/180.0*math.pi, 0], hv, ht, 5000, True)
 
-        rospy.sleep(1.0)
+        target_gripper = "left"
+
+        if target_gripper == "left":
+            velma.moveHandLeft([40.0/180.0*math.pi, 40.0/180.0*math.pi, 40.0/180.0*math.pi, 0], hv, ht, 5000, True)
+            velma.moveHandRight([120.0/180.0*math.pi, 120.0/180.0*math.pi, 120.0/180.0*math.pi, 0], hv, ht, 5000, True)
+        else:
+            velma.moveHandLeft([120.0/180.0*math.pi, 120.0/180.0*math.pi, 120.0/180.0*math.pi, 0], hv, ht, 5000, True)
+            velma.moveHandRight([40.0/180.0*math.pi, 40.0/180.0*math.pi, 40.0/180.0*math.pi, 0], hv, ht, 5000, True)
+        result = velma.waitForHandLeft()
+        print "waitForHandLeft result", result.error_code
+        result = velma.waitForHandRight()
+        print "waitForHandRight result", result.error_code
+
         #
         # Initialise Openrave
         #
@@ -114,7 +114,7 @@ class TestOrOctomap:
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenrave(collision='fcl')
         openrave.loadEnv(env_file)
-        openrave.runOctomapClient()
+        openrave.runOctomapClient(ros=True)
         openrave.readRobot(srdf_path=srdf_path)
 
         for filename in obj_filenames:
@@ -126,14 +126,8 @@ class TestOrOctomap:
 
         mo_state = objectstate.MovableObjectsState(openrave.env, obj_filenames)
 
-# TODO
-#        for link in openrave.robot_rave.GetLinks():
-#            print link.GetName(), len(link.GetCollisionData().vertices), len(link.GetGeometries())
-#            for geom in link.GetGeometries():
-#                print "   ", geom.GetType(), geom.IsVisible(), geom.GetSphereRadius(), len(geom.GetCollisionMesh().vertices), geom.GetBoxExtents()
-
         openrave.setCamera(PyKDL.Vector(2.0, 0.0, 2.0), PyKDL.Vector(0.60, 0.0, 1.10))
-        openrave.updateRobotConfigurationRos(self.velma.js_pos)
+        openrave.updateRobotConfigurationRos(velma.js_pos)
 
         while True:
             if self.listener.canTransform('torso_base', 'jar', rospy.Time(0)):
@@ -169,6 +163,8 @@ class TestOrOctomap:
         raw_input("Press ENTER to continue...")
 
         openrave.updateOctomap()
+        tree_serialized = openrave.or_octomap_client.SendCommand("GetOcTree")
+
         for i in range(10):
             time_tf = rospy.Time.now()-rospy.Duration(0.5)
             mo_state.update(self.listener, time_tf)
@@ -177,8 +173,10 @@ class TestOrOctomap:
 
         print "octomap updated"
 
-        target_gripper = "left"
-        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
+        print "Planning trajectory to grasp the jar..."
+        env_state = (openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tree_serialized)
+
+        path, dof_names = rrt.RRTstar(env_state, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
 
         traj = []
         for i in range(len(path)-1):
@@ -192,13 +190,16 @@ class TestOrOctomap:
                 break
             openrave.showTrajectory(dof_names, 10.0, traj)
 
-        traj = self.velma.prepareTrajectory(path, self.velma.getJointStatesByNames(dof_names))
-        self.velma.switchToJoint()
-        self.velma.moveJointTraj(traj, dof_names, start_time=0.2)
+        traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names))
+        velma.switchToJoint()
+
+        velma.moveJointTraj(traj, dof_names, start_time=0.2)
+        result = velma.waitForJoint()
+        print "moveJointTraj result", result.error_code
 
         raw_input("Press ENTER to continue...")
 
-        openrave.updateRobotConfigurationRos(self.velma.js_pos)
+        openrave.updateRobotConfigurationRos(velma.js_pos)
 
         print "before grasp"
         report = CollisionReport()
@@ -213,12 +214,15 @@ class TestOrOctomap:
             print "no self-collision"
 
         if target_gripper == "left":
-            self.velma.moveHandLeft([70.0/180.0*math.pi, 70.0/180.0*math.pi, 70.0/180.0*math.pi, 0], hv, ht, 5000, True)
+            velma.moveHandLeft([70.0/180.0*math.pi, 70.0/180.0*math.pi, 70.0/180.0*math.pi, 0], hv, ht, 5000, True)
+            result = velma.waitForHandLeft()
+            print "moveHandLeft result", result.error_code
         else:
-            self.velma.moveHandRight([70.0/180.0*math.pi, 70.0/180.0*math.pi, 70.0/180.0*math.pi, 0], hv, ht, 5000, True)
+            velma.moveHandRight([70.0/180.0*math.pi, 70.0/180.0*math.pi, 70.0/180.0*math.pi, 0], hv, ht, 5000, True)
+            result = velma.waitForHandRight()
+            print "waitForHandRight result", result.error_code
 
-        raw_input("Press ENTER to continue...")
-        openrave.updateRobotConfigurationRos(self.velma.js_pos)
+        openrave.updateRobotConfigurationRos(velma.js_pos)
 
         print "after grasp"
         report = CollisionReport()
@@ -247,24 +251,24 @@ class TestOrOctomap:
         else:
             print "no self-collision"
 
+#        print "Planning trajectory to pull the jar from the cabinet..."
+#        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
+
         path.reverse()
-        traj = self.velma.prepareTrajectory(path, self.velma.getJointStatesByNames(dof_names))
-        self.velma.moveJointTraj(traj, dof_names, start_time=0.2)
+        traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names))
+        result = velma.moveJointTraj(traj, dof_names, start_time=0.2)
+        result = velma.waitForJoint()
+        print "moveJointTraj result", result.error_code
 
         raw_input("Press ENTER to continue...")
-        openrave.updateRobotConfigurationRos(self.velma.js_pos)
+        openrave.updateRobotConfigurationRos(velma.js_pos)
 
         raw_input("Press ENTER to exit...")
 
         rrt.cleanup()
 
 if __name__ == '__main__':
-
     rospy.init_node('robrex_jar_cabinet')
-
-    task = TestOrOctomap()
-    rospy.sleep(1)
-
+    task = RobrexJarCabinet()
     task.spin()
-
 

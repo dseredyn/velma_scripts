@@ -253,10 +253,11 @@ class PlannerRRT:
                 msg_s = queue_master_special.get()
                 cmd_s = msg_s[0]
                 if cmd_s == "setInitialConfiguration":
-                    openrave.updateOctomap()
-                    q = msg_s[1]
-                    mo_state.obj_map = msg_s[2]
+                    env_state = msg_s[1]
+                    q, mo_state.obj_map, tree_serialized = env_state
                     mo_state.updateOpenrave(openrave.env)
+                    openrave.or_octomap_client.SendCommand("SetOcTree " + tree_serialized)
+                    print "ok"
                     openrave.robot_rave.SetDOFValues(q)
                     openrave.env.UpdatePublishedBodies()
                     queue_slave.put( ("setInitialConfiguration", True) )
@@ -498,7 +499,7 @@ class PlannerRRT:
         for proc in self.proc:
             proc.join()
 
-    def RRTstar(self, q_init, obj_map, classTaskRRT, taskArgs, max_time):
+    def RRTstar(self, env_state, classTaskRRT, taskArgs, max_time):
 
             def DrawPath(V, E, q_idx):
                 if not q_idx in E:
@@ -522,7 +523,8 @@ class PlannerRRT:
             E = {}
             goal_V_ids = []
 
-            self.sendToAll( ("setInitialConfiguration", q_init, obj_map,) )
+            q_init = env_state[0]
+            self.sendToAll( ("setInitialConfiguration", env_state,) )
 
             self.sendToAll( ("setTaskSpec", classTaskRRT, taskArgs) )
 

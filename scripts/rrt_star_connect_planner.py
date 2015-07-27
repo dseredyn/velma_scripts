@@ -254,12 +254,15 @@ class PlannerRRT:
                 cmd_s = msg_s[0]
                 if cmd_s == "setInitialConfiguration":
                     env_state = msg_s[1]
-                    q, mo_state.obj_map, tree_serialized = env_state
+                    q, mo_state.obj_map, tree_serialized, grasped_bodies = env_state
                     mo_state.updateOpenrave(openrave.env)
                     openrave.or_octomap_client.SendCommand("SetOcTree " + tree_serialized)
-                    print "ok"
                     openrave.robot_rave.SetDOFValues(q)
                     openrave.env.UpdatePublishedBodies()
+                    for gr in grasped_bodies:
+                        body_name, link_name = gr
+                        openrave.robot_rave.Grab(openrave.env.GetKinBody(body_name), openrave.robot_rave.GetLink(link_name))
+
                     queue_slave.put( ("setInitialConfiguration", True) )
                 if cmd_s == "setTaskSpec":
                     taskrrt = msg_s[1](openrave, msg_s[2])

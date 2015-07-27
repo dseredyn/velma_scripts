@@ -68,7 +68,30 @@ class RobrexJarCabinet:
 
     def spin(self):
 
-        simulation = True
+        grasps_T_J_E = []
+
+        for angle_jar_axis in np.arange(0.0, math.pi*2.0, 10.0/180.0*math.pi):
+            for translation_jar_axis in np.linspace(-0.03, 0.03, 7):
+                T_J_E = PyKDL.Frame(PyKDL.Rotation.RotZ(90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.17))
+                grasps_T_J_E.append(T_J_E)
+                T_J_E = PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.17))
+                grasps_T_J_E.append(T_J_E)
+
+#        tab = np.array([-5, -4, -3, -2, -1, 0, 1, 2, 3])
+#        print np.argmin(abs(tab-6))
+#        exit(0)
+        task = tasks.OpenJarTaskRRT(None, ("right", grasps_T_J_E, ))
+
+        m_id = 0
+#        for T_T2_J in task.valid_T_T2_J:
+        for coord in task.valid:
+            x,y,z = coord
+            size = 1.0
+            m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(x,y,z), m_id, r=1.0, g=1*size, b=1*size, a=1, namespace='default', frame_id="torso_link2", m_type=Marker.SPHERE, scale=Vector3(0.05*size, 0.05*size, 0.05*size))
+            rospy.sleep(0.01)
+
+
+        exit(0)
 
         rospack = rospkg.RosPack()
         env_file=rospack.get_path('velma_scripts') + '/data/common/velma_room.env.xml'
@@ -139,15 +162,19 @@ class RobrexJarCabinet:
         rrt.waitForInit()
         print "planner initialized"
 
-        T_B_E_list = []
-        for angle_jar_axis in np.arange(0.0, math.pi*2.0, 10.0/180.0*math.pi):
-            for translation_jar_axis in np.linspace(-0.03, 0.03, 7):
-                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.17))
-                T_B_E_list.append(T_B_Ed)
-                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.17))
-                T_B_E_list.append(T_B_Ed)
+#        T_B_E_list = []
+#        for angle_jar_axis in np.arange(0.0, math.pi*2.0, 10.0/180.0*math.pi):
+#            for translation_jar_axis in np.linspace(-0.03, 0.03, 7):
+#                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.17))
+#                T_B_E_list.append(T_B_Ed)
+#                T_B_Ed = T_B_J * PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.17))
+#                T_B_E_list.append(T_B_Ed)
 
-        print "grasps:", len(T_B_E_list)
+        T_B_E_list = []
+        for T_J_E in grasps_T_J_E:
+            T_B_Ed = T_B_J * T_J_E
+            T_B_E_list.append(T_B_Ed)
+        print "grasps for jar:", len(T_B_E_list)
 
         if False:
             # look around
@@ -174,8 +201,7 @@ class RobrexJarCabinet:
         print "octomap updated"
 
         print "Planning trajectory to grasp the jar..."
-        env_state = (openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tree_serialized)
-
+        env_state = (openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tree_serialized, [])
         path, dof_names = rrt.RRTstar(env_state, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
 
         traj = []
@@ -236,8 +262,7 @@ class RobrexJarCabinet:
         else:
             print "no self-collision"
 
-        openrave.robot_rave.SetActiveManipulator(target_gripper+"_arm")
-        openrave.robot_rave.Grab(openrave.env.GetKinBody("jar"))
+        openrave.robot_rave.Grab(openrave.env.GetKinBody("jar"), openrave.robot_rave.GetLink(target_gripper+"_HandPalmLink"))
 
         print "after grab"
         report = CollisionReport()
@@ -251,8 +276,14 @@ class RobrexJarCabinet:
         else:
             print "no self-collision"
 
-#        print "Planning trajectory to pull the jar from the cabinet..."
-#        path, dof_names = rrt.RRTstar(openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
+        print "Planning trajectory to pull the jar from the cabinet..."
+        for i in range(10):
+            time_tf = rospy.Time.now()-rospy.Duration(0.5)
+            mo_state.update(self.listener, time_tf)
+            mo_state.updateOpenrave(openrave.env)
+            rospy.sleep(0.1)
+        env_state = (openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tree_serialized, [["jar", target_gripper+"_HandPalmLink"]])
+        path, dof_names = rrt.RRTstar(env_state, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
 
         path.reverse()
         traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names))

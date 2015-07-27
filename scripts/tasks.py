@@ -33,6 +33,8 @@ import headkinematics
 import velmautils
 import tree
 import conversions as conv
+import pose_lookup_table_left as plutl
+import pose_lookup_table_right as plutr
 
 class LooAtTaskRRT:
     def __init__(self, openrave, args):
@@ -628,6 +630,238 @@ class GraspTaskRRT:
 
             goal_list = []
             for sol in solutions:
+                for arm_dof_idx in range(len(self.dof_names_ik)):
+                    dof_name = self.dof_names_ik[arm_dof_idx]
+                    q_goal[self.dof_indices_map[dof_name]] = sol[arm_dof_idx]
+
+                if shortest_path_len == None:
+                    for i in range(len(self.dof_names)):
+                            if i in self.ignore_dof:
+                                continue
+                            q_goal[i] = random.uniform(self.dof_limits[i][0]+0.01, self.dof_limits[i][1]-0.01)
+                else:
+                    diff = 0.0
+                    for dof_idx in self.ignore_dof:
+                        diff += (start_q[dof_idx] - q_goal[dof_idx]) * (start_q[dof_idx] - q_goal[dof_idx])
+                    shortest_path_len2 = shortest_path_len*shortest_path_len - diff
+                    if shortest_path_len2 < 0.0:
+                        continue
+                    shortest_path_len2 = math.sqrt(shortest_path_len2)
+
+                    q_goal2 = tree.uniformInBall(shortest_path_len2, self.dof_limits, start_q, ignore_dof=self.ignore_dof)
+                    for dof_idx in self.ignore_dof:
+                        q_goal2[dof_idx] = q_goal[dof_idx]
+                    q_goal = q_goal2
+
+                # sanity check
+                if shortest_path_len != None and np.linalg.norm(q_goal-start_q) > shortest_path_len:
+                    print "ERROR: np.linalg.norm(q_goal-start_q) > shortest_path_len", np.linalg.norm(q_goal-start_q), ">", shortest_path_len
+                    exit(0)
+
+                self.goals_T_B_E.append(T_B_Ed)
+                goal_list.append(q_goal)
+            if len(goal_list) > 0:
+                return goal_list
+        return None
+
+class OpenJarTaskRRT:
+    def __init__(self, openrave, args):
+        if len(args) != 2:
+            raise ValueError('OpenJarTaskRRT: wrong number of arguments: ' + str(len(args)))
+
+        if args[0] != "left" and args[0] != "right":
+            raise ValueError('OpenJarTaskRRT: wrong argument[0] value: ' + args[0])
+
+        if len(args[1]) == 0:
+            raise ValueError('OpenJarTaskRRT: wrong argument[1] value: ' + args[0])
+
+        self.gripper_grasp = args[0]
+        self.grasps_T_J_E = args[1]
+        if self.gripper_grasp == 'right':
+            plut_jar = plutr
+            plut_lid = plutl
+        else:
+            plut_jar = plutl
+            plut_lid = plutr
+
+        R_J_Elid = PyKDL.Rotation.RotX(180.0/180.0*math.pi)
+        T_J_Elid = PyKDL.Frame(R_J_Elid) * PyKDL.Frame(PyKDL.Vector(0,0,-0.3))
+#        self.valid_T_T2_J = []
+        self.valid = {}
+
+        map_rot_jar_lid = {}
+        rot_jar_idx = 0
+        for rot_jar in plut_jar.rotations:
+            map_rot_jar_lid[rot_jar_idx] = plut_lid.getClosestRot(PyKDL.Frame(rot_jar))
+            rot_jar_idx += 1
+
+        rot_map = {}
+        for grasp_idx in range(len(self.grasps_T_J_E)):
+            for rot_idx in range(len(plut_jar.rotations)):
+                R_T2_Ejar = plut_jar.rotations[rot_idx]
+                R_J_Ejar = self.grasps_T_J_E[grasp_idx].M
+                R_T2_J = R_T2_Ejar * R_J_Ejar.Inverse()
+                R_T2_Elid = R_T2_J * R_J_Elid
+                rot_map[ (grasp_idx, rot_idx) ] = plut_lid.getClosestRot(PyKDL.Frame(R_T2_Elid))
+
+        for x_idx in range(len(plut_jar.x_set)):
+            x = plut_jar.x_set[x_idx]
+            print "x_idx", x_idx
+            for y_idx in range(len(plut_jar.y_set)):
+                y = plut_jar.y_set[y_idx]
+                print "   y_idx", y_idx, "rot_map", len(rot_map), "self.valid_T_T2_J", len(self.valid)
+                for z_idx in range(len(plut_jar.z_set)):
+                    z = plut_jar.z_set[z_idx]
+                    print "      z_idx", z_idx
+                    for rot_idx in plut_jar.lookup_table[x_idx][y_idx][z_idx]:
+                        T_T2_Ejar = PyKDL.Frame(plut_jar.rotations[rot_idx], PyKDL.Vector(x, y, z))
+                        grasp_idx = 0
+                        for T_J_Ejar in self.grasps_T_J_E:
+                            T_T2_J = T_T2_Ejar * T_J_Ejar.Inverse()
+                            T_T2_Elid = T_T2_J * T_J_Elid
+
+                            x_idx_lid = plut_lid.getClosestIndex(plut_lid.x_set, T_T2_Elid.p.x())
+                            y_idx_lid = plut_lid.getClosestIndex(plut_lid.y_set, T_T2_Elid.p.y())
+                            z_idx_lid = plut_lid.getClosestIndex(plut_lid.z_set, T_T2_Elid.p.z())
+
+                            closest_rot = rot_map[ (grasp_idx, rot_idx) ]
+#                            print closest_rot, plut_lid.lookup_table[x_idx_lid][y_idx_lid][z_idx_lid]
+#                            if plut_lid.isPoseValidInT2(T_T2_Elid, x_idx_lid, y_idx_lid, z_idx_lid, closest_rot=closest_rot):
+
+                            if closest_rot in plut_lid.lookup_table[x_idx_lid][y_idx_lid][z_idx_lid]:
+                                self.valid[ (x_idx_lid, y_idx_lid, z_idx_lid) ] = 1
+#                                self.valid_T_T2_J.append(T_T2_J)
+                            grasp_idx += 1
+        
+        return
+
+        if len(args[1]) == 0:
+            raise ValueError('GraspTaskRRT: wrong argument[1] value')
+
+        self.openrave = openrave
+
+        self.gripper = args[0]
+        self.T_B_E_list = args[1]
+
+        # get the transformation from wrist to palm
+        link_E = self.openrave.robot_rave.GetLink(self.gripper + "_HandPalmLink")
+        link_W = self.openrave.robot_rave.GetLink(self.gripper + "_arm_7_link")
+        T_World_E = conv.OpenraveToKDL(link_E.GetTransform())
+        T_World_W = conv.OpenraveToKDL(link_W.GetTransform())
+        self.T_W_E = T_World_W.Inverse() * T_World_E
+        self.T_E_W = self.T_W_E.Inverse()
+
+        self.dof_names = [
+        "left_arm_0_joint",
+        "left_arm_1_joint",
+        "left_arm_2_joint",
+        "left_arm_3_joint",
+        "left_arm_4_joint",
+        "left_arm_5_joint",
+        "left_arm_6_joint",
+        "right_arm_0_joint",
+        "right_arm_1_joint",
+        "right_arm_2_joint",
+        "right_arm_3_joint",
+        "right_arm_4_joint",
+        "right_arm_5_joint",
+        "right_arm_6_joint",
+        "torso_0_joint",
+        ]
+
+        self.dof_indices = []
+        self.dof_limits = []
+        for joint_name in self.dof_names:
+            joint = openrave.robot_rave.GetJoint(joint_name)
+            self.dof_indices.append( joint.GetDOFIndex() )
+            lim_lo, lim_up = joint.GetLimits()
+            self.dof_limits.append( (lim_lo[0], lim_up[0]) )
+
+        self.dof_names_ik = []
+        for i in range(7):
+            self.dof_names_ik.append( self.gripper + "_arm_" + str(i) + "_joint" )
+
+        self.dof_indices_map = {}
+        for i in range(len(self.dof_names)):
+            self.dof_indices_map[self.dof_names[i]] = i
+
+        self.free_dof_idx = self.dof_indices_map[self.openrave.free_joint[self.gripper + "_arm"]]
+        self.torso_0_joint_idx = self.dof_indices_map["torso_0_joint"]
+        self.ignore_dof = [ self.dof_indices_map["torso_0_joint"] ]
+        for dof_name in self.dof_names_ik:
+            self.ignore_dof.append( self.dof_indices_map[dof_name] )
+
+        self.goals_T_B_E = []
+
+        self.other_dof = []
+        for dof_name in self.dof_names:
+            dof_idx = self.dof_indices_map[dof_name]
+            if not dof_idx in self.ignore_dof:
+                self.other_dof.append(dof_idx)
+
+    def GetOtherDofIndices(self):
+        return self.other_dof
+
+    def GetDofLimits(self):
+        return self.dof_limits
+
+    def GetDofIndices(self):
+        return self.dof_indices
+
+    def GetDofNames(self):
+        return self.dof_names
+
+    def getActiveDOF(self, q):
+        q_ret = np.empty(len(self.dof_indices))
+        q_ret_idx = 0
+        for dof_idx in self.dof_indices:
+            q_ret[q_ret_idx] = q[dof_idx]
+            q_ret_idx += 1
+        return q_ret
+
+    def checkGoal(self, q):
+        # interpolate trajectory (in the cartesian space)
+        self.openrave.robot_rave.SetDOFValues(q, self.dof_indices)
+        link_E = self.openrave.robot_rave.GetLink("right_HandPalmLink")
+        T_World_E = conv.OpenraveToKDL(link_E.GetTransform())
+        T_B_E = self.openrave.T_World_Br.Inverse() * T_World_E
+
+        for T_B_Eg in self.goals_T_B_E:
+            diff = PyKDL.diff(T_B_Eg, T_B_E)
+            if diff.vel.Norm() <= 0.02 and diff.rot.Norm() <= 10.0/180.0*math.pi:
+                return True
+
+        return False
+
+    def SampleGoal(self, start_q, shortest_path_len):
+        self.openrave.switchCollisionModel("velmasimplified0")
+
+        start_arm_q = np.empty(len(self.dof_names_ik))
+        for dof_ik_idx in range(len(self.dof_names_ik)):
+            start_arm_q[dof_ik_idx] = start_q[self.dof_indices_map[self.dof_names_ik[dof_ik_idx]]]
+
+        T_B_Ed = self.T_B_E_list[random.randint(0, len(self.T_B_E_list)-1)]
+
+        q_goal = np.zeros(len(self.dof_names))
+        for tries in range(50):
+            # random free joint value for the arm
+            q_goal[self.free_dof_idx] = random.uniform(self.dof_limits[self.free_dof_idx][0]+0.01, self.dof_limits[self.free_dof_idx][1]-0.01)
+            freevalues = [ (q_goal[self.free_dof_idx]-self.dof_limits[self.free_dof_idx][0])/(self.dof_limits[self.free_dof_idx][1]-self.dof_limits[self.free_dof_idx][0]) ]
+
+            # random torso joint value
+            q_goal[self.torso_0_joint_idx] = random.uniform(self.dof_limits[self.torso_0_joint_idx][0]+0.01, self.dof_limits[self.torso_0_joint_idx][1]-0.01)
+
+            self.openrave.robot_rave.SetDOFValues(q_goal, self.dof_indices)
+            solutions = self.openrave.findIkSolutions(T_B_Ed, man_name=self.gripper+"_arm", freevalues=freevalues, filter_options=0)
+            if len(solutions) == 0:
+                continue
+
+            goal_list = []
+            for sol in solutions:
+
+                # random pose of the jar
+                
+
                 for arm_dof_idx in range(len(self.dof_names_ik)):
                     dof_name = self.dof_names_ik[arm_dof_idx]
                     q_goal[self.dof_indices_map[dof_name]] = sol[arm_dof_idx]

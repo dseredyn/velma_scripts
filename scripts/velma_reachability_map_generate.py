@@ -31,16 +31,8 @@ roslib.load_manifest('velma_scripts')
 import rospy
 import tf
 
-#from std_msgs.msg import *
-#from sensor_msgs.msg import *
 from geometry_msgs.msg import *
-#from barrett_hand_controller_srvs.msg import *
-#from barrett_hand_controller_srvs.srv import *
-#from cartesian_trajectory_msgs.msg import *
 from visualization_msgs.msg import *
-#import actionlib
-#from actionlib_msgs.msg import *
-from threading import Lock
 
 import tf
 from tf import *
@@ -50,33 +42,14 @@ from tf2_msgs.msg import *
 
 import PyKDL
 import math
-from numpy import *
 import numpy as np
 import copy
-import matplotlib.pyplot as plt
-import thread
 
 from urdf_parser_py.urdf import URDF
 from pykdl_utils.kdl_parser import kdl_tree_from_urdf_model
-from velma import Velma
 import velmautils
-import pose_lookup_table_left as plutl
-import pose_lookup_table_right as plutr
-from multiprocessing import Process, Queue, Lock
-
-# reference frames:
-# B - robot's base
-# R - camera
-# W - wrist
-# E - gripper
-# F - finger distal link
-# T - tool
-# C - current contact point
-# N - the end point of finger's nail
-# J - jar marker frame (jar cap)
-
-def getAngle(v1, v2):
-    return math.atan2((v1*v2).Norm(), PyKDL.dot(v1,v2))
+from multiprocessing import Process, Queue
+import random
 
 def drawDodecahedronFace(fr, a, i_base, name):
     # radius of the inscribed sphere
@@ -228,53 +201,6 @@ class VelmaIkSolver:
 
         self.singularity_angle = 15.0/180.0*math.pi
 
-    def printRotations(self, filename):
-        with open(filename, 'w') as f:
-            f.write("import PyKDL\n\nrotations=[")
-            for r in self.rot:
-                q = r.GetQuaternion()
-                f.write("PyKDL.Rotation.Quaternion("+str(q[0])+","+str(q[1])+","+str(q[2])+","+str(q[3])+"),\n")
-            f.write("]\n")
-        
-    def printSets(self, filename):
-        with open(filename, 'a') as f:
-            f.write( "x_set="+str(self.x_set)+"\n" )
-            f.write( "y_set="+str(self.y_set)+"\n" )
-            f.write( "z_set="+str(self.z_set)+"\n" )
-
-    def printLookupTable(self, tab):
-        print "lookup_table=["
-        for tab_x in tab:
-            print "["
-            for tab_y in tab_x:
-                print "["
-                for tab_z in tab_y:
-                    print tab_z
-                    print ","
-                print "],"
-            print "],"
-        print "]"
-
-    def printLookupTableBegin(self, filename):
-        with open(filename, 'a') as f:
-            f.write("lookup_table=[\n")
-
-    def printLookupTablePart(self, tab, filename):
-        with open(filename, 'a') as f:
-            for tab_x in tab:
-                f.write("[")
-                for tab_y in tab_x:
-                    f.write("[")
-                    for tab_z in tab_y:
-                        f.write( str(tab_z)+",\n" )
-                    f.write("],")
-                f.write("],")
-            f.write("\n")
-
-    def printLookupTableEnd(self, filename):
-        with open(filename, 'a') as f:
-            f.write("]\n")
-
     def hasSingularity(self, q):
         if (math.fabs(q[1]) <= self.singularity_angle) or (math.fabs(q[3]) <= self.singularity_angle) or (math.fabs(q[5]) <= self.singularity_angle):
             return True
@@ -287,26 +213,24 @@ class VelmaIkSolver:
             return True
         return False
 
-    def calculateIk(self, x_index_start, x_index_end, print_lock, next_lock):
-#process...
-#print_lock.acquire
-#print
-#print_lock.release
-#next_lock.release
+    def calculateIk(self, x_index_start, x_index_end, queue):
 
-        ret = []
+        ret = {}
+        x_index = x_index_start
         for x in self.x_set[x_index_start:x_index_end]:
-            ret_x = []
             print >> sys.stderr, "x=%s"%(x)
             if rospy.is_shutdown():
                 break
-            y = 0
+            y_index = 0
             for y in self.y_set:
-                ret_y = []
+                z_index = 0
                 for z in self.z_set:
-                    ret_z = []
                     if rospy.is_shutdown():
                         break
+                    # do not calculate the reachability map for torso area
+                    if x > -0.5 and x < 0.2 and z > -0.14 and z < 0.14:
+                        z_index += 1
+                        continue
                     rot_index = 0
                     dist = (self.pt_c_in_T2.x()-x)*(self.pt_c_in_T2.x()-x) + (self.pt_c_in_T2.y()-y)*(self.pt_c_in_T2.y()-y) + (self.pt_c_in_T2.z()-z)*(self.pt_c_in_T2.z()-z)
                     if dist <= self.max_dist2 and dist >= self.min_dist2:
@@ -323,19 +247,15 @@ class VelmaIkSolver:
 #                                    print >> sys.stderr, "sing. %s"%(i)
                                     break
                             if success:
-                                ret_z.append(rot_index)
+                                if not (x_index, y_index, z_index) in ret:
+                                    ret[ (x_index, y_index, z_index) ] = set()
+                                ret[ (x_index, y_index, z_index) ].add( rot_index )
                             rot_index += 1
-                    ret_y.append(ret_z)
-                ret_x.append(ret_y)
-            ret.append(ret_x)
-
-        if print_lock != None:
-            print_lock.acquire()
-        self.printLookupTablePart(ret, "ik.txt")
-        if print_lock != None:
-            print_lock.release()
-        if next_lock != None:
-            next_lock.release()
+                    z_index += 1
+                y_index += 1
+            x_index += 1
+        print "queue put"
+        queue.put(ret)
 
 if __name__ == '__main__':
 
@@ -352,241 +272,58 @@ if __name__ == '__main__':
 
     pub_marker = velmautils.MarkerPublisher()
 
-    side = "left"
+    side = "right"
 
-    # test: move the gripper around
-    if False:
-        rospy.init_node('velma_ik_test')
-#        global pub_marker
-#        pub_marker = rospy.Publisher('/velma_markers', MarkerArray)
-        rospy.sleep(1)
+    rospy.init_node('velma_ik_solver')
 
-        x_min = 0.1
-        x_max = 1.0
-        y_min = -0.4
-        y_max = 1.0
+    listener = tf.TransformListener()
+    while True:
+        if listener.canTransform('torso_link2', side + '_arm_2_link', rospy.Time(0)):
+            pose = listener.lookupTransform('torso_link2', side + '_arm_2_link', rospy.Time(0))
+            T_T2_L2 = pm.fromTf(pose)
+            break
+        rospy.sleep(0.1)
+
+    pt_c_in_T2 = T_T2_L2 * PyKDL.Vector()
+    min_dist = 0.330680893438 - 0.05
+    max_dist = 0.903499165003 + 0.05
+
+#    x_min = -1.0
+    x_min = -0.2
+    x_max = 1.0
+    y_min = -0.4
+#    y_max = 1.3
+    y_max = 0.8
+
+    if side == "right":
         z_min = -0.4
         z_max = 1.2
-        pub_marker.publishSinglePointMarker(PyKDL.Vector((x_min+x_max)/2.0, (y_min+y_max)/2.0, (z_min+z_max)/2.0), 0, r=1, g=1, b=1, namespace='default', frame_id="torso_link2", m_type=Marker.CUBE, scale=Vector3(x_max-x_min, y_max-y_min, z_max-z_min))
-
-        velma = Velma()
-        while not rospy.is_shutdown():
-            velma.updateTransformations()
-            T_B_E = velma.T_B_W * velma.T_W_E
-            print velma.isFramePossible(T_B_E)
-            rospy.sleep(0.5)
-        exit(0)
-
-    # test: draw the border of the workspace
-    if False:
-        rospy.init_node('velma_ik_draw_workspace_border')
-#        global pub_marker
-#        pub_marker = rospy.Publisher('/velma_markers', MarkerArray)
-        rospy.sleep(1)
-
-        i = 0
-        x_i = 0
-        for x in plut.x_set[0:-2]:
-            if rospy.is_shutdown():
-                break
-            y_i = 0
-            for y in plut.y_set[0:-2]:
-                if rospy.is_shutdown():
-                    break
-                z_i = 0
-                for z in plut.z_set[0:-2]:
-                    l = len(plut.lookup_table[x_i][y_i][z_i])
-                    lx = len(plut.lookup_table[x_i+1][y_i][z_i])
-                    ly = len(plut.lookup_table[x_i][y_i+1][z_i])
-                    lz = len(plut.lookup_table[x_i][y_i][z_i+1])
-                    if l == 0 and lx > 0:
-                        publishSinglePointMarker(PyKDL.Vector(x,y,z), i, r=1, g=1, b=1, namespace='default', frame_id="torso_link2", m_type=Marker.CUBE)
-                        i += 1
-                    elif l > 0 and lx == 0:
-                        publishSinglePointMarker(PyKDL.Vector(x,y,z), i, r=1, g=1, b=1, namespace='default', frame_id="torso_link2", m_type=Marker.CUBE)
-                        i += 1
-                    elif l == 0 and ly > 0:
-                        publishSinglePointMarker(PyKDL.Vector(x,y,z), i, r=1, g=1, b=1, namespace='default', frame_id="torso_link2", m_type=Marker.CUBE)
-                        i += 1
-                    elif l > 0 and ly == 0:
-                        publishSinglePointMarker(PyKDL.Vector(x,y,z), i, r=1, g=1, b=1, namespace='default', frame_id="torso_link2", m_type=Marker.CUBE)
-                        i += 1
-                    elif l == 0 and lz > 0:
-                        publishSinglePointMarker(PyKDL.Vector(x,y,z), i, r=1, g=1, b=1, namespace='default', frame_id="torso_link2", m_type=Marker.CUBE)
-                        i += 1
-                    elif l > 0 and lz == 0:
-                        publishSinglePointMarker(PyKDL.Vector(x,y,z), i, r=1, g=1, b=1, namespace='default', frame_id="torso_link2", m_type=Marker.CUBE)
-                        i += 1
-                    z_i += 1
-                y_i += 1
-            x_i += 1
-        print i
-        rospy.sleep(3)
-        exit(0)   
-
-    # test: draw the workspace
-    if True:
-#    if False:
-        print "ok 1"
-        rospy.init_node('velma_ik_draw_workspace')
-#        global pub_marker
-#        pub_marker = rospy.Publisher('/velma_markers', MarkerArray)
-        rospy.sleep(1)
-
-        r = 147.0/256.0
-        g = 80.0/256.0
-        b = 0.0/256.0
-        table_pos = PyKDL.Vector(0.7,0,0.8)
-        i = 0
-        # draw a table
-#        pub_marker.publishSinglePointMarker(table_pos, i, r=r, g=g, b=b, a=1, namespace='default', frame_id="world", m_type=Marker.CUBE, scale=Vector3(0.8, 1.4, 0.05))
-#        i += 1
-#        pub_marker.publishSinglePointMarker(table_pos+PyKDL.Vector(0.35,0.65,-0.4), i, r=r, g=g, b=b, a=1, namespace='default', frame_id="world", m_type=Marker.CUBE, scale=Vector3(0.05, 0.05, 0.75))
-#        i += 1
-#        pub_marker.publishSinglePointMarker(table_pos+PyKDL.Vector(-0.35,0.65,-0.4), i, r=r, g=g, b=b, a=1, namespace='default', frame_id="world", m_type=Marker.CUBE, scale=Vector3(0.05, 0.05, 0.75))
-#        i += 1
-#        pub_marker.publishSinglePointMarker(table_pos+PyKDL.Vector(-0.35,-0.65,-0.4), i, r=r, g=g, b=b, a=1, namespace='default', frame_id="world", m_type=Marker.CUBE, scale=Vector3(0.05, 0.05, 0.75))
-#        i += 1
-#        pub_marker.publishSinglePointMarker(table_pos+PyKDL.Vector(0.35,-0.65,-0.4), i, r=r, g=g, b=b, a=1, namespace='default', frame_id="world", m_type=Marker.CUBE, scale=Vector3(0.05, 0.05, 0.75))
-#        i += 1
-
-        if side == "left":
-            plut = plutl
-        else:
-            plut = plutr
-        print "ok 2"
-
-        listener = tf.TransformListener();
-        rospy.sleep(1)
-
-        pose = listener.lookupTransform('torso_base', 'torso_link2', rospy.Time(0))
-        T_B_T2 = pm.fromTf(pose)
-
-        pose = listener.lookupTransform('torso_link2', side+'_arm_2_link', rospy.Time(0))
-        T_T2_L2 = pm.fromTf(pose)
-
-        pt_c_in_T2 = T_T2_L2 * PyKDL.Vector()
-        max_dist = 0.0
-        min_dist = 10000.0
-        x_i = 0
-        print "len: %s %s %s"%(len(plut.x_set), len(plut.y_set), len(plut.z_set))
-        for x in plut.x_set:
-            if rospy.is_shutdown():
-                break
-            y_i = 0
-            for y in plut.y_set:
-                if rospy.is_shutdown():
-                    break
-                z_i = 0
-                for z in plut.z_set:
-                    pt_B = T_B_T2 * PyKDL.Vector(x,y,z)
-                    l = len(plut.lookup_table[x_i][y_i][z_i])
-                    if l > 0:
-                        dist = (pt_c_in_T2.x()-x)*(pt_c_in_T2.x()-x) + (pt_c_in_T2.y()-y)*(pt_c_in_T2.y()-y) + (pt_c_in_T2.z()-z)*(pt_c_in_T2.z()-z)
-                        if dist > max_dist:
-                            max_dist = dist
-                        if dist < min_dist:
-                            min_dist = dist
-                        size = float(l)/40.0
-                        pub_marker.publishSinglePointMarker(PyKDL.Vector(x,y,z), i, r=1.0, g=1*size, b=1*size, a=1, namespace='default', frame_id="torso_link2", m_type=Marker.SPHERE, scale=Vector3(0.05*size, 0.05*size, 0.05*size))#, scale=Vector3(0.05*size, 0.05*size, 0.05*size))
-                        i += 1
-#                        pub_marker.publishSinglePointMarker(PyKDL.Vector(x,y,-z), i, r=1.0, g=1*size, b=1*size, a=1, namespace='default', frame_id="torso_link2", m_type=Marker.SPHERE, scale=Vector3(0.05*size, 0.05*size, 0.05*size))#, scale=Vector3(0.05*size, 0.05*size, 0.05*size))
-#                        i += 1
-                    z_i += 1
-                y_i += 1
-                rospy.sleep(0.1)
-            x_i += 1
-        print i
-        print math.sqrt(min_dist)
-        print math.sqrt(max_dist)
-        rospy.sleep(3)
-        exit(0)   
-
-    # discretize the space
-    if False:
-#    if True:
-        rospy.init_node('velma_ik_solver')
-
-        listener = tf.TransformListener()
-        while True:
-            if listener.canTransform('torso_link2', side + '_arm_2_link', rospy.Time(0)):
-                pose = listener.lookupTransform('torso_link2', side + '_arm_2_link', rospy.Time(0))
-                T_T2_L2 = pm.fromTf(pose)
-                break
-            rospy.sleep(0.1)
-
-        pt_c_in_T2 = T_T2_L2 * PyKDL.Vector()
-        min_dist = 0.330680893438 - 0.05
-        max_dist = 0.903499165003 + 0.05
-
-#        x_min = -1.0
-        x_min = -0.2
-        x_max = 1.0
-        y_min = -0.4
-#        y_max = 1.3
-        y_max = 0.8
-
-        if side == "right":
-            z_min = -0.4
-            z_max = 1.2
-        else:
-            z_min = -1.2
-            z_max = 0.4
+    else:
+        z_min = -1.2
+        z_max = 0.4
 
 
-        rot = generateRotationsForDodecahedron()
+    rot = generateRotationsForDodecahedron()
 
-        ik = VelmaIkSolver(side, 0.1, x_min, x_max, y_min, y_max, z_min, z_max, pt_c_in_T2, min_dist, max_dist, rot)
+    ik = VelmaIkSolver(side, 0.1, x_min, x_max, y_min, y_max, z_min, z_max, pt_c_in_T2, min_dist, max_dist, rot)
 
-        ik.printRotations("ik.txt")
-        ik.printSets("ik.txt")
-
-#l0.lock
-#l1.lock
-#l2.lock
-#p0
-#process...
-#print...
-#l0.release
-
-#p1
-#process...
-#l0.lock
-#print
-#l0.release
-#l1.release
-
-#p2
-#process...
-#l1.lock
-#print...
-#l1.release
-#l2.release
-
-#p3
-#process...
-#l2.lock
-#print...
-#l2.release
-
-        l0 = Lock()
-        l1 = Lock()
-        l2 = Lock()
-        ik.printLookupTableBegin("ik.txt")
-        for i in range(0,len(ik.x_set),4):
-            l0.acquire()
-            p0 = Process(target=ik.calculateIk, args=(i, i+1, None, l0,))
+    ret = {}
+    for i in range(0,len(ik.x_set),4):
+            queues = []
+            queues.append(Queue(1))
+            p0 = Process(target=ik.calculateIk, args=(i, i+1, queues[-1]))
             p0.start()
             if i+1 < len(ik.x_set):
-                l1.acquire()
-                p1 = Process(target=ik.calculateIk, args=(i+1, i+2, l0, l1,))
+                queues.append(Queue(1))
+                p1 = Process(target=ik.calculateIk, args=(i+1, i+2, queues[-1]))
                 p1.start()
             if i+2 < len(ik.x_set):
-                l2.acquire()
-                p2 = Process(target=ik.calculateIk, args=(i+2, i+3, l1, l2,))
+                queues.append(Queue(1))
+                p2 = Process(target=ik.calculateIk, args=(i+2, i+3, queues[-1]))
                 p2.start()
             if i+3 < len(ik.x_set):
-                p3 = Process(target=ik.calculateIk, args=(i+3, i+4, l2, None,))
+                queues.append(Queue(1))
+                p3 = Process(target=ik.calculateIk, args=(i+3, i+4, queues[-1]))
                 p3.start()
             p0.join()
             print >> sys.stderr, "p0 joined"
@@ -600,12 +337,55 @@ if __name__ == '__main__':
                 p3.join()
                 print >> sys.stderr, "p3 joined"
 
-        ik.printLookupTableEnd("ik.txt")
+            for q in queues:
+                print "queue get"
+                data = q.get()
+                for coord in data:
+                    if coord in ret:
+                        print "ERROR: coord in ret"
+                        exit(0)
+                    else:
+                        ret[coord] = data[coord]
 
-        filename = "ik.txt"
+    filename = "pose_lookup_table_"+side+".py"
 
-        with open(filename, 'a') as f:
+    with open(filename, 'w') as f:
+
+            f.write("import PyKDL\n\nrotations=[")
+            for r in ik.rot:
+                q = r.GetQuaternion()
+                f.write("PyKDL.Rotation.Quaternion("+str(q[0])+","+str(q[1])+","+str(q[2])+","+str(q[3])+"),\n")
+            f.write("]\n")
+
+            f.write( "x_set="+str(ik.x_set)+"\n" )
+            f.write( "y_set="+str(ik.y_set)+"\n" )
+            f.write( "z_set="+str(ik.z_set)+"\n" )
+
+            f.write("lookup_table={\n")
+            for coord in ret:
+                f.write( str(coord) + ":" + str(ret[coord]) + ",\n" )
+            f.write("} # lookup_table\n")
+
             f.write( "min_dist="+str(min_dist)+"\n" )
             f.write( "max_dist="+str(max_dist)+"\n" )
             f.write( "pt_c_in_T2 = PyKDL.Vector(" + str(pt_c_in_T2.x()) + "," + str(pt_c_in_T2.y()) + "," + str(pt_c_in_T2.z()) + ")\n" )
+            f.write("side=\""+side+"\"\n\n")
+
+            f.write("def getIdx(v, v_min, v_max, step, count):\n")
+            f.write("    f = (v - (v_min - step * 0.5)) / (v_max-v_min+step)\n")
+            f.write("    idx = int(f * count)\n")
+            f.write("    if idx >= count or idx < 0:\n")
+            f.write("        idx = None\n")
+            f.write("    return idx\n\n")
+
+            f.write("def getIdxX(v):\n")
+            f.write("    return getIdx(v, "+str(ik.x_set[0])+","+str(ik.x_set[-1])+","+str(ik.x_set[1]-ik.x_set[0])+","+str(len(ik.x_set))+")\n")
+
+            f.write("def getIdxY(v):\n")
+            f.write("    return getIdx(v, "+str(ik.y_set[0])+","+str(ik.y_set[-1])+","+str(ik.y_set[1]-ik.y_set[0])+","+str(len(ik.y_set))+")\n")
+
+            f.write("def getIdxZ(v):\n")
+            f.write("    return getIdx(v, "+str(ik.z_set[0])+","+str(ik.z_set[-1])+","+str(ik.z_set[1]-ik.z_set[0])+","+str(len(ik.z_set))+")\n\n")
+
+    print "done."
 

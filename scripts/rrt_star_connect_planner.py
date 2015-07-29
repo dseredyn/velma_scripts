@@ -58,38 +58,38 @@ class PlannerRRT:
       mo_state = objectstate.MovableObjectsState(openrave.env, obj_filenames)
 
       joints_max_step = {
-      "head_pan_joint" : 15.0/180.0*math.pi,
-      "head_tilt_joint" : 15.0/180.0*math.pi,
-      "left_HandFingerOneKnuckleOneJoint" : 10.0/180.0*math.pi,
-      "left_HandFingerOneKnuckleTwoJoint" : 10.0/180.0*math.pi,
-      "left_HandFingerThreeKnuckleTwoJoint" : 10.0/180.0*math.pi,
-      "left_HandFingerTwoKnuckleTwoJoint" : 10.0/180.0*math.pi,
-      "left_arm_0_joint" : 3.0/180.0*math.pi,
-      "left_arm_1_joint" : 3.0/180.0*math.pi,
-      "left_arm_2_joint" : 3.0/180.0*math.pi,
-      "left_arm_3_joint" : 5.0/180.0*math.pi,
-      "left_arm_4_joint" : 10.0/180.0*math.pi,
-      "left_arm_5_joint" : 10.0/180.0*math.pi,
-      "left_arm_6_joint" : 10.0/180.0*math.pi,
-      "right_HandFingerOneKnuckleOneJoint" : 10.0/180.0*math.pi,
-      "right_HandFingerOneKnuckleTwoJoint" : 10.0/180.0*math.pi,
-      "right_HandFingerThreeKnuckleTwoJoint" : 10.0/180.0*math.pi,
-      "right_HandFingerTwoKnuckleTwoJoint" : 10.0/180.0*math.pi,
-      "right_arm_0_joint" : 4.0/180.0*math.pi,
-      "right_arm_1_joint" : 4.0/180.0*math.pi,
-      "right_arm_2_joint" : 4.0/180.0*math.pi,
-      "right_arm_3_joint" : 5.0/180.0*math.pi,
-      "right_arm_4_joint" : 10.0/180.0*math.pi,
-      "right_arm_5_joint" : 10.0/180.0*math.pi,
-      "right_arm_6_joint" : 10.0/180.0*math.pi,
-      "torso_0_joint" : 2.0/180.0*math.pi,
-      "torso_1_joint" : 2.0/180.0*math.pi,
+      "head_pan_joint" : 10.0/180.0*math.pi,
+      "head_tilt_joint" : 10.0/180.0*math.pi,
+      "left_HandFingerOneKnuckleOneJoint" : 5.0/180.0*math.pi,
+      "left_HandFingerOneKnuckleTwoJoint" : 5.0/180.0*math.pi,
+      "left_HandFingerThreeKnuckleTwoJoint" : 5.0/180.0*math.pi,
+      "left_HandFingerTwoKnuckleTwoJoint" : 5.0/180.0*math.pi,
+      "left_arm_0_joint" : 2.0/180.0*math.pi,
+      "left_arm_1_joint" : 2.0/180.0*math.pi,
+      "left_arm_2_joint" : 2.0/180.0*math.pi,
+      "left_arm_3_joint" : 3.0/180.0*math.pi,
+      "left_arm_4_joint" : 7.0/180.0*math.pi,
+      "left_arm_5_joint" : 7.0/180.0*math.pi,
+      "left_arm_6_joint" : 7.0/180.0*math.pi,
+      "right_HandFingerOneKnuckleOneJoint" : 5.0/180.0*math.pi,
+      "right_HandFingerOneKnuckleTwoJoint" : 5.0/180.0*math.pi,
+      "right_HandFingerThreeKnuckleTwoJoint" : 5.0/180.0*math.pi,
+      "right_HandFingerTwoKnuckleTwoJoint" : 5.0/180.0*math.pi,
+      "right_arm_0_joint" : 2.0/180.0*math.pi,
+      "right_arm_1_joint" : 2.0/180.0*math.pi,
+      "right_arm_2_joint" : 2.0/180.0*math.pi,
+      "right_arm_3_joint" : 3.0/180.0*math.pi,
+      "right_arm_4_joint" : 7.0/180.0*math.pi,
+      "right_arm_5_joint" : 7.0/180.0*math.pi,
+      "right_arm_6_joint" : 7.0/180.0*math.pi,
+      "torso_0_joint" : 1.0/180.0*math.pi,
+      "torso_1_joint" : 1.0/180.0*math.pi,
       }
 
       with openrave.env:
 
         ETA = 60.0/180.0*math.pi
-        gamma = 0.5
+#        ETA = 30.0/180.0*math.pi
 
         def isStateValid(q, dof_indices):
             openrave.switchCollisionModel("velmasimplified1")
@@ -240,6 +240,66 @@ class PlannerRRT:
                     break
             return status, updates, q_new_idx
 
+        def applyStar(V, E, q_new_idx):
+                        q_new = V[q_new_idx]
+                        q_near_idx_list = Near(V, q_new, near_dist)
+                        q_nearest_idx = E[q_new_idx]
+                        q_nearest = V[q_nearest_idx]
+
+                        # sort the neighbours
+                        cost_q_near_idx_list = []
+                        q_min_idx = q_nearest_idx
+                        c_min = tree.Cost(V, E, q_nearest_idx) + tree.CostLine(q_nearest, q_new)
+                        for q_near_idx in q_near_idx_list:
+                            if q_nearest_idx == q_near_idx or q_near_idx == child_id:
+                                continue
+                            q_near = V[q_near_idx]
+                            new_cost = tree.Cost(V, E, q_near_idx) + tree.CostLine(q_near, q_new)
+                            if new_cost > c_min:
+                                continue
+                            cost_q_near_idx_list.append( (new_cost, q_near_idx) ) 
+
+                        sorted_cost_q_near_idx_list = sorted(cost_q_near_idx_list, key=operator.itemgetter(0))
+
+                        collision_checked = {}
+                        for (new_cost, q_near_idx) in sorted_cost_q_near_idx_list:
+                            q_near = V[q_near_idx]
+                            if CollisionFree(q_near, q_new, taskrrt.GetDofIndices()):
+                                collision_checked[q_near_idx] = True
+                                q_min_idx = q_near_idx
+                                c_min = new_cost
+                                break
+                            else:
+                                collision_checked[q_near_idx] = False
+
+                        E[q_new_idx] = q_min_idx
+                        E_updates = []
+
+                        try:
+                            cost_q_new = tree.Cost(V, E, q_new_idx)
+                        except:
+                            print "updates_start"
+                            print updates_start
+                            print "V.keys()"
+                            print V.keys()
+                            print "E"
+                            print E
+                            print "child_id, parent_id", child_id, parent_id
+
+                        E_updates = []
+                        for q_near_idx in q_near_idx_list:
+                            q_near = V[q_near_idx]
+                            if cost_q_new + tree.CostLine(q_new, q_near) < tree.Cost(V, E, q_near_idx):
+                                if q_near_idx in collision_checked:
+                                    col = collision_checked[q_near_idx]
+                                else:
+                                    col = CollisionFree(q_new, q_near, taskrrt.GetDofIndices())
+                                if col:
+                                    q_parent_idx = E[q_near_idx]
+                                    E[q_near_idx] = q_new_idx
+                                    E_updates.append( (q_near_idx, child_id) )
+                        return q_min_idx, E_updates
+
         queue_slave.put( ("init_complete",) )
 
         while not rospy.is_shutdown():
@@ -350,7 +410,7 @@ class PlannerRRT:
                 # a new goal is found - create a new tree
                 if goal_found:
                     E_updates_start = []
-                    queue_slave.put( ("addNode", None, E_updates_start, {-1:(q_new,None)}, goal_found, {}, job_id), False )
+                    queue_slave.put( ("addNode", None, E_updates_start, {-1:(q_new,None)}, {}, goal_found, {}, job_id), False )
                 else:
                     q_new_idx = 1000000 * (1+process_id)
                     updates_start = []
@@ -398,12 +458,11 @@ class PlannerRRT:
                                 path_goal.reverse()
                                 paths_found[tree_id] = path_start[:-1] + path_goal
 
-#                    def applyStar():
-#                    
 
                     # RRT* for the main tree
                     E_updates_start = []
                     near_dist = 120.0/180.0*math.pi
+#                    near_dist = 60.0/180.0*math.pi
                     for update_idx in range(len(updates_start)):
                         V_update_q_new, child_id, parent_id = updates_start[update_idx]
                         if child_id <= parent_id:
@@ -411,68 +470,28 @@ class PlannerRRT:
                             print updates_start
                             print "ERROR: child_id <= parent_id", child_id, "<=", parent_id
                             exit(0)
-                        q_new = V_update_q_new
-                        q_near_idx_list = Near(V, q_new, near_dist)
-
-                        q_new_idx = child_id
-                        q_nearest_idx = parent_id
-                        q_nearest = V[q_nearest_idx]
-
-                        # sort the neighbours
-                        cost_q_near_idx_list = []
-                        q_min_idx = q_nearest_idx
-                        c_min = tree.Cost(V, E, q_nearest_idx) + tree.CostLine(q_nearest, q_new)
-                        for q_near_idx in q_near_idx_list:
-                            if q_nearest_idx == q_near_idx or q_near_idx == child_id:
-                                continue
-                            q_near = V[q_near_idx]
-                            new_cost = tree.Cost(V, E, q_near_idx) + tree.CostLine(q_near, q_new)
-                            if new_cost > c_min:
-                                continue
-                            cost_q_near_idx_list.append( (new_cost, q_near_idx) ) 
-
-                        sorted_cost_q_near_idx_list = sorted(cost_q_near_idx_list, key=operator.itemgetter(0))
-
-                        collision_checked = {}
-                        for (new_cost, q_near_idx) in sorted_cost_q_near_idx_list:
-                            q_near = V[q_near_idx]
-                            if CollisionFree(q_near, q_new, taskrrt.GetDofIndices()):
-                                collision_checked[q_near_idx] = True
-                                q_min_idx = q_near_idx
-                                c_min = new_cost
-                                break
-                            else:
-                                collision_checked[q_near_idx] = False
-
-                        E[q_new_idx] = q_min_idx
-                        E_update = []
+                        q_min_idx, E_updates = applyStar(V, E, child_id)
+                        E_updates_start += E_updates
                         updates_start[update_idx] = V_update_q_new, child_id, q_min_idx
 
-                        try:
-                            cost_q_new = tree.Cost(V, E, q_new_idx)
-                        except:
-                            print "updates_start"
-                            print updates_start
-                            print "V.keys()"
-                            print V.keys()
-                            print "E"
-                            print E
-                            print "child_id, parent_id", child_id, parent_id
+                    E_updates_goals = {}
+                    for tree_id in updates_goals:
+                        E_updates_goals[tree_id] = []
+                        for update_idx in range(len(updates_goals[tree_id])):
+#                            print "updates_goals[tree_id][update_idx]"
+#                            print updates_goals[tree_id][update_idx]
+                            V_update_q_new, child_id, parent_id = updates_goals[tree_id][update_idx]
+                            if child_id <= parent_id:
+                                print "updates_goals"
+                                print updates_goals
+                                print "ERROR: child_id <= parent_id", child_id, "<=", parent_id
+                                exit(0)
+                        gV, gE = trees_goal[tree_id]
+                        q_min_idx, E_updates = applyStar(gV, gE, child_id)
+                        E_updates_goals[tree_id] += E_updates
+                        updates_goals[tree_id][update_idx] = V_update_q_new, child_id, q_min_idx
 
-                        for q_near_idx in q_near_idx_list:
-                            q_near = V[q_near_idx]
-                            if cost_q_new + tree.CostLine(q_new, q_near) < tree.Cost(V, E, q_near_idx):
-                                if q_near_idx in collision_checked:
-                                    col = collision_checked[q_near_idx]
-                                else:
-                                    col = CollisionFree(q_new, q_near, taskrrt.GetDofIndices())
-                                if col:
-                                    q_parent_idx = E[q_near_idx]
-                                    E[q_near_idx] = q_new_idx
-                                    E_update.append( (q_near_idx, -1) )
-                                    E_updates_start.append( (q_near_idx, child_id) )
-
-                    queue_slave.put( ("addNode", updates_start, E_updates_start, updates_goals, goal_found, paths_found, job_id), False )
+                    queue_slave.put( ("addNode", updates_start, E_updates_start, updates_goals, E_updates_goals, goal_found, paths_found, job_id), False )
 
 #              except:
 #                print "exception in process", process_id
@@ -580,7 +599,7 @@ class PlannerRRT:
                     print "ERROR resp (addNode):", resp[0]
                     exit(0)
                 
-                updates_start, E_updates_start, updates_goals, goal, paths_found, resp_job_id = resp[1:]
+                updates_start, E_updates_start, updates_goals, E_updates_goals, goal, paths_found, resp_job_id = resp[1:]
                 if resp_job_id < first_valid_job_id:
                     print "discarding changes:", resp_job_id, "<", first_valid_job_id
                     continue
@@ -653,6 +672,15 @@ class PlannerRRT:
                                     self.pub_marker.publishVectorMarker(PyKDL.Vector(gV[parent_id][0], gV[parent_id][1], gV[parent_id][2]), PyKDL.Vector(gV[q_new_idx][0], gV[q_new_idx][1], gV[q_new_idx][2]), edge_ids[q_new_idx], 0, 0, 1, frame='world', namespace='edges', scale=0.01)
 
                             trees_goal[tree_id] = gV, gE
+
+                            for E_update in E_updates_goals[tree_id]:
+                                child_id = E_update[0]
+                                parent_id = E_update[1]
+                                if child_id in ids_map:
+                                    child_id = ids_map[child_id]
+                                if parent_id in ids_map:
+                                    parent_id = ids_map[parent_id]
+                                gE[child_id] = parent_id
 
                 # paths to goals found: remove goal trees and add paths to goals to the main tree
                 for tree_id in paths_found:

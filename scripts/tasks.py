@@ -429,10 +429,16 @@ class MoveArmsCloseTaskRRT:
         "left_arm_1_joint",
         "left_arm_2_joint",
         "left_arm_3_joint",
+        "left_arm_4_joint",
+        "left_arm_5_joint",
+        "left_arm_6_joint",
         "right_arm_0_joint",
         "right_arm_1_joint",
         "right_arm_2_joint",
         "right_arm_3_joint",
+        "right_arm_4_joint",
+        "right_arm_5_joint",
+        "right_arm_6_joint",
         ]
 
         self.dof_tol = [
@@ -440,19 +446,29 @@ class MoveArmsCloseTaskRRT:
         (1.9, 2.06),
         (-1.2, -1.0),
         (-2.06, -1.9),
+        None,
+        None,
+        None,
         (0.7, 1.2),
         (-2.06, -1.9),
         (1.0, 1.2),
         (1.9, 2.06),
+        None,
+        None,
+        None,
         ]
 
         self.dof_indices = []
         self.dof_limits = []
+        dof_idx = 0
         for joint_name in self.dof_names:
             joint = openrave.robot_rave.GetJoint(joint_name)
             self.dof_indices.append( joint.GetDOFIndex() )
             lim_lo, lim_up = joint.GetLimits()
             self.dof_limits.append( (lim_lo[0], lim_up[0]) )
+            if self.dof_tol[dof_idx] == None:
+                self.dof_tol[dof_idx] = (lim_lo[0], lim_up[0])
+            dof_idx += 1
 
         self.dof_indices_map = {}
         for i in range(len(self.dof_names)):
@@ -685,9 +701,32 @@ class OpenJarTaskRRT:
             plut_lid = plutr
 
         R_J_Elid = PyKDL.Rotation.RotX(180.0/180.0*math.pi)
-        T_J_Elid = PyKDL.Frame(R_J_Elid) * PyKDL.Frame(PyKDL.Vector(0,0,-0.3))
+        T_J_Elid = PyKDL.Frame(R_J_Elid) * PyKDL.Frame(PyKDL.Vector(0,0,-0.03))
 #        self.valid_T_T2_J = []
         self.valid = {}
+
+        iterations = 0
+        x_set = np.arange(0.1, 1.1, 0.1)
+        y_set = np.arange(-0.4, 0.8, 0.1)
+        z_set = np.arange(-0.5, 0.5, 0.1)
+        xi = 0
+        for x in x_set:
+            yi = 0
+            for y in y_set:
+                zi = 0
+                for z in z_set:
+                    pos = PyKDL.Vector(x,y,z)
+                    rot_idx = 0
+                    for rot in plutr.rotations:
+                        T_T2_J = PyKDL.Frame(rot, pos)
+                        iterations += 1
+                        rot_idx += 1
+                    zi += 1
+                yi += 1
+            xi += 1
+
+        print iterations
+#        exit(0)
 
         map_rot_jar_lid = {}
         rot_jar_idx = 0
@@ -699,40 +738,49 @@ class OpenJarTaskRRT:
         for grasp_idx in range(len(self.grasps_T_J_E)):
             for rot_idx in range(len(plut_jar.rotations)):
                 R_T2_Ejar = plut_jar.rotations[rot_idx]
-                R_J_Ejar = self.grasps_T_J_E[grasp_idx].M
+                R_J_Ejar = self.grasps_T_J_E[grasp_idx][0].M
                 R_T2_J = R_T2_Ejar * R_J_Ejar.Inverse()
                 R_T2_Elid = R_T2_J * R_J_Elid
                 rot_map[ (grasp_idx, rot_idx) ] = plut_lid.getClosestRot(PyKDL.Frame(R_T2_Elid))
 
-        for x_idx in range(len(plut_jar.x_set)):
-            x = plut_jar.x_set[x_idx]
-            print "x_idx", x_idx
-            for y_idx in range(len(plut_jar.y_set)):
-                y = plut_jar.y_set[y_idx]
-                print "   y_idx", y_idx, "rot_map", len(rot_map), "self.valid_T_T2_J", len(self.valid)
-                for z_idx in range(len(plut_jar.z_set)):
-                    z = plut_jar.z_set[z_idx]
-                    print "      z_idx", z_idx
-                    for rot_idx in plut_jar.lookup_table[x_idx][y_idx][z_idx]:
-                        T_T2_Ejar = PyKDL.Frame(plut_jar.rotations[rot_idx], PyKDL.Vector(x, y, z))
-                        grasp_idx = 0
-                        for T_J_Ejar in self.grasps_T_J_E:
-                            T_T2_J = T_T2_Ejar * T_J_Ejar.Inverse()
-                            T_T2_Elid = T_T2_J * T_J_Elid
+        iterations = 0
+        poses_found = 0
+        coord_idx = 0
+        for coord in plut_jar.lookup_table:
+            print coord_idx, " / ", len(plut_jar.lookup_table), "   valid:", len(self.valid), "poses_found:", poses_found
+            coord_idx += 1
+            xi, yi, zi = coord
+            if xi%2==0 or yi%2==0 or zi%2==2:
+                continue
+            x = plut_jar.x_set[xi]
+            y = plut_jar.y_set[yi]
+            z = plut_jar.z_set[zi]
 
-                            x_idx_lid = plut_lid.getClosestIndex(plut_lid.x_set, T_T2_Elid.p.x())
-                            y_idx_lid = plut_lid.getClosestIndex(plut_lid.y_set, T_T2_Elid.p.y())
-                            z_idx_lid = plut_lid.getClosestIndex(plut_lid.z_set, T_T2_Elid.p.z())
+            rot_set = plut_jar.lookup_table[coord]
+            if len(rot_set) < 10:
+                continue
 
-                            closest_rot = rot_map[ (grasp_idx, rot_idx) ]
-#                            print closest_rot, plut_lid.lookup_table[x_idx_lid][y_idx_lid][z_idx_lid]
-#                            if plut_lid.isPoseValidInT2(T_T2_Elid, x_idx_lid, y_idx_lid, z_idx_lid, closest_rot=closest_rot):
+            for rot_idx in rot_set:
+                T_T2_Ejar = PyKDL.Frame(plut_jar.rotations[rot_idx], PyKDL.Vector(x, y, z))
+                grasp_idx = 0
+                for T_J_Ejar, T_Ejar_J in self.grasps_T_J_E:
+                    iterations += 1
+                    T_T2_J = T_T2_Ejar * T_Ejar_J
+                    T_T2_Elid = T_T2_J * T_J_Elid
 
-                            if closest_rot in plut_lid.lookup_table[x_idx_lid][y_idx_lid][z_idx_lid]:
-                                self.valid[ (x_idx_lid, y_idx_lid, z_idx_lid) ] = 1
-#                                self.valid_T_T2_J.append(T_T2_J)
-                            grasp_idx += 1
-        
+                    x_idx_lid = plut_lid.getIdxX(T_T2_Elid.p.x())
+                    y_idx_lid = plut_lid.getIdxY(T_T2_Elid.p.y())
+                    z_idx_lid = plut_lid.getIdxZ(T_T2_Elid.p.z())
+                    coord_lid = (x_idx_lid, y_idx_lid, z_idx_lid)
+
+                    closest_rot = rot_map[ (grasp_idx, rot_idx) ]
+                    if coord_lid in plut_lid.lookup_table and closest_rot in plut_lid.lookup_table[coord_lid]:
+                        if not coord_lid in self.valid:
+                            self.valid[coord_lid] = set()
+                        self.valid[ coord_lid ].add(closest_rot)
+                        poses_found += 1
+                    grasp_idx += 1
+        print "iterations:", iterations
         return
 
         if len(args[1]) == 0:

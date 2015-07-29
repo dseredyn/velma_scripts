@@ -165,7 +165,10 @@ class VelmaIkSolver:
         self.max_dist2 = max_dist*max_dist
         self.x_set = list(np.arange(x_min, x_max, step))
         self.y_set = list(np.arange(y_min, y_max, step))
-        self.z_set = list(np.arange(z_min, z_max, step))
+        if z_min > z_max:
+            self.z_set = list(np.arange(z_min, z_max, -step))
+        else:
+            self.z_set = list(np.arange(z_min, z_max, step))
         self.pt_c_in_T2 = pt_c_in_T2
         self.rot = rot
 
@@ -180,18 +183,19 @@ class VelmaIkSolver:
         self.q_min[0] = -2.96 + self.q_limit
         self.q_min[1] = -2.09 + self.q_limit
         self.q_min[2] = -2.96 + self.q_limit
-        self.q_min[3] = -2.09 + self.q_limit
-#        self.q_min[3] = 0.0    # constraint on elbow
+#        self.q_min[3] = -2.09 + self.q_limit
+        self.q_min[3] = 15.0/180.0*math.pi
         self.q_min[4] = -2.96 + self.q_limit
         self.q_min[5] = -2.09 + self.q_limit
         self.q_min[6] = -2.96 + self.q_limit
         self.q_max[0] = 2.96 - self.q_limit
-#        self.q_max[0] = 0.2    # constraint on first joint to avoid head hitting
-        self.q_max[1] = 2.09 - self.q_limit
+#        self.q_max[1] = 2.09 - self.q_limit
+        self.q_max[1] = -15.0/180.0*math.pi
         self.q_max[2] = 2.96 - self.q_limit
         self.q_max[3] = 2.09 - self.q_limit
         self.q_max[4] = 2.96 - self.q_limit
-        self.q_max[5] = 2.09 - self.q_limit
+#        self.q_max[5] = 2.09 - self.q_limit
+        self.q_max[5] = -15.0/180.0*math.pi
         self.q_max[6] = 2.96 - self.q_limit
         self.fk_solver = PyKDL.ChainFkSolverPos_recursive(self.chain)
         self.vel_ik_solver = PyKDL.ChainIkSolverVel_pinv(self.chain)
@@ -272,7 +276,7 @@ if __name__ == '__main__':
 
     pub_marker = velmautils.MarkerPublisher()
 
-    side = "right"
+    side = "left"
 
     rospy.init_node('velma_ik_solver')
 
@@ -299,13 +303,15 @@ if __name__ == '__main__':
         z_min = -0.4
         z_max = 1.2
     else:
-        z_min = -1.2
-        z_max = 0.4
+        z_min = 0.4
+        z_max = -1.2
+#        z_min = -1.2
+#        z_max = 0.4
 
 
     rot = generateRotationsForDodecahedron()
 
-    ik = VelmaIkSolver(side, 0.1, x_min, x_max, y_min, y_max, z_min, z_max, pt_c_in_T2, min_dist, max_dist, rot)
+    ik = VelmaIkSolver(side, 0.15, x_min, x_max, y_min, y_max, z_min, z_max, pt_c_in_T2, min_dist, max_dist, rot)
 
     ret = {}
     for i in range(0,len(ik.x_set),4):
@@ -379,13 +385,25 @@ if __name__ == '__main__':
             f.write("    return idx\n\n")
 
             f.write("def getIdxX(v):\n")
-            f.write("    return getIdx(v, "+str(ik.x_set[0])+","+str(ik.x_set[-1])+","+str(ik.x_set[1]-ik.x_set[0])+","+str(len(ik.x_set))+")\n")
+            f.write("    return getIdx(v, "+str(ik.x_set[0])+","+str(ik.x_set[-1])+","+str(ik.x_set[1]-ik.x_set[0])+","+str(len(ik.x_set))+")\n\n")
 
             f.write("def getIdxY(v):\n")
-            f.write("    return getIdx(v, "+str(ik.y_set[0])+","+str(ik.y_set[-1])+","+str(ik.y_set[1]-ik.y_set[0])+","+str(len(ik.y_set))+")\n")
+            f.write("    return getIdx(v, "+str(ik.y_set[0])+","+str(ik.y_set[-1])+","+str(ik.y_set[1]-ik.y_set[0])+","+str(len(ik.y_set))+")\n\n")
 
             f.write("def getIdxZ(v):\n")
             f.write("    return getIdx(v, "+str(ik.z_set[0])+","+str(ik.z_set[-1])+","+str(ik.z_set[1]-ik.z_set[0])+","+str(len(ik.z_set))+")\n\n")
+
+            f.write("def getClosestRot(TR_T2_O):\n")
+            f.write("    rot_idx = 0\n")
+            f.write("    min_rot_idx = None\n")
+            f.write("    min_diff = 1000000.0\n")
+            f.write("    for rot in rotations:\n")
+            f.write("        diff = PyKDL.diff(PyKDL.Frame(rot), TR_T2_O).rot.Norm()\n")
+            f.write("        if diff < min_diff:\n")
+            f.write("            min_diff = diff\n")
+            f.write("            min_rot_idx = rot_idx\n")
+            f.write("        rot_idx += 1\n")
+            f.write("    return min_rot_idx\n\n")
 
     print "done."
 

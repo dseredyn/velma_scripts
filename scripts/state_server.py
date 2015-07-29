@@ -29,21 +29,15 @@ import roslib
 roslib.load_manifest('velma_scripts')
 
 import rospy
-
-import sensor_msgs.msg
-import geometry_msgs.msg
-import actionlib
-import actionlib_msgs.msg
-import cartesian_trajectory_msgs.msg
-import barrett_hand_controller_srvs.msg
-import barrett_hand_controller_srvs.srv
-import controller_manager_msgs.srv
-import std_srvs.srv
-import control_msgs.msg
 import rospkg
+from visualization_msgs.msg import *
+from geometry_msgs.msg import *
+
 from velma import Velma
 import conversions as conv
 import objectstate
+import velmautils
+import state_server_msgs.srv
 
 import tf
 from tf import *
@@ -55,9 +49,7 @@ import PyKDL
 import math
 import numpy as np
 
-import copy
-
-import urdf_parser_py.urdf
+import openravepy
 from openravepy import *
 import openraveinstance
 import struct
@@ -68,13 +60,34 @@ class StateServer:
     def __init__(self):
         pass
 
+    def handle_change_state(self, req):
+        print "handle_change_state", req.cmd
+        cmd = req.cmd.split()
+        if cmd[0] == "grasp":
+            link_name = cmd[1]
+            object_name = cmd[2]
+            T_W_O = conv.OpenraveToKDL( self.openrave.env.GetKinBody(object_name).GetTransform() )
+            T_W_L = conv.OpenraveToKDL( self.openrave.robot_rave.GetLink(link_name).GetTransform() )
+            T_L_O = T_W_L.Inverse() * T_W_O
+            self.grasped[link_name] = (object_name, T_L_O)
+        if cmd[0] == "drop":
+            link_name = cmd[1]
+            if link_name in self.grasped:
+                del self.grasped[link_name]
+            else:
+                print "ERROR: drop for link that does not grab anything", link_name
+        return state_server_msgs.srv.ChangeStateResponse(True)
+
     def spin(self):
+
+        self.pub_marker = velmautils.MarkerPublisher()
 
         rospack = rospkg.RosPack()
         srdf_path=rospack.get_path('velma_description') + '/robots/'
 
         obj_filenames = [
-        rospack.get_path('velma_scripts') + '/data/jar/jar.kinbody.xml'
+        rospack.get_path('velma_scripts') + '/data/jar/jar.kinbody.xml',
+#        rospack.get_path('velma_scripts') + '/data/jar/jar_collision.kinbody.xml',
         ]
 
         print "creating interface for Velma..."
@@ -83,7 +96,7 @@ class StateServer:
         print "done."
 
         self.listener = tf.TransformListener()
-#        rospy.sleep(0.5)
+        rospy.sleep(0.5)
 #        self.br = tf.TransformBroadcaster()
 
         #
@@ -91,6 +104,8 @@ class StateServer:
         #
         openrave = openraveinstance.OpenraveInstance()
         openrave.startOpenrave(viewer=True)
+
+        self.openrave = openrave
 
         openrave.runOctomapServer()
         collision_models_urdf = {
@@ -108,21 +123,54 @@ class StateServer:
 
         openrave.addMaskedObjectToOctomap("velmasimplified0");
 
+        self.grasped = {}
+        s = rospy.Service('change_state', state_server_msgs.srv.ChangeState, self.handle_change_state)
+
+        counter = 0
         while not rospy.is_shutdown():
             time_now, js = velma.getLastJointState()
             openrave.updateRobotConfigurationRos(js)
 
             time_tf = rospy.Time.now()-rospy.Duration(0.5)
             added, removed = mo_state.update(self.listener, time_tf)
+            for link_name in self.grasped:
+                object_name, T_L_O = self.grasped[link_name]
+                if object_name in mo_state.obj_map:
+                    T_W_L = conv.OpenraveToKDL(openrave.robot_rave.GetLink(link_name).GetTransform())
+                    mo_state.obj_map[object_name].T_W_O = T_W_L * T_L_O
+
+            mo_state.updateOpenrave(openrave.env)
 
             for obj_name in added:
                 openrave.addMaskedObjectToOctomap(obj_name)
             for obj_name in removed:
                 openrave.removeMaskedObjectFromOctomap(obj_name)
 
-            mo_state.updateOpenrave(openrave.env)
+#            mo_state.updateOpenrave(openrave.env)
+            if counter % 10 ==0:
+                m_id = 0
+                # publish markers
+                for obj_name in mo_state.obj_map:
+                    obj = mo_state.obj_map[obj_name]
+                    body = openrave.env.GetKinBody(obj_name)
+                    for link in body.GetLinks():
+                        T_W_L = conv.OpenraveToKDL(link.GetTransform())
+                        for geom in link.GetGeometries():
+                            T_L_G = conv.OpenraveToKDL(geom.GetTransform())
+                            g_type = geom.GetType()
+    #                        print dir(openravepy_int.GeometryType)
+                            if g_type == openravepy_int.GeometryType.Cylinder:
+                                radius = geom.GetCylinderRadius()
+                                height = geom.GetCylinderHeight()
+                                m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(), m_id, r=1, g=0, b=0, a=1, namespace='state_server_objects', frame_id='world', m_type=Marker.CYLINDER, scale=Vector3(radius*2, radius*2, height), T=T_W_L*T_L_G)
+                self.pub_marker.eraseMarkers(m_id, 1000, frame_id='world', namespace='state_server_objects')
+                for obj_name in mo_state.obj_map:
+                    openrave.UpdateMaskedObjectInOctomap(obj_name)
 
             rospy.sleep(0.01)
+            counter += 1
+            if counter >= 100:
+                counter = 0
 
 if __name__ == '__main__':
 

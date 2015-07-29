@@ -398,11 +398,19 @@ class PlannerRRT:
                                 path_goal.reverse()
                                 paths_found[tree_id] = path_start[:-1] + path_goal
 
+#                    def applyStar():
+#                    
+
                     # RRT* for the main tree
                     E_updates_start = []
                     near_dist = 120.0/180.0*math.pi
                     for update_idx in range(len(updates_start)):
                         V_update_q_new, child_id, parent_id = updates_start[update_idx]
+                        if child_id <= parent_id:
+                            print "updates_start"
+                            print updates_start
+                            print "ERROR: child_id <= parent_id", child_id, "<=", parent_id
+                            exit(0)
                         q_new = V_update_q_new
                         q_near_idx_list = Near(V, q_new, near_dist)
 
@@ -440,7 +448,17 @@ class PlannerRRT:
                         E_update = []
                         updates_start[update_idx] = V_update_q_new, child_id, q_min_idx
 
-                        cost_q_new = tree.Cost(V, E, q_new_idx)
+                        try:
+                            cost_q_new = tree.Cost(V, E, q_new_idx)
+                        except:
+                            print "updates_start"
+                            print updates_start
+                            print "V.keys()"
+                            print V.keys()
+                            print "E"
+                            print E
+                            print "child_id, parent_id", child_id, parent_id
+
                         for q_near_idx in q_near_idx_list:
                             q_near = V[q_near_idx]
                             if cost_q_new + tree.CostLine(q_new, q_near) < tree.Cost(V, E, q_near_idx):
@@ -574,7 +592,8 @@ class PlannerRRT:
                         if parent_id in ids_map:
                             parent_id = ids_map[parent_id]
                         if not parent_id in V:
-                            continue
+                            print "ERROR: updates_start: not parent_id in V, update:", update
+                            exit(0)
                         q_new_idx += 1
                         ids_map[child_id] = q_new_idx
                         V[q_new_idx] = V_update_q_new
@@ -638,7 +657,12 @@ class PlannerRRT:
                 # paths to goals found: remove goal trees and add paths to goals to the main tree
                 for tree_id in paths_found:
                     if not tree_id in trees_goal:
-                        continue
+                        print "ERROR: not tree_id in trees_goal", tree_id
+                        print "trees_goal"
+                        print trees_goal
+                        exit(0)
+                    first_valid_job_id = job_id
+
                     path = paths_found[tree_id]
                     print "adding path to goal: ", path
                     gV, gE = trees_goal[tree_id]

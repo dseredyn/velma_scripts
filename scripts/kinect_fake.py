@@ -31,15 +31,6 @@ roslib.load_manifest('velma_scripts')
 import rospy
 
 import sensor_msgs.msg
-import geometry_msgs.msg
-import actionlib
-import actionlib_msgs.msg
-import cartesian_trajectory_msgs.msg
-import barrett_hand_controller_srvs.msg
-import barrett_hand_controller_srvs.srv
-import controller_manager_msgs.srv
-import std_srvs.srv
-import control_msgs.msg
 import rospkg
 from velma import Velma
 
@@ -52,8 +43,6 @@ from tf2_msgs.msg import *
 import PyKDL
 import math
 import numpy as np
-
-import copy
 
 import urdf_parser_py.urdf
 from openravepy import *

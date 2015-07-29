@@ -42,6 +42,8 @@ from tf.transformations import *
 import tf_conversions.posemath as pm
 from tf2_msgs.msg import *
 
+import state_server_msgs.srv
+
 import PyKDL
 import math
 import numpy as np
@@ -58,6 +60,11 @@ import rrt_star_connect_planner
 import tasks
 import objectstate
 
+import pose_lookup_table_left as plutl
+import pose_lookup_table_right as plutr
+
+import sys
+
 class RobrexJarCabinet:
     """
 
@@ -68,30 +75,33 @@ class RobrexJarCabinet:
 
     def spin(self):
 
-        grasps_T_J_E = []
+        sys.setrecursionlimit(200)
 
+        # generate the set of grasps for a jar
+        grasps_T_J_E = []
         for angle_jar_axis in np.arange(0.0, math.pi*2.0, 10.0/180.0*math.pi):
             for translation_jar_axis in np.linspace(-0.03, 0.03, 7):
                 T_J_E = PyKDL.Frame(PyKDL.Rotation.RotZ(90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.17))
-                grasps_T_J_E.append(T_J_E)
+                grasps_T_J_E.append( (T_J_E, T_J_E.Inverse()) )
                 T_J_E = PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi)) * PyKDL.Frame(PyKDL.Rotation.RotX(angle_jar_axis)) * PyKDL.Frame(PyKDL.Vector(translation_jar_axis, 0, -0.17))
-                grasps_T_J_E.append(T_J_E)
+                grasps_T_J_E.append( (T_J_E, T_J_E.Inverse()) )
 
-#        tab = np.array([-5, -4, -3, -2, -1, 0, 1, 2, 3])
-#        print np.argmin(abs(tab-6))
-#        exit(0)
-        task = tasks.OpenJarTaskRRT(None, ("right", grasps_T_J_E, ))
+        # TEST: OpenJarTaskRRT
+        if False:
+            task = tasks.OpenJarTaskRRT(None, ("right", grasps_T_J_E, ))
 
-        m_id = 0
-#        for T_T2_J in task.valid_T_T2_J:
-        for coord in task.valid:
-            x,y,z = coord
-            size = 1.0
-            m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(x,y,z), m_id, r=1.0, g=1*size, b=1*size, a=1, namespace='default', frame_id="torso_link2", m_type=Marker.SPHERE, scale=Vector3(0.05*size, 0.05*size, 0.05*size))
-            rospy.sleep(0.01)
+            m_id = 0
+            for coord in task.valid:
+                xi,yi,zi = coord
+                x = plutl.x_set[xi]
+                y = plutl.y_set[yi]
+                z = plutl.z_set[zi]
+                rot_set = task.valid[coord]
+                size = float(len(rot_set))/40.0
+                m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(x,y,z), m_id, r=1.0, g=1*size, b=1*size, a=1, namespace='default', frame_id="torso_link2", m_type=Marker.SPHERE, scale=Vector3(0.05*size, 0.05*size, 0.05*size))
+                rospy.sleep(0.01)
 
-
-        exit(0)
+            exit(0)
 
         rospack = rospkg.RosPack()
         env_file=rospack.get_path('velma_scripts') + '/data/common/velma_room.env.xml'
@@ -103,6 +113,8 @@ class RobrexJarCabinet:
 
         rrt = rrt_star_connect_planner.PlannerRRT(3, env_file, obj_filenames, srdf_path)
 
+        rospy.wait_for_service('/change_state')
+        changeState = rospy.ServiceProxy('/change_state', state_server_msgs.srv.ChangeState)
         self.listener = tf.TransformListener()
 
         print "creating interface for Velma..."
@@ -171,7 +183,7 @@ class RobrexJarCabinet:
 #                T_B_E_list.append(T_B_Ed)
 
         T_B_E_list = []
-        for T_J_E in grasps_T_J_E:
+        for T_J_E, T_E_J in grasps_T_J_E:
             T_B_Ed = T_B_J * T_J_E
             T_B_E_list.append(T_B_Ed)
         print "grasps for jar:", len(T_B_E_list)
@@ -216,7 +228,7 @@ class RobrexJarCabinet:
                 break
             openrave.showTrajectory(dof_names, 10.0, traj)
 
-        traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names))
+        traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names), dof_names, speed_mult=3.0)
         velma.switchToJoint()
 
         velma.moveJointTraj(traj, dof_names, start_time=0.2)
@@ -263,6 +275,7 @@ class RobrexJarCabinet:
             print "no self-collision"
 
         openrave.robot_rave.Grab(openrave.env.GetKinBody("jar"), openrave.robot_rave.GetLink(target_gripper+"_HandPalmLink"))
+        changeState("grasp "+target_gripper+"_HandPalmLink "+ "jar")
 
         print "after grab"
         report = CollisionReport()
@@ -283,16 +296,20 @@ class RobrexJarCabinet:
             mo_state.updateOpenrave(openrave.env)
             rospy.sleep(0.1)
         env_state = (openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tree_serialized, [["jar", target_gripper+"_HandPalmLink"]])
-        path, dof_names = rrt.RRTstar(env_state, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
+#        path, dof_names = rrt.RRTstar(env_state, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
 
-        path.reverse()
-        traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names))
+        path, dof_names = rrt.RRTstar(env_state, tasks.MoveArmsCloseTaskRRT, (None,), 60.0)
+
+#        path.reverse()
+        traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names), dof_names)
         result = velma.moveJointTraj(traj, dof_names, start_time=0.2)
         result = velma.waitForJoint()
         print "moveJointTraj result", result.error_code
 
         raw_input("Press ENTER to continue...")
         openrave.updateRobotConfigurationRos(velma.js_pos)
+
+        changeState("drop "+target_gripper+"_HandPalmLink")
 
         raw_input("Press ENTER to exit...")
 

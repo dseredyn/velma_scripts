@@ -1,0 +1,11 @@
+<KinBody name="jar_collision">
+  <Body type="dynamic">
+    <Geom type="cylinder">
+      <radius>0.055</radius>
+      <height>0.220</height>
+      <diffuseColor>.0 .0 .9</diffuseColor>
+      <ambientColor>0.6 0.6 0.6</ambientColor>
+    </Geom>
+  </Body>
+</KinBody>
+

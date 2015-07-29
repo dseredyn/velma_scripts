@@ -30,6 +30,7 @@ import tf_conversions.posemath as pm
 class ObjectState:
     def __init__(self):
         self.name = None
+        self.name_col = None
         self.last_update = None
         self.T_W_O = None
         self.enabled = False
@@ -37,10 +38,17 @@ class ObjectState:
 class MovableObjectsState:
     def __init__(self, env, filename_list):
         self.obj_map = {}
+        col_map = {}
         for filename in filename_list:
             obj = ObjectState()
             obj.name = env.ReadKinBodyXMLFile(filename).GetName()
+            if obj.name.endswith("_collision"):
+                col_map[obj.name[:-len("_collision")]] = obj.name
+                continue
             self.obj_map[obj.name] = obj
+
+        for name in col_map:
+            self.obj_map[name].name_col = col_map[name]
 
     def update(self, tf_listener, time_tf):
         added = []
@@ -52,11 +60,15 @@ class MovableObjectsState:
                 obj.T_W_O = pm.fromTf(pose)
                 if not obj.enabled:
                     added.append(obj_name)
+                    if obj.name_col != None:
+                        added.append(obj.name_col)
                     obj.enabled = True
                 obj.last_update = time_tf
             else:
                 if obj.enabled and (time_tf - obj.last_update).to_sec() > 2.0:
                     removed.append(obj_name)
+                    if obj.name_col != None:
+                        removed.append(obj.name_col)
                     obj.enabled = False
         return added, removed
 
@@ -64,18 +76,24 @@ class MovableObjectsState:
         for obj_name in self.obj_map:
             obj = self.obj_map[obj_name]
             body = env.GetKinBody(obj_name)
+            if obj.name_col != None:
+                body_col = env.GetKinBody(obj.name_col)
 
-#            print "updateOpenrave", obj_name
             if obj.enabled:
                 if not body.IsEnabled():
-#                    print "updateOpenrave enable"
                     body.Enable(True)
                     body.SetVisible(True)
-#                print "updateOpenrave", obj.T_W_O
+                    if obj.name_col != None:
+                        body_col.Enable(True)
+                        body_col.SetVisible(True)
                 body.SetTransform(conv.KDLToOpenrave(obj.T_W_O))
+                if obj.name_col != None:
+                    body_col.SetTransform(conv.KDLToOpenrave(obj.T_W_O))
             else:
                 if body.IsEnabled():
-#                    print "updateOpenrave disable"
                     body.Enable(False)
                     body.SetVisible(False)
+                    if obj.name_col != None:
+                        body_col.Enable(False)
+                        body_col.SetVisible(False)
 

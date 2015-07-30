@@ -1,21 +1,9 @@
 <?xml version="1.0"?>
 <launch>
-  <include file="$(find freenect_launch)/launch/freenect.launch">
-    <arg name="camera" value="head_kinect" />
-    <arg name="depth_registration" default="true" />
-  </include>
-  <node
-    name="pointcloud_filter"
-    pkg="velma_scripts" type="pointcloud_filter.py" output="screen">
-  </node>
-  <node pkg="octomap_server" type="octomap_server_node" name="octomap_server">
-    <param name="resolution" value="0.025" />
-    <!-- fixed map frame (set to 'map' if SLAM or localization running!) -->
-    <param name="frame_id" type="string" value="map" />
-    <!-- maximum range to integrate (speedup!) -->
-    <param name="sensor_model/max_range" value="5.0" />
-    <!-- data source to integrate (PointCloud2) -->
-    <remap from="cloud_in" to="/pointcloud_filter/points" />
-  </node>
+    <param name="/head_kinect/driver/z_offset_mm" type="double" value="10.0" />
+    <include file="$(find freenect_launch)/launch/freenect.launch">
+        <arg name="camera" value="head_kinect" />
+        <arg name="depth_registration" default="true" />
+    </include>
 </launch>
 

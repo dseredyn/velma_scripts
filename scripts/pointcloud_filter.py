@@ -35,9 +35,9 @@ import geometry_msgs.msg
 import actionlib
 import actionlib_msgs.msg
 import cartesian_trajectory_msgs.msg
-import barrett_hand_controller_srvs.msg
-import barrett_hand_controller_srvs.srv
-import controller_manager_msgs.srv
+#import barrett_hand_controller_msgs.msg
+#import barrett_hand_controller_msgs.srv
+#import controller_manager_msgs.srv
 import std_srvs.srv
 import control_msgs.msg
 import rospkg

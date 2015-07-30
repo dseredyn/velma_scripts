@@ -158,7 +158,6 @@ class StateServer:
                         for geom in link.GetGeometries():
                             T_L_G = conv.OpenraveToKDL(geom.GetTransform())
                             g_type = geom.GetType()
-    #                        print dir(openravepy_int.GeometryType)
                             if g_type == openravepy_int.GeometryType.Cylinder:
                                 radius = geom.GetCylinderRadius()
                                 height = geom.GetCylinderHeight()

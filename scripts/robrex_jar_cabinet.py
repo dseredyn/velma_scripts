@@ -127,10 +127,29 @@ class RobrexJarCabinet:
         rospy.sleep(0.5)
         velma.updateTransformations()
 
+        # switch to cartesian impedance mode...
+#        velma.switchToCart()
+#        exit(0)
+
+        velma.switchToJoint()
+
+        # TEST: moving in joint impedance mode
+        if False:
+            raw_input("Press ENTER to move the robot...")
+            velma.switchToJoint()
+            joint_names = [ "right_arm_4_joint" ]
+            q_dest = [ velma.js_pos["right_arm_4_joint"] - 10.0/180.0*math.pi ]
+            velma.moveJoint(q_dest, joint_names, 10.0, start_time=0.5)
+            traj = [[q_dest], None, None, [10.0]]
+            velma.moveJointTraj(traj, joint_names, start_time=0.5)
+            result = velma.waitForJoint()
+            print "moveJointTraj result", result.error_code
+            exit(0)
+
         hv = [1.2, 1.2, 1.2, 1.2]
         ht = [3000, 3000, 3000, 3000]
 
-        target_gripper = "left"
+        target_gripper = "right"
 
         if target_gripper == "left":
             velma.moveHandLeft([40.0/180.0*math.pi, 40.0/180.0*math.pi, 40.0/180.0*math.pi, 0], hv, ht, 5000, True)
@@ -152,18 +171,6 @@ class RobrexJarCabinet:
         openrave.loadEnv(env_file)
         openrave.runOctomapClient(ros=True)
         openrave.readRobot(srdf_path=srdf_path)
-
-#        rospy.sleep(2)
-#        print "benchmark"
-#        t1 = rospy.Time.now()
-#        for i in range(50000000):
-#            pass
-#            report = CollisionReport()
-#            openrave.robot_rave.CheckSelfCollision(report)
-#        t2 = rospy.Time.now()
-#        print "benchmark end", (t2-t1).to_sec()
-#        openrave.velma_q5q6_checker.SendCommand("Benchmark")
-#        exit(0)
 
         for filename in obj_filenames:
             body = openrave.env.ReadKinBodyXMLFile(filename)
@@ -192,18 +199,18 @@ class RobrexJarCabinet:
             T_B_E_list.append(T_B_Ed)
         print "grasps for jar:", len(T_B_E_list)
 
-        if False:
+        if True:
             # look around
-            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
-            rospy.sleep(2)
-            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,-1,1.8))))
-            rospy.sleep(2)
-            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,1,1.8))))
-            rospy.sleep(2)
-            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.8))))
-            rospy.sleep(2)
+            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.2))))
+            rospy.sleep(3)
+#            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,-1,1.2))))
+#            rospy.sleep(2)
+#            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,1,1.2))))
+#            rospy.sleep(2)
+#            self.pub_head_look_at.publish(pm.toMsg(PyKDL.Frame(PyKDL.Vector(1,0,1.2))))
+#            rospy.sleep(2)
 
-        raw_input("Press ENTER to continue...")
+        raw_input("Press ENTER to start planning...")
 
         openrave.updateOctomap()
         tree_serialized = openrave.or_octomap_client.SendCommand("GetOcTree")
@@ -218,7 +225,7 @@ class RobrexJarCabinet:
 
         print "Planning trajectory to grasp the jar..."
         env_state = (openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tree_serialized, [])
-        path, dof_names = rrt.RRTstar(env_state, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
+        path, dof_names = rrt.RRTstar(env_state, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 240.0)
 
         traj = []
         for i in range(len(path)-1):
@@ -226,18 +233,19 @@ class RobrexJarCabinet:
             q2 = path[i+1]
             for f in np.linspace(0.0, 1.0, 40):
                 traj.append( q1 * (1.0 - f) + q2 * f )
-
         while True:
-            if raw_input("Type e to exit") == 'e':
+            if raw_input("Type e to execute") == 'e':
                 break
             openrave.showTrajectory(dof_names, 10.0, traj)
 
-        traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names), dof_names, speed_mult=3.0)
-        velma.switchToJoint()
+        traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names), dof_names, speed_mult=1.0)
 
-        velma.moveJointTraj(traj, dof_names, start_time=0.2)
+        velma.switchToJoint()
+        velma.moveJointTraj(traj, dof_names, start_time=0.5)
         result = velma.waitForJoint()
         print "moveJointTraj result", result.error_code
+        if result.error_code != 0:
+            exit(0)
 
         raw_input("Press ENTER to continue...")
 
@@ -255,12 +263,14 @@ class RobrexJarCabinet:
         else:
             print "no self-collision"
 
+        raw_input("Press ENTER to close the gripper...")
+
         if target_gripper == "left":
-            velma.moveHandLeft([70.0/180.0*math.pi, 70.0/180.0*math.pi, 70.0/180.0*math.pi, 0], hv, ht, 5000, True)
+            velma.moveHandLeft([90.0/180.0*math.pi, 90.0/180.0*math.pi, 90.0/180.0*math.pi, 0], hv, ht, 5000, True)
             result = velma.waitForHandLeft()
             print "moveHandLeft result", result.error_code
         else:
-            velma.moveHandRight([70.0/180.0*math.pi, 70.0/180.0*math.pi, 70.0/180.0*math.pi, 0], hv, ht, 5000, True)
+            velma.moveHandRight([90.0/180.0*math.pi, 90.0/180.0*math.pi, 90.0/180.0*math.pi, 0], hv, ht, 5000, True)
             result = velma.waitForHandRight()
             print "waitForHandRight result", result.error_code
 
@@ -302,13 +312,28 @@ class RobrexJarCabinet:
         env_state = (openrave.robot_rave.GetDOFValues(), mo_state.obj_map, tree_serialized, [["jar", target_gripper+"_HandPalmLink"]])
 #        path, dof_names = rrt.RRTstar(env_state, tasks.GraspTaskRRT, (target_gripper, T_B_E_list), 60.0)
 
-        path, dof_names = rrt.RRTstar(env_state, tasks.MoveArmsCloseTaskRRT, (None,), 60.0)
+        path, dof_names = rrt.RRTstar(env_state, tasks.MoveArmsCloseTaskRRT, (None,), 120.0)
 
 #        path.reverse()
-        traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names), dof_names, speed_mult=2.0)
-        result = velma.moveJointTraj(traj, dof_names, start_time=0.2)
+
+        traj = []
+        for i in range(len(path)-1):
+            q1 = path[i]
+            q2 = path[i+1]
+            for f in np.linspace(0.0, 1.0, 40):
+                traj.append( q1 * (1.0 - f) + q2 * f )
+        while True:
+            if raw_input("Type e to execute") == 'e':
+                break
+            openrave.showTrajectory(dof_names, 10.0, traj)
+
+
+        traj = velma.prepareTrajectory(path, velma.getJointStatesByNames(dof_names), dof_names, speed_mult=1.0)
+        result = velma.moveJointTraj(traj, dof_names, start_time=0.5)
         result = velma.waitForJoint()
         print "moveJointTraj result", result.error_code
+        if result.error_code != 0:
+            exit(0)
 
         raw_input("Press ENTER to continue...")
         openrave.updateRobotConfigurationRos(velma.js_pos)

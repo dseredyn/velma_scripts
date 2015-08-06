@@ -1,4 +1,7 @@
-# Copyright (c) 2014, Robot Control and Pattern Recognition Group, Warsaw University of Technology
+# Copyright (c) 2015, Robot Control and Pattern Recognition Group,
+# Institute of Control and Computation Engineering
+# Warsaw University of Technology
+#
 # All rights reserved.
 # 
 # Redistribution and use in source and binary forms, with or without
@@ -22,6 +25,9 @@
 # ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# Author: Dawid Seredynski
+#
 
 import PyKDL
 import conversions as conv

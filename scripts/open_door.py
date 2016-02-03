@@ -70,6 +70,14 @@ import itertools
 import operator
 import rospkg
 
+def makeWrench(f_x, f_y, f_z, t_x, t_y, t_z):
+    return PyKDL.Wrench(PyKDL.Vector(f_x,f_y,f_z), PyKDL.Vector(t_x,t_y,t_z))
+
+def calcOffsetStiffWr(stiff, wr):
+    return PyKDL.Twist(
+        PyKDL.Vector(wr.force.x() / stiff.force.x(), wr.force.y() / stiff.force.y(), wr.force.z() / stiff.force.z()),
+        PyKDL.Vector(wr.torque.x() / stiff.torque.x(), wr.torque.y() / stiff.torque.y(), wr.torque.z() / stiff.torque.z()))
+
 def KDLToOpenrave(T):
         ret = numpy.array([
         [T.M[0,0], T.M[0,1], T.M[0,2], T.p.x()],
@@ -437,25 +445,49 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         if velma.waitForToolLeft() != 0 or velma.waitForToolRight() != 0:
             raise Exception()
 
-        velma.moveImpedanceRight(PyKDL.Wrench(PyKDL.Vector(500,500,500), PyKDL.Vector(100,100,100)), 0.1)
-        velma.moveImpedanceLeft(PyKDL.Wrench(PyKDL.Vector(500,500,500), PyKDL.Vector(100,100,100)), 0.1)
+        stiff_move = makeWrench(500, 500, 500, 100, 100, 100)
+        velma.moveImpedanceRight(stiff_move, 0.1)
+        velma.moveImpedanceLeft(stiff_move, 0.1)
         if velma.waitForImpedanceLeft() != 0 or velma.waitForImpedanceRight() != 0:
             raise Exception()
 
         if not velma.switchToCart():
             raise Exception()
 
-#500n/m
-#500n - 1m
-#5n  - 0.01m
+        velma.moveHandRight([0.1, 0.1, 0.1, 60.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+
         print "moving to initial pose"
-        velma.moveEffectorRight(PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.5,-0.5, 1.0)), 3.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=(PyKDL.Vector(0.02, 0.02, 0.02), PyKDL.Vector(0.02, 0.02, 0.02)))
-        if velma.waitForEffectorRight() != 0:
+        path_tol = calcOffsetStiffWr(stiff_move, makeWrench(10.0, 10.0, 10.0, 4.0, 4.0, 4.0))
+        velma.moveEffectorRight(PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.5,-0.5, 1.0)), 3.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=path_tol)
+        if velma.waitForEffectorRight() != CartesianTrajectoryResult.SUCCESSFUL:
+            raise Exception()
+
+        stiff_door = makeWrench(30, 30, 100, 10, 10, 10)
+        velma.moveImpedanceRight(stiff_door, 0.1)
+        if velma.waitForImpedanceRight() != 0:
             raise Exception()
 
         print "pushing forward"
-        velma.moveEffectorRight(PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.9,-0.5, 1.0)), 20.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=(PyKDL.Vector(0.01, 0.01, 0.01), PyKDL.Vector(0.02, 0.02, 0.02)))
-        if velma.waitForEffectorRight() != 0:
+        path_tol = calcOffsetStiffWr(stiff_door, makeWrench(8.0, 8.0, 8.0, 3.0, 3.0, 3.0))
+        velma.moveEffectorRight(PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.9,-0.5, 1.0)), 10.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=path_tol)
+        if velma.waitForEffectorRight() != CartesianTrajectoryResult.PATH_TOLERANCE_VIOLATED:
+            raise Exception()
+
+        print "moving to current pose"
+        velma.updateTransformations()
+        velma.moveEffectorRight(velma.T_B_Wr * velma.T_Wr_Tr, 0.5, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=None)
+        if velma.waitForEffectorRight() != CartesianTrajectoryResult.SUCCESSFUL:
+            raise Exception()
+
+        print "moving to initial pose"
+        velma.moveEffectorRight(PyKDL.Frame(PyKDL.Rotation.RotY(90.0/180.0*math.pi), PyKDL.Vector(0.5,-0.5, 1.0)), 3.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=path_tol)
+        if velma.waitForEffectorRight() != CartesianTrajectoryResult.SUCCESSFUL:
+            raise Exception()
+
+        velma.moveHandRight([40.0/180.0*math.pi, 40.0/180.0*math.pi, 40.0/180.0*math.pi, 180.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+
+        velma.moveImpedanceRight(stiff_move, 0.1)
+        if velma.waitForImpedanceRight() != 0:
             raise Exception()
 
         return

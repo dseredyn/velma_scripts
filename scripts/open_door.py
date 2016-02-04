@@ -52,6 +52,7 @@ from tf import *
 from tf.transformations import * 
 import tf_conversions.posemath as pm
 from tf2_msgs.msg import *
+import force_control_msgs.msg
 
 import PyKDL
 import math
@@ -433,6 +434,45 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         velma = VelmaInterface()
         velma.waitForInit()
         print "done."
+
+#        if not velma.switchToCartImp():
+#            raise Exception()
+#        return
+
+        velma.moveHandRight([30.0/180.0*math.pi, 30.0/180.0*math.pi, 30.0/180.0*math.pi, 60.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+
+        print velma.getControllerBehaviour()
+        if not velma.switchToJntImp():
+            raise Exception()
+
+        velma.updateTransformations()
+        velma.moveToolRight(velma.T_Wr_Gr, 0.1)
+        velma.moveToolLeft(velma.T_Wl_Gl, 0.1)
+        if velma.waitForToolLeft() != 0 or velma.waitForToolRight() != 0:
+            raise Exception()
+
+        pub_fcl_r = rospy.Publisher('/right_arm/fcl_param', force_control_msgs.msg.ForceControl, queue_size=0)
+        pub_fcl_l = rospy.Publisher('/left_arm/fcl_param', force_control_msgs.msg.ForceControl, queue_size=0)
+        rospy.sleep(0.5)
+        goal = force_control_msgs.msg.ForceControl()
+        goal.inertia = force_control_msgs.msg.Inertia(Vector3(20.0, 20.0, 20.0), Vector3(0.5, 0.5, 0.5))
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.0025, 0.0025, 0.0025), Vector3(0.05, 0.05, 0.05))
+        goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, 0.0))
+        goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
+        pub_fcl_r.publish(goal)
+        goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
+        pub_fcl_l.publish(goal)
+
+        print velma.getControllerBehaviour()
+        if not velma.switchToCartFcl():
+            raise Exception()
+        print velma.getControllerBehaviour()
+
+        raw_input("press ENTER to swith to CartImp...")
+        if not velma.switchToCartImp():
+            raise Exception()
+
+        return
 
         if not velma.isJointImpedanceActive():
             if not velma.switchToJoint():

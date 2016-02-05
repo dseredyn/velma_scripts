@@ -279,7 +279,7 @@
       <axis>
         <xyz>0 0 1</xyz>
         <limit>
-          <lower>0</lower>
+          <lower>-0.001</lower>
           <upper>1.58</upper>
         </limit>
         <dynamics>
@@ -399,7 +399,7 @@
         <xyz>0 0 1</xyz>
         <limit>
           <lower>-1.58</lower>
-          <upper>0</upper>
+          <upper>0.001</upper>
         </limit>
         <dynamics>
           <damping>1.0</damping>

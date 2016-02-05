@@ -435,13 +435,6 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         velma.waitForInit()
         print "done."
 
-#        if not velma.switchToCartImp():
-#            raise Exception()
-#        return
-
-        velma.moveHandRight([30.0/180.0*math.pi, 30.0/180.0*math.pi, 30.0/180.0*math.pi, 60.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
-
-        print velma.getControllerBehaviour()
         if not velma.switchToJntImp():
             raise Exception()
 
@@ -451,13 +444,20 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         if velma.waitForToolLeft() != 0 or velma.waitForToolRight() != 0:
             raise Exception()
 
+        if not velma.switchToCartImp():
+            raise Exception()
+
+        velma.moveHandRight([45.0/180.0*math.pi, 45.0/180.0*math.pi, 45.0/180.0*math.pi, 60.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+
+        raw_input("Move end-effector to desired pose and press ENTER...")
+
         pub_fcl_r = rospy.Publisher('/right_arm/fcl_param', force_control_msgs.msg.ForceControl, queue_size=0)
         pub_fcl_l = rospy.Publisher('/left_arm/fcl_param', force_control_msgs.msg.ForceControl, queue_size=0)
         rospy.sleep(0.5)
         goal = force_control_msgs.msg.ForceControl()
         goal.inertia = force_control_msgs.msg.Inertia(Vector3(20.0, 20.0, 20.0), Vector3(0.5, 0.5, 0.5))
-        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.0025, 0.0025, 0.0025), Vector3(0.05, 0.05, 0.05))
-        goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, 0.0))
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.8, 0.8, 0.008), Vector3(0.4, 0.4, 0.4))
+        goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.2), Vector3(0.0, 0.0, 0.0))
         goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_r.publish(goal)
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))

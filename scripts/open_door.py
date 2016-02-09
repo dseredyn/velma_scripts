@@ -447,6 +447,34 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         if not velma.switchToCartImp():
             raise Exception()
 
+        if False:
+            T_Wr_Er = velma.getKDLtf('right_arm_7_link', 'right_HandPalmLink')
+            T_Wl_El = velma.getKDLtf('left_arm_7_link', 'left_HandPalmLink')
+            q = T_Wr_Er.M.GetQuaternion()
+            p = T_Wr_Er.p
+            print "right: p: " + str(p.x()) + " " + str(p.y()) + " "  + str(p.z()) + "  q: " + str(q[0]) + " " + str(q[1]) + " " + str(q[2]) + " " + str(q[3])
+            q = T_Wl_El.M.GetQuaternion()
+            p = T_Wl_El.p
+            print "left:  p: " + str(p.x()) + " " + str(p.y()) + " "  + str(p.z()) + "  q: " + str(q[0]) + " " + str(q[1]) + " " + str(q[2]) + " " + str(q[3])
+
+            p_E = PyKDL.Vector(0,0,0.06)
+            p_Wr = T_Wr_Er * p_E
+            p_Wl = T_Wl_El * p_E
+            print "right gravity_arm_in_wrist: " + str(p_Wr.x()) + " " + str(p_Wr.y()) + " " + str(p_Wr.z())
+            print "left gravity_arm_in_wrist:  " + str(p_Wl.x()) + " " + str(p_Wl.y()) + " " + str(p_Wl.z())
+            return
+
+        if False:
+            while not rospy.is_shutdown():
+                raw_input("press ENTER to swith to JntImp...")
+                if not velma.switchToJntImp():
+                    raise Exception()
+                raw_input("press ENTER to swith to CartImp...")
+                if not velma.switchToCartImp():
+                    raise Exception()
+
+            return
+
         velma.moveHandRight([45.0/180.0*math.pi, 45.0/180.0*math.pi, 45.0/180.0*math.pi, 60.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
 
         raw_input("Move end-effector to desired pose and press ENTER...")
@@ -456,7 +484,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         rospy.sleep(0.5)
         goal = force_control_msgs.msg.ForceControl()
         goal.inertia = force_control_msgs.msg.Inertia(Vector3(20.0, 20.0, 20.0), Vector3(0.5, 0.5, 0.5))
-        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.8, 0.8, 0.008), Vector3(0.4, 0.4, 0.4))
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.4, 0.4, 0.004), Vector3(0.4, 0.4, 0.4))
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.2), Vector3(0.0, 0.0, 0.0))
         goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_r.publish(goal)

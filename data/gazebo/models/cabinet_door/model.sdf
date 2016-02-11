@@ -283,11 +283,12 @@
           <upper>1.58</upper>
         </limit>
         <dynamics>
-          <damping>1.0</damping>
+          <damping>0.5</damping>
           <friction>0.1</friction>
         </dynamics>
         <use_parent_model_frame>true</use_parent_model_frame>
       </axis>
+      <pose>0 0 0 0 0 0</pose>
     </joint>
     <link name="left_door">
       <pose>0.135 -0.2835 0.3875 0 0 0</pose>
@@ -402,11 +403,12 @@
           <upper>0.001</upper>
         </limit>
         <dynamics>
-          <damping>1.0</damping>
+          <damping>0.5</damping>
           <friction>0.1</friction>
         </dynamics>
         <use_parent_model_frame>true</use_parent_model_frame>
       </axis>
+      <pose>0 0 0 0 0 0</pose>
     </joint>
   </model>
 </sdf>

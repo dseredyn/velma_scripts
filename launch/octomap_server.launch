@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<launch>
+    <node pkg="pointcloud_filter" type="pc_filter" name="pc_filter" output="screen">
+      <param name="tolerance" value="0.1" type="double" />
+      <remap from="cloud_in" to="/head_kinect/depth/points"/>
+      <remap from="cloud_out" to="/pc_filtered/points"/>
+    </node>
+
+  <node name="om_server" pkg="octomap_server" type="octomap_server_node" output="screen">
+    <param name="resolution" value="0.025" />
+    <param name="frame_id" type="string" value="world" />
+    <param name="sensor_model/max_range" value="1.8" />
+<!--    <remap from="cloud_in" to="/head_kinect/depth/points"/> -->
+    <remap from="cloud_in" to="/pc_filtered/points"/>
+  </node>
+</launch>
+

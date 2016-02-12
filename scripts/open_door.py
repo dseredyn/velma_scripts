@@ -62,14 +62,11 @@ import matplotlib.pyplot as plt
 import thread
 from velma_common.velma_interface import VelmaInterface
 import random
-#from openravepy import *
-#from optparse import OptionParser
-#from openravepy.misc import OpenRAVEGlobalArguments
 import velma_common.velmautils as velmautils
-#import openraveinstance
 import itertools
 import operator
 import rospkg
+from scipy import optimize
 
 def makeWrench(f_x, f_y, f_z, t_x, t_y, t_z):
     return PyKDL.Wrench(PyKDL.Vector(f_x,f_y,f_z), PyKDL.Vector(t_x,t_y,t_z))
@@ -78,19 +75,6 @@ def calcOffsetStiffWr(stiff, wr):
     return PyKDL.Twist(
         PyKDL.Vector(wr.force.x() / stiff.force.x(), wr.force.y() / stiff.force.y(), wr.force.z() / stiff.force.z()),
         PyKDL.Vector(wr.torque.x() / stiff.torque.x(), wr.torque.y() / stiff.torque.y(), wr.torque.z() / stiff.torque.z()))
-
-def KDLToOpenrave(T):
-        ret = numpy.array([
-        [T.M[0,0], T.M[0,1], T.M[0,2], T.p.x()],
-        [T.M[1,0], T.M[1,1], T.M[1,2], T.p.y()],
-        [T.M[2,0], T.M[2,1], T.M[2,2], T.p.z()],
-        [0, 0, 0, 1]])
-        return ret
-
-def OpenraveToKDL(T):
-        rot = PyKDL.Rotation(T[0][0],T[0][1],T[0][2],T[1][0],T[1][1],T[1][2],T[2][0],T[2][1],T[2][2])
-        pos = PyKDL.Vector(T[0][3], T[1][3], T[2][3])
-        return PyKDL.Frame(rot, pos)
 
 class OpenDoor:
     """
@@ -101,333 +85,47 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         self.pub_marker = velmautils.MarkerPublisher()
         self.listener = tf.TransformListener();
 
-    def getMarkerPose(self, marker_id, wait = True, timeBack = None):
-        try:
-            marker_name = 'ar_marker_'+str(int(marker_id))
-            if wait:
-                self.listener.waitForTransform('torso_base', marker_name, rospy.Time.now(), rospy.Duration(4.0))
-            if timeBack != None:
-                time = rospy.Time.now() - rospy.Duration(timeBack)
-            else:
-                time = rospy.Time(0)
-            jar_marker = self.listener.lookupTransform('torso_base', marker_name, time)
-        except:
-            return None
-        return pm.fromTf(jar_marker)
+    def estCircle(self, vec_list):
+        px = []
+        py = []
+        for vec in vec_list:
+            px.append(vec.x())
+            py.append(vec.y())
+        x_m = np.mean(px)
+        y_m = np.mean(py)
+    
+        def calc_R(xc, yc):
+            """ calculate the distance of each 2D points from the center (xc, yc) """
+            return np.sqrt((px-xc)**2 + (py-yc)**2)
 
-    def getCameraPoseFake(self):
-        return PyKDL.Frame(PyKDL.Rotation.Quaternion(-0.6041471326857807, 0.7290707942893216, -0.24257326295862056, 0.21123501385869978), PyKDL.Vector(0.274115,-0.000762625,     1.67876) )  # romoco_02
-#        return PyKDL.Frame(PyKDL.Rotation.RotY(135.0/180.0*math.pi), PyKDL.Vector(0.4, 0, 1.4)) * PyKDL.Frame(PyKDL.Rotation.RotZ(-90.0/180.0*math.pi))
+        def f_2(c):
+            """ calculate the algebraic distance between the 2D points and the mean circle centered at c=(xc, yc) """
+            Ri = calc_R(*c)
+            return Ri - Ri.mean()
+        
+        center_estimate = x_m, y_m
+        center_2, ier = optimize.leastsq(f_2, center_estimate)
 
-    def getMarkerPoseFake(self, marker_id, wait = True, timeBack = None):
+        xc, yc = center_2
+        Ri_2   = calc_R(xc, yc)
+        R      = Ri_2.mean()
+        return [xc, yc, R]
 
-        if True:  # romoco_02
-            ar_track = [
-            [5,0,0,0,0,-0.168262043609,0.0930374127131,1.01813819229,0.950324481028,-0.0289575235949,0.00394574675416,0.309885904275],
-            [21,0,0,0,0,0.082505708292,0.110761122122,0.603730984018,-0.458504669821,-0.709444231601,-0.0397255592372,0.533745472997],
-            [30,0,0,0,0,0.104154326153,0.0757350473769,0.587008320764,0.861332293804,0.391007810313,-0.113641433205,0.303817702879],
-            [18,0,0,0,0,0.124413927856,0.111452725921,0.599775167445,0.696719708925,0.480876853947,0.5293727524,-0.0557098514612],
-            [19,0,0,0,0,0.123152725863,0.198755505957,0.716141316519,0.700134532901,0.471859046812,0.532229610902,-0.0623884369125],
-            [22,0,0,0,0,0.0797242701158,0.196635593195,0.713926653472,-0.448409835388,-0.710363705627,-0.044302175627,0.540693390462],
-            ]
-            for mk in ar_track:
-                if mk[0] == marker_id:
-                    
-                    return self.getCameraPoseFake() * PyKDL.Frame(PyKDL.Rotation.Quaternion(mk[8], mk[9], mk[10], mk[11]), PyKDL.Vector(mk[5], mk[6], mk[7]) )
-
-            return None
-
-#        T_B_Tm = PyKDL.Frame( PyKDL.Rotation.EulerZYZ(0.1, -0.1, 0.0), PyKDL.Vector(0.55,-0.4,0.9) )
-        T_B_Tm = PyKDL.Frame( PyKDL.Rotation.RotZ(90.0/180.0*math.pi), PyKDL.Vector(0.55,-0.2,0.9) )
-        T_B_Tbb = PyKDL.Frame( PyKDL.Vector(0.5,-0.8,2.0) )
-        T_Tm_Bm = PyKDL.Frame( PyKDL.Vector(-0.06, 0.3, 0.135) )
-        T_Bm_Gm = PyKDL.Frame( PyKDL.Rotation.RotZ(90.0/180.*math.pi) * PyKDL.Rotation.RotY(90.0/180.*math.pi), PyKDL.Vector(0.0,0.0,0.17) )    # the block standing on the table
-#        T_Bm_Gm = PyKDL.Frame( PyKDL.Rotation.RotZ(-30.0/180.*math.pi), PyKDL.Vector(0.1,-0.1,0.06) )    # the block lying on the table
-#        T_Bm_Gm = PyKDL.Frame( PyKDL.Rotation.RotX(90.0/180.*math.pi), PyKDL.Vector(0.1,-0.1,0.06) )
-        if marker_id == 6:
-            return T_B_Tm
-        elif marker_id == 7:
-            return T_B_Tm * T_Tm_Bm
-        elif marker_id == 8:
-            return T_B_Tbb
-        elif marker_id == 19:
-#            return T_B_Tm * T_Tm_Bm * T_Bm_Gm
-            return T_B_Tm * T_Bm_Gm
-        elif marker_id == 35:
-            return T_B_Tm * T_Tm_Bm * T_Bm_Gm
-        return None
-
-    def getCameraPose(self):
-        return pm.fromTf(self.listener.lookupTransform('torso_base', 'camera', rospy.Time(0)))
-
-    def allowUpdateObjects(self):
-        self.allow_update_objects_pose = True
-
-    def disallowUpdateObjects(self):
-        self.allow_update_objects_pose = False
-
-    def waitForOpenraveInit(self):
-        while not rospy.is_shutdown():
-            if self.openrave.rolling:
-                break
-            rospy.sleep(0.5)
-
-    def switchToJoint(self, robot):
-        if robot.isCartesianImpedanceActive():
-            raw_input("Press Enter to enable joint impedance...")
-            if robot.checkStopCondition():
-                exit(0)
-            robot.switchToJoint()
-        elif robot.isJointImpedanceActive():
-            pass
-        else:
-            print "FATAL ERROR: impedance control in unknown state: %s %s"%(robot.joint_impedance_active, robot.cartesian_impedance_active)
-            exit(0)
-
-    def switchToCartesian(self, robot):
-        if robot.isJointImpedanceActive():
-            raw_input("Press Enter to enable cartesian impedance...")
-            if robot.checkStopCondition():
-                exit(0)
-            robot.switchToCart()
-        elif robot.isCartesianImpedanceActive():
-            pass
-        else:
-            print "FATAL ERROR: impedance control in unknown state: %s %s"%(robot.joint_impedance_active, robot.cartesian_impedance_active)
-            exit(0)
-
-    def calculateWrenchesForTransportTask(self, ext_wrenches_W, transport_T_B_O):
-        ext_wrenches_O = []
-        for i in range(len(transport_T_B_O)-1):
-            diff_B_O = PyKDL.diff(transport_T_B_O[i], transport_T_B_O[i+1])
-            # simulate object motion and calculate expected wrenches
-            for t in np.linspace(0.0, 1.0, 5):
-                T_B_Osim = PyKDL.addDelta(transport_T_B_O[i], diff_B_O, t)
-                T_Osim_B = T_B_Osim.Inverse()
-                for ewr in ext_wrenches_W:
-                    ext_wrenches_O.append(PyKDL.Frame(T_Osim_B.M) * ewr)
-        return ext_wrenches_O
-
-    def showPlan(self, plan):
-        init_config = self.openrave.getRobotConfigurationRos()
-        init_T_B_O = None
-        grasped = False
-        for stage in plan:
-            if stage[0] == "move_joint":
-                traj = stage[1]
-                raw_input("Press Enter to visualize the joint trajectory...")
-                duration = math.fsum(traj[3])
-                self.openrave.showTrajectory(duration * 5.0, qar_list=traj[4])
-                self.openrave.updateRobotConfiguration(qar=traj[0][-1])
-            elif stage[0] == "grasp":
-                graspable_object_name = stage[1]
-#                grasp = stage[2]
-                if init_T_B_O == None:
-                    init_T_B_O = self.openrave.getPose(graspable_object_name)
-                grasped = True
-                self.openrave.grab(graspable_object_name)
-            elif stage[0] == "move_cart":
-                T_B_Wd_traj = stage[1]
-                for idx in range(len(T_B_Wd_traj[0])):
-                    init_js = self.openrave.getRobotConfigurationRos()
-                    traj = self.velma_solvers.getCartImpWristTraj(init_js, T_B_Wd_traj[0][idx])
-                    raw_input("Press Enter to visualize the cartesian trajectory...")
-                    self.openrave.showTrajectory(T_B_Wd_traj[1][idx], qar_list=traj)
-                    self.openrave.updateRobotConfiguration(qar=traj[-1])
-            elif stage[0] == "move_gripper":
-                g_shape = stage[1]
-                self.openrave.updateRobotConfigurationRos(g_shape)
-
-        if grasped:
-            self.openrave.release()
-        if init_T_B_O != None:
-            self.openrave.updatePose(graspable_object_name, init_T_B_O)
-        self.openrave.updateRobotConfigurationRos(init_config)
-
-    def executePlan(self, plan, time_mult):
-        for stage in plan:
-            print stage[0]
-            if stage[0] == "move_joint":
-                traj = stage[1]
-                print "switching to joint impedance..."
-                self.velma.switchToJoint()
-                print "done."
-                duration = math.fsum(traj[3])
-                print "trajectory len: %s"%(len(traj[0]))
-                raw_input("Press Enter to execute the trajectory on real robot in " + str(duration * time_mult) + "s ...")
-                if self.velma.checkStopCondition():
-                    exit(0)
-                self.velma.moveWristTrajJoint(traj, time_mult, Wrench(Vector3(20,20,20), Vector3(4,4,4)))
-                if self.velma.checkStopCondition(duration * time_mult + 1.0):
-                    exit(0)
-            elif stage[0] == "grasp":
-                pass
-#                graspable_object_name = stage[1]
-#                grasp = stage[2]
-#                if init_T_B_O == None:
-#                    init_T_B_O = self.openrave.getPose(graspable_object_name)
-#                grasped = True
-#                self.openrave.grab(graspable_object_name)
-            elif stage[0] == "move_cart":
-                self.velma.switchToCart()
-                # move to the desired position
-                self.velma.updateTransformations()
-                traj = stage[1]
-                print traj
-#                T_B_Wd = stage[1]
-#                duration = self.velma.getMovementTime(T_B_Wd, max_v_l=0.1, max_v_r=0.2)
-                raw_input("Press Enter to move the robot in " + str(traj[1][-1]) + " s...")
-                if self.velma.checkStopCondition():
-                    exit(0)
-                self.velma.moveWristTraj(traj[0], traj[1], Wrench(Vector3(20,20,20), Vector3(4,4,4)), abort_on_q5_singularity=True, abort_on_q5_q6_self_collision=True)
-                if self.velma.checkStopCondition(traj[1][-1]):
-                    break
-            elif stage[0] == "move_gripper":
-                g_shape = stage[1]
-                q = [
-                g_shape["right_HandFingerOneKnuckleTwoJoint"],
-                g_shape["right_HandFingerTwoKnuckleTwoJoint"],
-                g_shape["right_HandFingerThreeKnuckleTwoJoint"],
-                g_shape["right_HandFingerOneKnuckleOneJoint"],
-                ]
-                raw_input("Press Enter to change the gripper configuration...")
-                self.velma.move_hand_client(q, t=(3000.0, 3000.0, 3000.0, 3000.0))
-
-    def makePlan(self, graspable_object_name, grasp, transport_T_B_O, penalty_threshold):
-
-        if self.openrave.checkRobotCollision():
-            print "makePlan failed: robot is in collision with environment"
-            return None, None
-
-        plan_ret = []
-
-        config = self.openrave.getRobotConfigurationRos()
-        init_T_B_O = self.openrave.getPose(graspable_object_name)
-
-        T_B_Ed = self.openrave.getGraspTransform(graspable_object_name, grasp, collisionfree=True)
-
-        # set the gripper preshape
-        hand_config, contacts_ret_O, normals_O = self.openrave.getFinalConfig(graspable_object_name, grasp, show=False)
-        pre_angle = 30.0/180.0*math.pi
-        preshape = {
-        "right_HandFingerOneKnuckleTwoJoint" : hand_config[0] - pre_angle,
-        "right_HandFingerTwoKnuckleTwoJoint" : hand_config[1] - pre_angle,
-        "right_HandFingerThreeKnuckleTwoJoint" : hand_config[2] - pre_angle,
-        "right_HandFingerOneKnuckleOneJoint" : hand_config[3]}
-
-        self.openrave.updateRobotConfigurationRos(preshape)
-
-        if self.openrave.checkRobotCollision():
-            print "makePlan failed: robot is in collision with environment after gripper preshape execution"
-            return None, None
-
-        plan_ret.append(["move_gripper", preshape])
-
-        # plan first trajectory (in configuration space)
-        self.openrave.extendAllObjects(0.02)
-        traj = self.openrave.planMoveForRightArm(T_B_Ed, None, penalty_threshold=penalty_threshold)
-        self.openrave.restoreExtendedObjects()
-        if traj == None:
-            print "colud not plan trajectory in configuration space"
-            return None, None
-
-
-        plan_ret.append(["move_joint", traj])
-
-        penalty = traj[5]
-
-        # start planning from the end of the previous trajectory
-        self.openrave.updateRobotConfiguration(qar=traj[0][-1])
-
-        # grab the body
-        self.openrave.grab(graspable_object_name)
-
-        g_angle = 10.0/180.0*math.pi
-        g_shape = {
-        "right_HandFingerOneKnuckleTwoJoint" : hand_config[0] + g_angle,
-        "right_HandFingerTwoKnuckleTwoJoint" : hand_config[1] + g_angle,
-        "right_HandFingerThreeKnuckleTwoJoint" : hand_config[2] + g_angle,
-        "right_HandFingerOneKnuckleOneJoint" : hand_config[3]}
-
-        plan_ret.append(["move_gripper", g_shape])
-        plan_ret.append(["grasp", graspable_object_name])
-
-        # calculate the destination pose of the end effector
-        T_B_O = self.openrave.getPose(graspable_object_name)
-        T_E_O = T_B_Ed.Inverse() * T_B_O
-
-
-        cart_traj = []
-        cart_times = []
-        T_B_Wd1 = T_B_Ed * self.velma.T_E_W
-        print "makePlan:"
-        print T_B_O
-#        print T_B_Wd1
-        time = 0.0
-        for idx in range(1, len(transport_T_B_O)):
-            T_B_Ed = transport_T_B_O[idx] * T_E_O.Inverse()
-            T_B_Wd2 = T_B_Ed * self.velma.T_E_W
-#            print T_B_Wd2
-            print transport_T_B_O[idx]
-            cart_traj.append(T_B_Wd2)
-            time += self.velma.getMovementTime2(T_B_Wd1, T_B_Wd2, max_v_l=0.1, max_v_r=0.2)
-            cart_times.append(time)
-            T_B_Wd1 = T_B_Wd2
-
-        # calculate the destination pose of the end effector
-#        T_B_O = self.openrave.getPose(graspable_object_name)
-#        T_E_O = T_B_Ed.Inverse() * T_B_O
-#        T_B_Ed = T_B_Od * T_E_O.Inverse()
-#        T_B_Wd = T_B_Ed * self.velma.T_E_W
-
-        # interpolate trajectory for the second motion (in the cartesian space)
-        for idx in range(len(cart_traj)):
-            init_js = self.openrave.getRobotConfigurationRos()
-            traj = self.velma_solvers.getCartImpWristTraj(init_js, cart_traj[idx])
-            if traj == None:
-                print "could not plan trajectory in cartesian space: ", str(idx)
-                self.openrave.release()
-                self.openrave.updatePose(graspable_object_name, init_T_B_O)
-                self.openrave.updateRobotConfigurationRos(config)
-                return None, None
-            # start planning from the end of the previous trajectory
-            self.openrave.updateRobotConfiguration(qar=traj[-1])
-
-        plan_ret.append(["move_cart", [cart_traj, cart_times]])
-
-        self.openrave.release()
-        self.openrave.updatePose(graspable_object_name, init_T_B_O)
-
-        self.openrave.updateRobotConfigurationRos(config)
-
-        return penalty, plan_ret
-
-    def poseUpdaterThread(self, args, *args2):
-        while not rospy.is_shutdown():
-            self.pub_marker.publishConstantMeshMarker("package://velma_scripts/data/meshes/klucz_gerda_binary.stl", 0, r=1, g=0, b=0, scale=1.0, frame_id='right_HandPalmLink', namespace='key', T=self.T_E_O)
-            self.pub_marker.publishSinglePointMarker(self.key_endpoint_O, 1, r=1, g=1, b=1, a=0.5, namespace='key', frame_id='right_HandPalmLink', m_type=Marker.SPHERE, scale=Vector3(0.01, 0.01, 0.01), T=self.T_E_O)
-            self.pub_marker.publishSinglePointMarker(self.T_O_H*PyKDL.Vector(), 2, r=1, g=1, b=0, a=0.5, namespace='key', frame_id='right_HandPalmLink', m_type=Marker.SPHERE, scale=Vector3(0.015, 0.015, 0.015), T=self.T_E_O)
-            self.pub_marker.publishVectorMarker(self.T_E_O*self.key_endpoint_O, self.T_E_O*(self.key_endpoint_O+self.key_up_O*0.05), 3, 1, 0, 0, frame='right_HandPalmLink', namespace='key', scale=0.001)
-            self.pub_marker.publishVectorMarker(self.T_E_O*self.key_endpoint_O, self.T_E_O*(self.key_endpoint_O+self.key_axis_O*0.05), 4, 0, 1, 0, frame='right_HandPalmLink', namespace='key', scale=0.001)
-
-            m_id = 0
-            for pt in self.points:
-#                m_id = self.pub_marker.publishSinglePointMarker(pt, m_id, r=1, g=1, b=1, a=1, namespace='hand', frame_id='torso_base', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
-                m_id = self.pub_marker.publishSinglePointMarker(pt, m_id, r=1, g=1, b=1, a=1, namespace='hand', frame_id='right_HandPalmLink', m_type=Marker.SPHERE, scale=Vector3(0.003, 0.003, 0.003), T=None)
-
-            rospy.sleep(0.1)
-
-    def pointsCollectorThread(self, point_list, frame_name, gripper_name):
-        m_id = 0
-        while not rospy.is_shutdown() and self.collect_points:
-            points = self.velma.getContactPointsInFrame(300, frame_name, gripper_name)
-            for pt in points:
-#                point_list.append(pt)
-                m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(), m_id, r=1, g=1, b=0, a=1, namespace='default', frame_id='torso_link2', m_type=Marker.CUBE, scale=Vector3(pt[1]*2, pt[2]*2, 0.001), T=pt[0])
-            rospy.sleep(0.1)
+    def publishDoorMarker(self, m_id, cx, cy, cz, r):
+        return self.pub_marker.publishSinglePointMarker(
+            PyKDL.Vector(cx, cy, cz), m_id, r=1, g=0, b=0, a=0.5, namespace='door', frame_id='torso_base', m_type=Marker.CYLINDER, scale=Vector3(r*2.0, r*2.0, 0.01), T=None)
 
     def spin(self):
-        simulation_only = False
+#        px_B = [0.1, 0.1, 0.15, 0.2]
+#        py_B = [0.1, 0.2, 0.25, 0.3]
+#        rospy.sleep(1.0)
+#        cc_x, cc_y, cc_r = self.estCircle(px_B, py_B)
+#        self.publishDoorMarker(0, cc_x, cc_y, 0, cc_r)
+#        print (cc_x, cc_y, cc_r)
+#        door_angle = velmautils.getAngle(PyKDL.Vector(px_B[0] - cc_x, py_B[0] - cc_y, 0.0), PyKDL.Vector(px_B[-1] - cc_x, py_B[-1] - cc_y, 0.0))
+#        print "door angle (deg): " + str( (door_angle/math.pi*180.0) )
+#        raw_input(".")
+#        return
 
         print "creating interface for Velma..."
         # create the interface for Velma robot
@@ -438,10 +136,18 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         # door parameters from the vision system
         lh_pos_W = PyKDL.Vector(0.9, -0.1, 1.4)
         rh_pos_W = PyKDL.Vector(0.9, -0.15, 1.4)
-        door_n_W = PyKDL.Vector(-1.0, 0.1, 0.0)
-        door_n_W.Normalize()
+        door_n_Wo = PyKDL.Vector(-1.0, 0.1, 0.0)
+        door_n_Wo.Normalize()
 
-        velma.moveHandRight([35.0/180.0*math.pi, 35.0/180.0*math.pi, 35.0/180.0*math.pi, 1.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+        T_B_Wo = velma.getTf('B', 'Wo')
+        door_n_B = PyKDL.Frame(T_B_Wo.M) * door_n_Wo
+        lh_pos_B = T_B_Wo * lh_pos_W
+        rh_pos_B = T_B_Wo * rh_pos_W
+
+        velma.moveHandRight([1.0/180.0*math.pi, 1.0/180.0*math.pi, 1.0/180.0*math.pi, 179.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+        velma.waitForHandRight()
+        rospy.sleep(0.5)
+        velma.moveHandRight([100.0/180.0*math.pi, 100.0/180.0*math.pi, 100.0/180.0*math.pi, 179.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
 
         if not velma.switchToJntImp():
             raise Exception()
@@ -454,18 +160,19 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         if not velma.switchToCartImp():
             raise Exception()
 
-        grip_pos_W = (rh_pos_W + lh_pos_W) / 2.0 + door_n_W * 0.1
-        gx_W = PyKDL.Vector(0,0,1)
-        gz_W = door_n_W
-        gy_W = gz_W * gx_W
-        gy_W.Normalize()
-        gx_W = gy_W * gz_W
-        gx_W.Normalize()
+        gx_B = T_B_Wo * PyKDL.Vector(0,0,1)
+        gz_B = door_n_B
+        gy_B = gz_B * gx_B
+        gy_B.Normalize()
+        gx_B = gy_B * gz_B
+        gx_B.Normalize()
 
-        T_B_Grd = velma.getTf('B', 'Wo') * PyKDL.Frame( PyKDL.Rotation(gx_W, gy_W, gz_W) * PyKDL.Rotation.RotY(180.0/180.0*math.pi), grip_pos_W )
+        grip_pos_B = rh_pos_B + door_n_B * 0.05 - gy_B * 0.15
+
+        T_B_Grd = PyKDL.Frame( PyKDL.Rotation(gx_B, gy_B, gz_B) * PyKDL.Rotation.RotY(180.0/180.0*math.pi), grip_pos_B )
 
         velma.waitForHandRight()
-        rospy.sleep(1.0)
+        rospy.sleep(0.5)
 
         velma.moveEffectorRight(T_B_Grd, 3.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=None)
         result = velma.waitForEffectorRight()
@@ -473,26 +180,283 @@ Class for the Control Subsystem behaviour: cabinet door opening.
             print result
             raise Exception()
 
+        # wait a while to stabilize the robot and the F/T sensor output
+        rospy.sleep(1)
+
         pub_fcl_r = rospy.Publisher('/right_arm/fcl_param', force_control_msgs.msg.ForceControl, queue_size=0)
         pub_fcl_l = rospy.Publisher('/left_arm/fcl_param', force_control_msgs.msg.ForceControl, queue_size=0)
         rospy.sleep(0.5)
         goal = force_control_msgs.msg.ForceControl()
         goal.inertia = force_control_msgs.msg.Inertia(Vector3(20.0, 20.0, 20.0), Vector3(0.5, 0.5, 0.5))
-        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.1, 0.1, 0.025), Vector3(1.0, 1.0, 1.0))
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.1, 0.1, 0.025), Vector3(0.01, 0.01, 0.01))
+        goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.3), Vector3(0.0, 0.0, 0.0))
+        goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
+        pub_fcl_r.publish(goal)
+        goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
+        pub_fcl_l.publish(goal)
+
+        if not velma.switchToCartFcl():
+            raise Exception()
+
+        prev_T_B_Gr = None
+        while not rospy.is_shutdown():
+            T_B_Gr = velma.getTf('B', 'Gr')
+            if prev_T_B_Gr != None:
+                diff = PyKDL.diff(prev_T_B_Gr, T_B_Gr)
+                wr = velma.getTransformedFTr()
+                vel = diff.vel.Norm()
+                rot = diff.rot.Norm()
+                print vel, rot
+                if vel < 0.003*0.1 and rot < (1.0/180.0*math.pi)*0.1 and wr.force.z() > 0.4:
+                    break
+            prev_T_B_Gr = T_B_Gr
+            rospy.sleep(0.1)
+
+#        raw_input("press ENTER to swith to CartImp...")
+        print "moving backwards..."
+        if not velma.switchToCartImp():
+            raise Exception()
+
+        T_B_Gr = velma.getTf('B', 'Gr')
+        T_B_Gr_hit1 = T_B_Gr
+        T_B_Grd = T_B_Gr * PyKDL.Frame(PyKDL.Vector(0,0.05,-0.05))
+
+        velma.moveEffectorRight(T_B_Grd, 1.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=None)
+        result = velma.waitForEffectorRight()
+        if result != CartesianTrajectoryResult.SUCCESSFUL:
+            print result
+            raise Exception()
+
+        # wait a while to stabilize the robot and the F/T sensor output
+        rospy.sleep(1)
+
+        goal = force_control_msgs.msg.ForceControl()
+        goal.inertia = force_control_msgs.msg.Inertia(Vector3(20.0, 20.0, 20.0), Vector3(0.5, 0.5, 0.5))
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.1, 0.1, 0.025), Vector3(0.01, 0.01, 0.01))
+        goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.3), Vector3(0.0, 0.0, 0.0))
+        goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
+        pub_fcl_r.publish(goal)
+        goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
+        pub_fcl_l.publish(goal)
+
+        if not velma.switchToCartFcl():
+            raise Exception()
+
+        prev_T_B_Gr = None
+        while not rospy.is_shutdown():
+            T_B_Gr = velma.getTf('B', 'Gr')
+            if prev_T_B_Gr != None:
+                diff = PyKDL.diff(prev_T_B_Gr, T_B_Gr)
+                wr = velma.getTransformedFTr()
+                vel = diff.vel.Norm()
+                rot = diff.rot.Norm()
+                print vel, rot
+                if vel < 0.003*0.1 and rot < (1.0/180.0*math.pi)*0.1 and wr.force.z() > 0.4:
+                    break
+            prev_T_B_Gr = T_B_Gr
+            rospy.sleep(0.1)
+
+        # update the door normal vector
+        T_B_Gr = velma.getTf('B', 'Gr')
+        T_B_Gr_hit2 = T_B_Gr
+
+        gx_B = T_B_Wo * PyKDL.Vector(0,0,1)
+        gy_B = T_B_Gr_hit2.p - T_B_Gr_hit1.p
+        gz_B = gx_B * gy_B
+        gx_B = gy_B * gz_B
+        gx_B.Normalize()
+        gy_B.Normalize()
+        gz_B.Normalize()
+
+        door_n_B = gz_B
+        grip_pos_B = T_B_Gr.p + door_n_B * 0.01
+
+        T_B_Grd = velma.getTf('B', 'Wo') * PyKDL.Frame( PyKDL.Rotation(gx_B, gy_B, gz_B) * PyKDL.Rotation.RotY(180.0/180.0*math.pi), grip_pos_B )
+
+        if not velma.switchToCartImp():
+            raise Exception()
+
+        velma.moveEffectorRight(T_B_Grd, 1.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=None)
+        result = velma.waitForEffectorRight()
+        if result != CartesianTrajectoryResult.SUCCESSFUL:
+            print result
+            raise Exception()
+
+#        velma.moveHandRight([35.0/180.0*math.pi, 35.0/180.0*math.pi, 35.0/180.0*math.pi, 1.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+#        velma.waitForHandRight()
+#        rospy.sleep(1.0)
+
+        # wait a while to stabilize the robot and the F/T sensor output
+        rospy.sleep(1)
+
+        goal = force_control_msgs.msg.ForceControl()
+        goal.inertia = force_control_msgs.msg.Inertia(Vector3(20.0, 20.0, 20.0), Vector3(0.5, 0.5, 0.5))
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.001, 0.025, 0.025), Vector3(0.001, 0.001, 0.001))
+        goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.3, 0.0), Vector3(0.0, 0.0, 0.0))
+        goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
+        pub_fcl_r.publish(goal)
+        goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
+        pub_fcl_l.publish(goal)
+
+        if not velma.switchToCartFcl():
+            raise Exception()
+
+        prev_T_B_Gr = None
+        while not rospy.is_shutdown():
+            T_B_Gr = velma.getTf('B', 'Gr')
+            if prev_T_B_Gr != None:
+                diff = PyKDL.diff(prev_T_B_Gr, T_B_Gr)
+                wr = velma.getTransformedFTr()
+                vel = diff.vel.Norm()
+                rot = diff.rot.Norm()
+                print vel, rot
+                if vel < 0.003*0.1 and rot < (1.0/180.0*math.pi)*0.1 and wr.force.y() > 0.4:
+                    break
+            prev_T_B_Gr = T_B_Gr
+            rospy.sleep(0.1)
+
+        print "found the handle"
+        if not velma.switchToCartImp():
+            raise Exception()
+
+        stiff_move = makeWrench(200, 10, 10, 100, 100, 100)
+        velma.moveImpedanceRight(stiff_move, 0.1)
+        if velma.waitForImpedanceRight() != 0:
+            raise Exception()
+
+#        velma.moveHandRight([120.0/180.0*math.pi, 120.0/180.0*math.pi, 120.0/180.0*math.pi, 179.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+#        velma.waitForHandRight()
+#        rospy.sleep(0.5)
+
+        T_B_Gr = velma.getTf('B', 'Gr')
+        init_R_B_Gr = copy.copy(T_B_Gr.M)
+
+        T_B_Grd = T_B_Gr * PyKDL.Frame(PyKDL.Vector(0,0.1,0))
+        velma.moveEffectorRight(T_B_Grd, 0.5, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=None)
+        result = velma.waitForEffectorRight()
+        if result != CartesianTrajectoryResult.SUCCESSFUL:
+            print result
+            raise Exception()
+
+        T_B_Grd = velma.getTf('B', 'Gr') * PyKDL.Frame(PyKDL.Vector(0,0.05,-0.20))
+        velma.moveEffectorRight(T_B_Grd, 3.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=None)
+        handle_pos_B = []
+        m_id = 0
+        time_start = rospy.Time.now()
+        while True:
+            duration = (rospy.Time.now() - time_start).to_sec()
+            if duration > 6.0:
+                break
+#            result = velma.waitForEffectorRight(timeout_s=0.05)
+            pos_B = velma.getTf('B', 'Fr22') * PyKDL.Vector(0.01, -0.01, 0)
+            if len(handle_pos_B) == 0 or (pos_B-handle_pos_B[-1]).Norm() > 0.002:
+                handle_pos_B.append(pos_B)
+                m_id = self.pub_marker.publishSinglePointMarker(handle_pos_B[-1], m_id, r=1, g=0, b=0, a=1, namespace='default', frame_id='torso_base', m_type=Marker.CUBE, scale=Vector3(0.005, 0.005, 0.005), T=None)
+            rospy.sleep(0.01)
+#            if result != None:
+#                if result != CartesianTrajectoryResult.SUCCESSFUL:
+#                    print result
+#                    raise Exception()
+#                else:
+#                    break
+
+        cc_x, cc_y, cc_r = self.estCircle(handle_pos_B)
+        self.publishDoorMarker(0, cc_x, cc_y, handle_pos_B[0].z(), cc_r)
+
+        door_angle = velmautils.getAngle(handle_pos_B[0] - PyKDL.Vector(cc_x, cc_y, handle_pos_B[0].z()), handle_pos_B[-1] - PyKDL.Vector(cc_x, cc_y, handle_pos_B[-1].z()))
+        print "door angle (deg): " + str( (door_angle/math.pi*180.0) )
+
+        if cc_r > 0.4 or cc_r < 0.1:
+            print "strange estimated circle radius: " + str(cc_r)
+            raise Exception()
+
+        # rotate around the handle
+        T_B_Fr22 = velma.getTf('B', 'Fr22')
+        T_Fr22_Contact = PyKDL.Frame(PyKDL.Vector(0.01, -0.01, 0))
+        T_B_Contact = T_B_Fr22 * T_Fr22_Contact
+        T_B_Contactd = PyKDL.Frame(PyKDL.Rotation.RotZ(door_angle) * T_B_Contact.M, T_B_Contact.p)
+        T_B_Fr22d = T_B_Contactd * T_Fr22_Contact.Inverse()
+        T_B_Grd = T_B_Fr22d * velma.getTf('Fr22', 'Gr')
+
+        velma.moveEffectorRight(T_B_Grd, 3.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=None)
+
+
+        return
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        T_B_Fr22 = velma.getTf('B', 'Fr22')
+
+        handle_pos_B = T_B_Fr22 * PyKDL.Vector(0,-0.01,0)
+
+        grip_pos_B = handle_pos_B + door_n_B * 0.1
+        gx_B = velma.getTf('B', 'Wo') * PyKDL.Vector(0,0,1)
+        gz_B = door_n_B
+        gy_B = gz_B * gx_B
+        gy_B.Normalize()
+        gx_B = gy_B * gz_B
+        gx_B.Normalize()
+
+        T_B_Grd = PyKDL.Frame( PyKDL.Rotation(gx_B, gy_B, gz_B) * PyKDL.Rotation.RotY(180.0/180.0*math.pi), grip_pos_B )
+
+        velma.moveEffectorRight(T_B_Grd, 2.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=None)
+        result = velma.waitForEffectorRight()
+        if result != CartesianTrajectoryResult.SUCCESSFUL:
+            print result
+            raise Exception()
+
+        velma.moveHandRight([80.0/180.0*math.pi, 80.0/180.0*math.pi, 80.0/180.0*math.pi, 1.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+        velma.waitForHandRight()
+        rospy.sleep(1.0)
+
+        goal = force_control_msgs.msg.ForceControl()
+        goal.inertia = force_control_msgs.msg.Inertia(Vector3(20.0, 20.0, 20.0), Vector3(0.5, 0.5, 0.5))
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.1, 0.1, 0.025), Vector3(0.01, 0.01, 0.01))
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.5), Vector3(0.0, 0.0, 0.0))
         goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_r.publish(goal)
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_l.publish(goal)
 
-        print velma.getControllerBehaviour()
         if not velma.switchToCartFcl():
             raise Exception()
-        print velma.getControllerBehaviour()
 
-        raw_input("press ENTER to swith to CartImp...")
-        if not velma.switchToCartImp():
-            raise Exception()
+        prev_T_B_Gr = None
+        while not rospy.is_shutdown():
+            T_B_Gr = velma.getTf('B', 'Gr')
+            if prev_T_B_Gr != None:
+                diff = PyKDL.diff(prev_T_B_Gr, T_B_Gr)
+                wr = velma.getTransformedFTr()
+                vel = diff.vel.Norm()
+                rot = diff.rot.Norm()
+                print vel, rot
+                if vel < 0.003*0.1 and rot < (1.0/180.0*math.pi)*0.1 and wr.force.z() > 0.4:
+                    break
+            prev_T_B_Gr = T_B_Gr
+            rospy.sleep(0.1)
+
+        velma.moveHandRight([90.0/180.0*math.pi, 90.0/180.0*math.pi, 90.0/180.0*math.pi, 1.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+        velma.waitForHandRight()
+        rospy.sleep(1.0)
+
 
         return
 
@@ -555,6 +519,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         raw_input("press ENTER to swith to CartImp...")
         if not velma.switchToCartImp():
             raise Exception()
+
 
         return
 
@@ -1236,7 +1201,6 @@ if __name__ == '__main__':
     rospy.init_node('open_door')
 
     task = OpenDoor()
-#    br = tf.TransformBroadcaster()
 
     task.spin()
 

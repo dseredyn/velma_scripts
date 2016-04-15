@@ -397,12 +397,10 @@ class for SymbolicPlanner
                         subst_cases.append(s_case)
                     return subst_cases
 
-    def searchPossibilities(self, goal_str, param_str, obj_types_map, depth=0):
+    def searchPossibilities(self, goal_str, param_str, obj_types_map, parent_idxV, depth=0):
         indent_str = " " * (depth)
-
         V = {}
         E = {}
-
         # get all possibilities of predicates' values that satisfy the goal expression
         posi = getAllPossibilities(goal_str, param_str, obj_types_map)
 
@@ -412,6 +410,8 @@ class for SymbolicPlanner
             print indent_str + "possibility"
             pred_map = {}
             all_satisfied = True
+            pV = {}
+            pE = {}
             for pred in p:
                 pred_name = p[pred][0][0]
                 pred_objs = p[pred][0][1]
@@ -426,13 +426,13 @@ class for SymbolicPlanner
                     objs.append(self.getObject(obj_name))
                 curr_value = None
                 assert all_inst
+# TODO: propagate environment changes
                 curr_value = self.getPred(pred_name, *objs)
                 print indent_str + " ", pred_value, "==", pred_name, pred_objs, pred_types, " (current value: ", curr_value, ")"
 
                 # the predicate is not yet satisfied
                 if curr_value != pred_value:
                     solution_found = False
-                    precondition_list = []
                     for a in self.actions:
                         # get certain substitutions for a given action
                         substitutions = a.getEffect(pred_name, pred_objs, pred_types, pred_value)
@@ -443,20 +443,25 @@ class for SymbolicPlanner
                             for sc in subst_cases:
                                 sc_all = sc.copy()
                                 sc_all.update(substitutions)
-#                                precondition_list.append( substitute(a.precondition, sc_all) )
                                 precond = substitute(a.precondition, sc_all)
-                                if self.searchPossibilities(precond, "", obj_types_map, depth+3):
+                                self.idxV += 1
+                                saved_idxV = self.idxV
+                                found_pos, subV, subE = self.searchPossibilities(precond, "", obj_types_map, saved_idxV, depth+3)
+                                if found_pos:
                                     solution_found = True
-#                    for precond in precondition_list:
-#                        if self.searchPossibilities(precond, "", obj_types_map, depth+3):
-#                            solution_found = True
+                                    pV[saved_idxV] = (a.name, precond)
+                                    pE[saved_idxV] = parent_idxV
+                                    pV.update(subV)
+                                    pE.update(subE)
                     if not solution_found:
                         all_satisfied = False
             if not all_satisfied:
                 print indent_str + "discard"
             else:
                 found_possibility = True
-        return found_possibility
+                V.update(pV)
+                E.update(pE)
+        return found_possibility, V, E
 
     def spin(self):
 
@@ -499,7 +504,7 @@ class for SymbolicPlanner
             obj_types_map[obj.name] = obj.type
 
 #        self.goal = "([opened ?door_cab_r] or (not [opened ?door_cab_r])) and [closed ?door_cab_l]"
-        self.goal = "[opened door_cab_r]"
+        self.goal = "[opened door_cab_r] and [free man_l] and [free man_r]"
 
         # unit tests
         assert self.getPred("free", ml) == True
@@ -533,6 +538,12 @@ class for SymbolicPlanner
                 "[grasped ?m ?d]",
                 "")
 
+        a_ungrasp_door = Action("ungrasp_door",
+                "?d Door,?m Manipulator",
+                "[grasped ?m ?d]",
+                "[free ?m]",
+                "")
+
 #(:action open_door
 #  :parameters (?d - _door ?m - _manipulator)
 #  :precondition (and(grasped_o ?d ?m) (feasible ?m) (or (closed ?d) (ajar ?d)))
@@ -542,7 +553,6 @@ class for SymbolicPlanner
 
         a_open_door = Action("open_door",
                 "?d Door,?m Manipulator",
-#                "[grasped ?m ?d] and [conf_feasible ?m] and (not [opened ?d])",#[closed ?d] or [ajar ?d])",
                 "[grasped ?m ?d] and [conf_feasible ?m] and ([closed ?d] or [ajar ?d])",
                 "[opened ?d]",
                 "[grasped ?m ?d] and (not [conf_feasible ?m]) and ([closed ?d] or [ajar ?d])")
@@ -553,17 +563,13 @@ class for SymbolicPlanner
                 "[closed ?d]",
                 "")
 
-        self.actions = [a_explore, a_grasp_door, a_open_door, a_close_door]
-
-#        print self.extractPredicatesInst(self.goal)
-#        print extractPredicatesAbst(a_open_door.precondition, a_open_door.parameters)
-        #print extractPredicates(a_open_door.precondition, a_open_door.parameters)
-        #print extractPredicates(self.goal, "")
+        self.actions = [a_explore, a_grasp_door, a_ungrasp_door, a_open_door, a_close_door]
 
         self.idxV = 0
-        self.V = {}
-        self.E = {}
-        self.searchPossibilities(self.goal, "", obj_types_map)
+        found_pos, V, E = self.searchPossibilities(self.goal, "", obj_types_map, 0)
+        print found_pos
+        print V
+        print E
 
         return
 

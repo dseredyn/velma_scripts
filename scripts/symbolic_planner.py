@@ -105,23 +105,23 @@ def pose_certain(ob):
 # arguments: expr_str
 # returned value:
 # dictionary: pred_str:(pred_name, [obj1_name, obj2_name,...]):
-def extractPredicatesInst(expr_str):
-        result = {}
-        e = 0
-        while True:
-            s = expr_str.find("[", e)
-            if s < 0:
-                break
-            e = expr_str.find("]", s)+1
-            if expr_str[s+1:e-1] in result:
-                continue
-            exp = expr_str[s+1:e-1].split()
-            pred_name = exp[0]
-            args = []
-            for idx in range(1, len(exp)):
-                args.append( exp[idx] )
-            result[expr_str[s+1:e-1]] = (pred_name, args)
-        return result
+#def extractPredicatesInst(expr_str):
+#        result = {}
+#        e = 0
+#        while True:
+#            s = expr_str.find("[", e)
+#            if s < 0:
+#                break
+#            e = expr_str.find("]", s)+1
+#            if expr_str[s+1:e-1] in result:
+#                continue
+#            exp = expr_str[s+1:e-1].split()
+#            pred_name = exp[0]
+#            args = []
+#            for idx in range(1, len(exp)):
+#                args.append( exp[idx] )
+#            result[expr_str[s+1:e-1]] = (pred_name, args)
+#        return result
 
 # arguments: expr_str, parameters
 # returned value:
@@ -340,16 +340,70 @@ class for SymbolicPlanner
                 result.append( ob.name )
         return result
 
+    def generateSubstitutionCases(self, parameters, substitutions):
+                    # get other substitutions
+                    subst2 = {}
+                    subst2_inv = {}
+                    type_pool = {}
+                    for var in parameters:
+                        if not var in substitutions:
+                            var_type = parameters[var]
+                            subst2[var] = var_type
+                            if not var_type in subst2_inv:
+                                subst2_inv[var_type] = [var]
+                            else:
+                                subst2_inv[var_type].append(var)
+                            if not var_type in type_pool:
+                                objs = self.getObjectsOfType(var_type)
+                                type_pool[var_type] = []
+                                for obj in objs:
+                                    obj_used = False
+                                    for vv in substitutions:
+                                        if obj == substitutions[vv]:
+                                            obj_used = True
+                                    if not obj_used:
+                                        type_pool[var_type].append(obj)
+                                    else:
+                                        assert False    # ok
+
+                    ll = []
+                    ll_types = []
+                    # generate cases for substitution
+                    subst_cases = []
+                    for var_type in subst2_inv:
+                        list_a = []
+                        x = itertools.combinations( type_pool[var_type], len(subst2_inv[var_type]) )
+                        for elem in x:
+                            p = itertools.permutations(elem)
+                            for e in p:
+                                list_a.append(e)
+                        ll.append( list_a )
+                        ll_types.append(var_type)
+                    prod = itertools.product(*ll)
+                    for e in prod:
+                        s_case = {}
+                        for ti in range(len(ll_types)):
+                            type_name = ll_types[ti]
+                            for vi in range(len(e[ti])):
+                                subst_var = subst2_inv[type_name][vi]
+                                subst_dest = e[ti][vi]
+                                s_case[subst_var] = subst_dest
+                        subst_cases.append(s_case)
+                    return subst_cases
+
     def searchPossibilities(self, goal_str, param_str, obj_types_map, depth=0):
         indent_str = " " * (depth)
 
+        # get all possibilities of predicates' values that satisfy the goal expression
         posi = getAllPossibilities(goal_str, param_str, obj_types_map)
 
         found_possibility = False
         for p in posi:
+            # a possibility is valid only if all of its predicates are satisfied
             print indent_str + "possibility"
             pred_map = {}
             all_satisfied = True
+            pred_precond_list = []
             for pred in p:
                 pred_name = p[pred][0][0]
                 pred_objs = p[pred][0][1]
@@ -370,8 +424,9 @@ class for SymbolicPlanner
                 # the predicate is not yet satisfied
                 if curr_value != pred_value:
                     solution_found = False
+                    precondition_list = []
                     for a in self.actions:
-                        # get certain substitutions
+                        # get certain substitutions for a given action
                         substitutions = a.getEffect(pred_name, pred_objs, pred_types, pred_value)
                         if substitutions != None:
                             action_found = True
@@ -379,50 +434,19 @@ class for SymbolicPlanner
                             precondition = a.precondition
                             for s in substitutions:
                                 precondition = precondition.replace( s, substitutions[s] )
-#                            print indent_str + "  ", precondition
-                            # get other substitutions
-                            subst2 = {}
-                            subst2_inv = {}
-                            type_pool = {}
-                            for var in a.parameters:
-                                if not var in substitutions:
-                                    var_type = a.parameters[var]
-                                    subst2[var] = var_type
-                                    if not var_type in subst2_inv:
-                                        subst2_inv[var_type] = [var]
-                                    else:
-                                        subst2_inv[var_type].append(var)
-                                    if not var_type in type_pool:
-                                        type_pool[var_type] = self.getObjectsOfType(var_type)
-#                            print indent_str, "  ", subst2
-#                            print indent_str, "  ", subst2_inv 
-#                            print indent_str, "  ", type_pool
 
-                            ll = []
-                            ll_types = []
-                            # generate cases for substitution
-                            for var_type in subst2_inv:
-                                list_a = []
-                                x = itertools.combinations( type_pool[var_type], len(subst2_inv[var_type]) )
-                                for elem in x:
-                                    p = itertools.permutations(elem)
-                                    for e in p:
-                                        list_a.append(e)
-                                ll.append( list_a )
-                                ll_types.append(var_type)
-                            prod = itertools.product(*ll)
-#                            print ll_types
-                            for e in prod:
+                            subst_cases = self.generateSubstitutionCases(a.parameters, substitutions)
+                            for sc in subst_cases:
                                 precondition2 = precondition
-                                for ti in range(len(ll_types)):
-                                    type_name = ll_types[ti]
-                                    for vi in range(len(e[ti])):
-                                        subst_var = subst2_inv[type_name][vi]
-                                        subst_dest = e[ti][vi]
-                                        precondition2 = precondition2.replace(subst_var, subst_dest)
-#                                print indent_str + "   ", precondition2
-                                if self.searchPossibilities(precondition2, "", obj_types_map, depth+3):
-                                    solution_found = True
+                                for s in sc:
+                                    precondition2 = precondition2.replace(s, sc[s])
+                                precondition_list.append(precondition2)
+                                #if self.searchPossibilities(precondition2, "", obj_types_map, depth+3):
+                                #    solution_found = True
+                    pred_precond_list.append( precondition_list )
+                    for precond in precondition_list:
+                        if self.searchPossibilities(precond, "", obj_types_map, depth+3):
+                            solution_found = True
                     if not solution_found:
                         all_satisfied = False
             if not all_satisfied:

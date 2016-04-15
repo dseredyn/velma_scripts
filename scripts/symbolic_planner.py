@@ -127,11 +127,7 @@ def extractPredicatesInst(expr_str):
 # returned value:
 # dictionary: pred_str:(pred_name, [arg1_name, arg2_name,...], [arg1_type, arg2_type,...]):
 def extractPredicatesAbst(expr_str, parameters):
-        par = parameters.split(",")
-        var_map = {}
-        for p in par:
-            decl = p.split()
-            var_map[decl[0]] = decl[1]
+        assert parameters != None
         result = {}
         e = 0
         while True:
@@ -148,20 +144,14 @@ def extractPredicatesAbst(expr_str, parameters):
             for idx in range(1, len(exp)):
                 assert exp[idx][0] == "?"
                 arg_name.append(exp[idx])
-                arg_type.append( var_map[exp[idx]] )
+                arg_type.append( parameters[exp[idx]] )
             result[expr_str[s+1:e-1]] = (pred_name, arg_name, arg_type)
         return result
 
 # arguments: expr_str, parameters
 # returned value:
 # dictionary: pred_str:(pred_name, [obj1_name, obj2_name,...], [arg1_name, arg2_name,...], [arg1_type, arg2_type,...]):
-def extractPredicates(expr_str, parameters):
-        var_map = {}
-        if len(parameters) > 0:
-            par = parameters.split(",")
-            for p in par:
-                decl = p.split()
-                var_map[decl[0]] = decl[1]
+def extractPredicates(expr_str, parameters, obj_types_map):
         result = {}
         e = 0
         while True:
@@ -177,22 +167,23 @@ def extractPredicates(expr_str, parameters):
             arg_names = []
             arg_types = []
             for idx in range(1, len(exp)):
-                if exp[idx] in var_map:
+                if parameters != None and exp[idx] in parameters:
                     assert exp[idx][0] == "?"
                     obj_names.append( None )
                     arg_names.append( exp[idx] )
-                    arg_types.append( var_map[exp[idx]] )
+                    arg_types.append( parameters[exp[idx]] )
                 else:
                     assert exp[idx][0] != "?"
+                    assert exp[idx] in obj_types_map
                     obj_names.append( exp[idx] )
                     arg_names.append( None )
-                    arg_types.append( None )
+                    arg_types.append( obj_types_map[exp[idx]] )
             result[expr_str[s+1:e-1]] = (pred_name, obj_names, arg_names, arg_types)
         return result
 
-def getAllPossibilities(goal_exp, parameters):
+def getAllPossibilities(goal_exp, parameters, obj_types_map):
         # get all required conditions that archieve the goal expression
-        goal_pred = extractPredicates(goal_exp, parameters)
+        goal_pred = extractPredicates(goal_exp, parameters, obj_types_map)
         goal_product = itertools.product([True, False], repeat = len(goal_pred))
         goal_cases = []
         for subset in goal_product:
@@ -205,7 +196,7 @@ def getAllPossibilities(goal_exp, parameters):
                 i += 1
             if eval(goal_str):
                 goal_cases.append(case)
-                print goal_str
+                #print goal_str
         return goal_cases
 
 def getObjTypes(obj_list):
@@ -285,9 +276,14 @@ class Action:
 
     def __init__(self, name, parameters, precondition, effect, rt_failure):
         self.name = name
-        self.parameters = parameters
+
+        par = parameters.split(",")
+        self.parameters = {}
+        for p in par:
+            decl = p.split()
+            self.parameters[decl[0]] = decl[1]
+
         self.precondition = precondition
-        #self.effect = effect
         self.rt_failure = rt_failure
 
         self.effect_map = extractPredicatesAbst(effect, self.parameters)
@@ -303,16 +299,18 @@ class Action:
                 if match and pred_value:
                     return True
 
-    def getEffect(self, pred_name, pred_types, pred_value):
+    def getEffect(self, pred_name, pred_objs, pred_types, pred_value):
         for pred_str in self.effect_map:
+            substitutions = {}
             if self.effect_map[pred_str][0] == pred_name:
                 match = True
                 for arg_i in range(len(pred_types)):
                     if self.effect_map[pred_str][2][arg_i] != pred_types[arg_i]:
                         match = False
                         break
+                    substitutions[ self.effect_map[pred_str][1][arg_i] ] = pred_objs[arg_i]
                 if match and pred_value:
-                    return self.effect_map[pred_str][1][arg_i]
+                    return substitutions
         return None
 
 class SymbolicPlanner:
@@ -335,30 +333,133 @@ class for SymbolicPlanner
                 return ob
         return None
 
-#    def extractPredicatesInst(self, expr_str):
-#        result = {}
-#        e = 0
-#        while True:
-#            s = expr_str.find("[", e)
-#            if s < 0:
-#                break
-#            e = expr_str.find("]", s)+1
-#            if expr_str[s+1:e-1] in result:
-#                continue
-#            exp = expr_str[s+1:e-1].split()
-#            pred_name = exp[0]
-#            args = []
-#            for idx in range(1, len(exp)):
-#                args.append( self.getObject(exp[idx][1:]) )
-#            result[expr_str[s+1:e-1]] = (pred_name, args)
-#        return result
+    def getObjectsOfType(self, type_name):
+        result = []
+        for ob in self.world_state:
+            if ob.type == type_name:
+                result.append( ob.name )
+        return result
 
+    def searchPossibilities(self, goal_str, param_str, obj_types_map, depth=0):
+        indent_str = " " * (depth)
 
-#    def getActionEffectPred(self, pred_name, pred_arg_types):
-#        for action in self.actions:
-#            action.effect
+        posi = getAllPossibilities(goal_str, param_str, obj_types_map)
+
+        found_possibility = False
+        for p in posi:
+            print indent_str + "possibility"
+            pred_map = {}
+            all_satisfied = True
+            for pred in p:
+                pred_name = p[pred][0][0]
+                pred_objs = p[pred][0][1]
+                pred_types = p[pred][0][3]
+                pred_value = p[pred][1]
+                objs = []
+                all_inst = True
+                for obj_name in pred_objs:
+                    if obj_name == None:
+                        all_inst = False
+                        break
+                    objs.append(self.getObject(obj_name))
+                curr_value = None
+                assert all_inst
+                curr_value = self.getPred(pred_name, *objs)
+                print indent_str + " ", pred_value, "==", pred_name, pred_objs, pred_types, " (current value: ", curr_value, ")"
+
+                # the predicate is not yet satisfied
+                if curr_value != pred_value:
+                    solution_found = False
+                    for a in self.actions:
+                        # get certain substitutions
+                        substitutions = a.getEffect(pred_name, pred_objs, pred_types, pred_value)
+                        if substitutions != None:
+                            action_found = True
+                            print indent_str + "  ", a.name, substitutions
+                            precondition = a.precondition
+                            for s in substitutions:
+                                precondition = precondition.replace( s, substitutions[s] )
+#                            print indent_str + "  ", precondition
+                            # get other substitutions
+                            subst2 = {}
+                            subst2_inv = {}
+                            type_pool = {}
+                            for var in a.parameters:
+                                if not var in substitutions:
+                                    var_type = a.parameters[var]
+                                    subst2[var] = var_type
+                                    if not var_type in subst2_inv:
+                                        subst2_inv[var_type] = [var]
+                                    else:
+                                        subst2_inv[var_type].append(var)
+                                    if not var_type in type_pool:
+                                        type_pool[var_type] = self.getObjectsOfType(var_type)
+#                            print indent_str, "  ", subst2
+#                            print indent_str, "  ", subst2_inv 
+#                            print indent_str, "  ", type_pool
+
+                            ll = []
+                            ll_types = []
+                            # generate cases for substitution
+                            for var_type in subst2_inv:
+                                list_a = []
+                                x = itertools.combinations( type_pool[var_type], len(subst2_inv[var_type]) )
+                                for elem in x:
+                                    p = itertools.permutations(elem)
+                                    for e in p:
+                                        list_a.append(e)
+                                ll.append( list_a )
+                                ll_types.append(var_type)
+                            prod = itertools.product(*ll)
+#                            print ll_types
+                            for e in prod:
+                                precondition2 = precondition
+                                for ti in range(len(ll_types)):
+                                    type_name = ll_types[ti]
+                                    for vi in range(len(e[ti])):
+                                        subst_var = subst2_inv[type_name][vi]
+                                        subst_dest = e[ti][vi]
+                                        precondition2 = precondition2.replace(subst_var, subst_dest)
+#                                print indent_str + "   ", precondition2
+                                if self.searchPossibilities(precondition2, "", obj_types_map, depth+3):
+                                    solution_found = True
+                    if not solution_found:
+                        all_satisfied = False
+            if not all_satisfied:
+                print indent_str + "discard"
+            else:
+                found_possibility = True
+        return found_possibility
 
     def spin(self):
+
+        if False:
+            list_a = []
+            x = itertools.combinations( (1,2), 2 )
+            for elem in x:
+                p = itertools.permutations(elem)
+                for e in p:
+                    list_a.append(e)
+
+            list_b = []
+            x = itertools.combinations( ('a','b','c'), 2 )
+            for elem in x:
+                p = itertools.permutations(elem)
+                for e in p:
+                    list_b.append(e)
+
+            print "list_a"
+            print list_a
+            print "list_b"
+            print list_b
+
+            list_c = ['x','y']
+            ll = [list_a, list_b, list_c]
+            prod = itertools.product(*ll)
+            print "prod"
+            for e in prod:
+                print e
+            return
 
         dl = Door("door_cab_l")
         dr = Door("door_cab_r")
@@ -366,8 +467,12 @@ class for SymbolicPlanner
         mr = Manipulator("man_r")
 
         self.world_state = [dl, dr, ml, mr]
+        obj_types_map = {}
+        for obj in self.world_state:
+            obj_types_map[obj.name] = obj.type
+
 #        self.goal = "([opened ?door_cab_r] or (not [opened ?door_cab_r])) and [closed ?door_cab_l]"
-        self.goal = "[closed door_cab_r]"
+        self.goal = "[opened door_cab_r]"
 
         # unit tests
         assert self.getPred("free", ml) == True
@@ -410,13 +515,14 @@ class for SymbolicPlanner
 
         a_open_door = Action("open_door",
                 "?d Door,?m Manipulator",
-                "[grasped ?d ?m] and [feasible ?m] and ([closed ?d] or [ajar ?d])",
+#                "[grasped ?m ?d] and [conf_feasible ?m] and (not [opened ?d])",#[closed ?d] or [ajar ?d])",
+                "[grasped ?m ?d] and [conf_feasible ?m] and ([closed ?d] or [ajar ?d])",
                 "[opened ?d]",
-                "[grasped ?d ?m] and (not [feasible ?m]) and ([closed ?d] or [ajar ?d])")
+                "[grasped ?m ?d] and (not [conf_feasible ?m]) and ([closed ?d] or [ajar ?d])")
 
         a_close_door = Action("close_door",
                 "?d Door,?m Manipulator",
-                "[grasped ?d ?m] and [feasible ?m] and ([opened ?d] or [ajar ?d])",
+                "[grasped ?m ?d] and [conf_feasible ?m] and ([opened ?d] or [ajar ?d])",
                 "[closed ?d]",
                 "")
 
@@ -427,7 +533,11 @@ class for SymbolicPlanner
         #print extractPredicates(a_open_door.precondition, a_open_door.parameters)
         #print extractPredicates(self.goal, "")
 
-        posi = getAllPossibilities(self.goal, "")
+        self.searchPossibilities(self.goal, "", obj_types_map)
+
+        return
+
+        posi = getAllPossibilities(self.goal, "", obj_types_map)
 #        posi = getAllPossibilities(a_open_door.precondition, a_open_door.parameters)
         print posi
 
@@ -447,7 +557,10 @@ class for SymbolicPlanner
                         break
                     objs.append(self.getObject(obj_name))
                 if all_inst:
-                    print "      current value: ", self.getPred(pred_name, *objs)
+                    curr_value = self.getPred(pred_name, *objs)
+                    print "      current value: ", curr_value
+                    if curr_value == False:
+                        pass
                 else:
                     print "      current value: unknown"
 

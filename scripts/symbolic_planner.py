@@ -205,6 +205,12 @@ def getObjTypes(obj_list):
         result.append( obj.type )
     return result
 
+def substitute(exp_str, subst_map):
+    result = exp_str
+    for s in subst_map:
+        result = result.replace(s, subst_map[s])
+    return result
+
 class Manipulator:
 
 #    def free(self):
@@ -394,6 +400,9 @@ class for SymbolicPlanner
     def searchPossibilities(self, goal_str, param_str, obj_types_map, depth=0):
         indent_str = " " * (depth)
 
+        V = {}
+        E = {}
+
         # get all possibilities of predicates' values that satisfy the goal expression
         posi = getAllPossibilities(goal_str, param_str, obj_types_map)
 
@@ -403,7 +412,6 @@ class for SymbolicPlanner
             print indent_str + "possibility"
             pred_map = {}
             all_satisfied = True
-            pred_precond_list = []
             for pred in p:
                 pred_name = p[pred][0][0]
                 pred_objs = p[pred][0][1]
@@ -431,22 +439,17 @@ class for SymbolicPlanner
                         if substitutions != None:
                             action_found = True
                             print indent_str + "  ", a.name, substitutions
-                            precondition = a.precondition
-                            for s in substitutions:
-                                precondition = precondition.replace( s, substitutions[s] )
-
                             subst_cases = self.generateSubstitutionCases(a.parameters, substitutions)
                             for sc in subst_cases:
-                                precondition2 = precondition
-                                for s in sc:
-                                    precondition2 = precondition2.replace(s, sc[s])
-                                precondition_list.append(precondition2)
-                                #if self.searchPossibilities(precondition2, "", obj_types_map, depth+3):
-                                #    solution_found = True
-                    pred_precond_list.append( precondition_list )
-                    for precond in precondition_list:
-                        if self.searchPossibilities(precond, "", obj_types_map, depth+3):
-                            solution_found = True
+                                sc_all = sc.copy()
+                                sc_all.update(substitutions)
+#                                precondition_list.append( substitute(a.precondition, sc_all) )
+                                precond = substitute(a.precondition, sc_all)
+                                if self.searchPossibilities(precond, "", obj_types_map, depth+3):
+                                    solution_found = True
+#                    for precond in precondition_list:
+#                        if self.searchPossibilities(precond, "", obj_types_map, depth+3):
+#                            solution_found = True
                     if not solution_found:
                         all_satisfied = False
             if not all_satisfied:
@@ -557,6 +560,9 @@ class for SymbolicPlanner
         #print extractPredicates(a_open_door.precondition, a_open_door.parameters)
         #print extractPredicates(self.goal, "")
 
+        self.idxV = 0
+        self.V = {}
+        self.E = {}
         self.searchPossibilities(self.goal, "", obj_types_map)
 
         return

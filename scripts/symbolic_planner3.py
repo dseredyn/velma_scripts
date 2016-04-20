@@ -71,63 +71,91 @@ import re
 #    if o.type == 'Object':
 #        return o.is_reachable
 
-def reachable(o, c):
-    if o.type == 'Object' and c.type == 'Container':
-        if o.container_in == c.name:
+def opened(ws, ob):
+    if ob[0] == 'Door':
+        assert "state" in ob[1]
+        return ob[1]["state"] == "opened"
+    raise TypeError("wrong type in predicate opened: " + ob[0])
+
+def reachable(ws, o):
+    if o[0] == 'Object':
+        assert "pose" in o[1]
+        str_list = o[1]["pose"].split()
+        if str_list[0] == "inside":
+            cont_name = str_list[1]
+            cont = ws.getObject(cont_name)
+            door1_name = cont[1]["door1"]
+            door2_name = cont[1]["door2"]
+            if opened(ws, ws.getObject(door1_name)) and opened(ws, ws.getObject(door2_name)):
+                return True
+            else:
+                return False
+        else:
+            return True
+    raise TypeError("wrong types in predicate reachable: " + o[0] + " " + c[0])
+
+def inside(ws, o1, o2):
+    if o1[0] == 'Object' and o2[0] == 'Container':
+        assert "pose" in o1[1]
+        str_list = o1[1]["pose"].split()
+        if str_list[0] == "inside":
+            cont_name = str_list[1]
+            if cont_name == o2[1]["name"]:
+                return True
+            else:
+                return False
+        else:
+            return False
+    raise TypeError("wrong types in predicate inside: " + o1[0] + " " + o2[0])
+
+def part_of(ws, d, o):
+    if d[0] == 'Door' and o[0] == 'Container':
+        if o[1]["door1"] == d[1]["name"] or o[1]["door2"] == d[1]["name"]:
             return True
         else:
             return False
-    raise TypeError("wrong types in predicate reachable: " + o.type + " " + c.type)
+    raise TypeError("wrong types in predicate part_of: " + d[0] + " " + o[0])
 
-def inside(o1, o2):
-    if o1.type == 'Object' and o2.type == 'Container':
-        return True
-    raise TypeError("wrong types in predicate inside: " + o1.type + " " + o2.type)
+def free(ws, ob):
+    if ob[0] == 'Manipulator':
+        assert "grasped_name" in ob[1]
+        return ob[1]["grasped_name"] == None
+    raise TypeError("wrong type in predicate free: " + ob[0])
 
-def part_of(d, o):
-    if d.type == 'Door' and o.type == 'Container':
-        if d.container == o.name:
-            return True
-        else:
-            return False
-    raise TypeError("wrong types in predicate part_of: " + d.type + " " + o.type)
+def grasped(ws, ob1, ob2):
+    if ob1[0] == 'Manipulator' and ob2[0] == 'Door':
+        assert "grasped_name" in ob1[1]
+        assert "name" in ob2[1]
+        return ob1[1]["grasped_name"] == ob2[1]["name"]
+    if ob1[0] == 'Manipulator' and ob2[0] == 'Object':
+        assert "grasped_name" in ob1[1]
+        assert "name" in ob2[1]
+        return ob1[1]["grasped_name"] == ob2[1]["name"]
+    raise TypeError("wrong types in predicate grasped: " + ob1[0] + " " + ob2[0])
 
-def free(ob):
-    if ob.type == 'Manipulator':
-        return ob.is_free
-    raise TypeError("wrong type in predicate free: " + ob.type)
+def conf_feasible(ws, ob):
+    if ob[0] == 'Manipulator':
+        assert "conf_feasible" in ob[1]
+        return ob[1]["conf_feasible"]
+    raise TypeError("wrong type in predicate conf_feasible: " + ob[0])
 
-def grasped(ob1, ob2):
-    if ob1.type == 'Manipulator' and ob2.type == 'Door':
-        return ob1.grasped_name == ob2.name
-    if ob1.type == 'Manipulator' and ob2.type == 'Object':
-        return ob1.grasped_name == ob2.name
-    raise TypeError("wrong types in predicate grasped: " + ob1.type + " " + ob2.type)
+def ajar(ws, ob):
+    if ob[0] == 'Door':
+        assert "state" in ob[1]
+        return ob[1]["state"] == "ajar"
+    raise TypeError("wrong type in predicate ajar: " + ob[0])
 
-def conf_feasible(ob):
-    if ob.type == 'Manipulator':
-        return ob.is_conf_feasible
-    raise TypeError("wrong type in predicate conf_feasible: " + ob.type)
+def closed(ws, ob):
+    if ob[0] == 'Door':
+        assert "state" in ob[1]
+        return ob[1]["state"] == "closed"
+    raise TypeError("wrong type in predicate closed: " + ob[0])
 
-def opened(ob):
-    if ob.type == 'Door':
-        return ob.is_opened
-    raise TypeError("wrong type in predicate opened: " + ob.type)
-
-def ajar(ob):
-    if ob.type == 'Door':
-        return ob.is_ajar
-    raise TypeError("wrong type in predicate ajar: " + ob.type)
-
-def closed(ob):
-    if ob.type == 'Door':
-        return ob.is_closed
-    raise TypeError("wrong type in predicate closed: " + ob.type)
-
-def pose_certain(ob):
-    if ob.type == 'Door':
-        return ob.is_pose_certain
-    raise TypeError("wrong type in predicate pose_certain: " + ob.type)
+def pose_certain(ws, ob):
+    if ob[0] == 'Door':
+        assert "pose_certain" in ob[1]
+        return ob[1]["pose_certain"]
+    raise TypeError("wrong type in predicate pose_certain: " + ob[0])
 
 # arguments: expr_str
 # returned value:
@@ -201,10 +229,11 @@ def extractPredicates(expr_str, parameters, obj_types_map):
                     arg_types.append( parameters[exp[idx]] )
                 else:
                     assert exp[idx][0] != "?"
-                    assert exp[idx] in obj_types_map
                     obj_names.append( exp[idx] )
                     arg_names.append( None )
-                    arg_types.append( obj_types_map[exp[idx]] )
+                    if obj_types_map != None:
+                        assert exp[idx] in obj_types_map
+                        arg_types.append( obj_types_map[exp[idx]] )
             result[expr_str[s+1:e-1]] = (pred_name, obj_names, arg_names, arg_types)
         return result
 
@@ -223,7 +252,6 @@ def getAllPossibilities(goal_exp, parameters, obj_types_map):
                 i += 1
             if eval(goal_str):
                 goal_cases.append(case)
-                #print goal_str
         return goal_cases
 
 def getObjTypes(obj_list):
@@ -258,7 +286,7 @@ def generateSubstitutionCases(obj_type_map, parameters, substitutions):
                             else:
                                 subst2_inv[var_type].append(var)
                             if not var_type in type_pool:
-                                objs = obj_type_map[var_type] #self.getObjectsOfType(var_type)
+                                objs = obj_type_map[var_type]
                                 type_pool[var_type] = []
                                 for obj in objs:
                                     obj_used = False
@@ -350,14 +378,41 @@ class WorldState:
 
     def __init__(self):
         self.objects_t_n_map = {}
+        self.objects_n_t_map = {}
         self.objects_n_map = {}
+
+        predicates = [free, grasped, conf_feasible, opened, ajar, closed, pose_certain, inside, reachable, part_of]
+        self.predicates_map = {}
+        for pred in predicates:
+            self.predicates_map[pred.__name__] = pred
+
+    def getPred(self, name, args):
+        arg_names = args.split()
+        arg_list = []
+        for arg in arg_names:
+            arg_list.append( self.objects_n_map[arg] )
+        return self.predicates_map[name](self, *arg_list)
+
+    def simulateAction(self, a, args):
+        arg_names = args.split()
+        arg_list = []
+        for arg in arg_names:
+            arg_list.append( self.objects_n_map[arg] )
+        return a.actionSim(*arg_list)
 
     def addObject(self, obj_type, obj_name, obj_parameters):
         assert not obj_name in self.objects_n_map
+        assert not "name" in obj_parameters
         if not obj_type in self.objects_t_n_map:
             self.objects_t_n_map[obj_type] = []
-        self.objects_t_n_map[obj_type] = obj_name
-        self.objects_n_map[obj_name] = obj_parameters
+        self.objects_t_n_map[obj_type].append( obj_name )
+        obj_parameters["name"] = obj_name
+        self.objects_n_map[obj_name] = (obj_type, obj_parameters)
+        self.objects_n_t_map[obj_name] = obj_type
+
+    def getObject(self, obj_name):
+        assert obj_name in self.objects_n_map
+        return self.objects_n_map[obj_name]
 
 class Action:
 
@@ -414,22 +469,22 @@ class Scenario:
     def __init__(self, init_state, goal, predicates_map, actions):
         self.init_state = copy.deepcopy(init_state)
         self.goal = copy.copy(goal)
-        self.predicates_map = predicates_map
-        self.obj_types_map = {}
-        self.obj_types_map_inv = {}
+#        self.predicates_map = predicates_map
+#        self.obj_types_map = {}
+#        self.obj_types_map_inv = {}
         self.actions = actions
         self.action_map = {}
         for a in self.actions:
             self.action_map[a.name] = a
 
-        for obj in self.init_state:
-            self.obj_types_map[obj.name] = obj.type
-            if not obj.type in self.obj_types_map_inv:
-                self.obj_types_map_inv[obj.type] = []
-            self.obj_types_map_inv[obj.type].append( obj.name )
+#        for obj in self.init_state:
+#            self.obj_types_map[obj.name] = obj.type
+#            if not obj.type in self.obj_types_map_inv:
+#                self.obj_types_map_inv[obj.type] = []
+#            self.obj_types_map_inv[obj.type].append( obj.name )
 
-    def getPred(self, name, *arg):
-        return self.predicates_map[name](*arg)
+#    def getPred(self, name, *arg):
+#        return self.predicates_map[name](*arg)
 
     def process(self):
         indent_str = " "
@@ -448,13 +503,13 @@ class Scenario:
                 goal = next_step[0]
                 world_state = prev_step[1]
                 print "iterating steps:"
-                print "state:"
-                for obj in world_state:
-                    obj.printObj()
-                print "goal:", goal
+#                print "state:"
+#                for obj in world_state:
+#                    obj.printObj()
+#                print "goal:", goal
 
                 print "getAllPossibilities", goal
-                posi = getAllPossibilities(goal, None, self.obj_types_map)
+                posi = getAllPossibilities(goal, None, world_state.objects_n_t_map)
 
                 # fork here
                 p = posi[0]
@@ -464,16 +519,18 @@ class Scenario:
                     pred_objs = p[pred][0][1]
                     pred_types = p[pred][0][3]
                     pred_value = p[pred][1]
-                    objs = []
+#                    objs = []
                     all_inst = True
+                    pred_args = ""
                     for obj_name in pred_objs:
                         if obj_name == None:
                             all_inst = False
                             break
-                        objs.append(getObject(world_state, obj_name))
+                        pred_args += obj_name + " "
+#                        objs.append(getObject(world_state, obj_name))
 
                     assert all_inst
-                    curr_value = self.getPred(pred_name, *objs)
+                    curr_value = world_state.getPred(pred_name, pred_args)
                     print indent_str + " ", pred_value, "==", pred_name, pred_objs, pred_types, " (current value: ", curr_value, ")"
 
                     # the predicate is not yet satisfied
@@ -487,8 +544,8 @@ class Scenario:
 
                                 action_found = True
                                 print indent_str + "  ", a.name, substitutions
-
-                                subst_cases = generateSubstitutionCases(self.obj_types_map_inv, a.parameters, substitutions)
+#                                print world_state.objects_t_n_map
+                                subst_cases = generateSubstitutionCases(world_state.objects_t_n_map, a.parameters, substitutions)
 
                                 # fork here
                                 sc = subst_cases[0]
@@ -499,12 +556,15 @@ class Scenario:
 
                                 new_state = copy.deepcopy(world_state)
 
-                                action_args = []
+                                action_args = ""#[]
                                 for par_name in a.param_list:
                                     obj_name = sc_all[par_name]
-                                    action_args.append( getObject(new_state, obj_name) )
+                                    action_args += obj_name + " " #.append( getObject(new_state, obj_name) )
+#                                print sc_all
+#                                print action_args
+                                new_state.simulateAction(a, action_args)
 
-                                a.actionSim( *action_args )
+#                                a.actionSim( *action_args )
                                 precond = substitute(a.precondition, sc_all)
                                 print "step added", a.name, precond
                                 steps.insert( s_idx+1, (precond, new_state, a.name, sc_all) )
@@ -527,14 +587,16 @@ class Scenario:
                 if action_name != None:
                     a = self.action_map[action_name]
                     new_state = copy.deepcopy(world_state)
-                    action_args = []
+                    action_args = ""#[]
                     for par_name in a.param_list:
                         obj_name = sc_all[par_name]
-                        action_args.append( getObject(new_state, obj_name) )
-                    a.actionSim( *action_args )
+                        action_args += obj_name + " "#.append( getObject(new_state, obj_name) )
+
+                    new_state.simulateAction(a, action_args)
+#                    a.actionSim( *action_args )
                     print "world state: " + a.name, sc_all
-                    for obj in new_state:
-                        obj.printObj()
+#                    for obj in new_state:
+#                        obj.printObj()
                     steps[s_idx+1] = (steps[s_idx+1][0], new_state, steps[s_idx+1][2], steps[s_idx+1][3])
 
 #            raw_input(".")
@@ -557,7 +619,7 @@ class for SymbolicPlanner
 """
 
     def __init__(self, pub_marker=None):
-        predicates = [free, grasped, conf_feasible, opened, ajar, closed, pose_certain, inside, part_of, reachable]
+        predicates = [free, grasped, conf_feasible, opened, ajar, closed, pose_certain, inside, reachable, part_of]
         self.predicates_map = {}
         for pred in predicates:
             self.predicates_map[pred.__name__] = pred
@@ -612,36 +674,24 @@ class for SymbolicPlanner
         ws.addObject("Container", "cab", {"door1":"door_cab_l", "door2":"door_cab_r"})
         ws.addObject("Door", "door_cab_l", {"state":"closed", "parent":"cab", "pose_certain":False})
         ws.addObject("Door", "door_cab_r", {"state":"closed", "parent":"cab", "pose_certain":False})
-        ws.addObject("Manipulator", "man_l", {"grasped_name":None, "is_conf_feasible":True})
-        ws.addObject("Manipulator", "man_r", {"grasped_name":None, "is_conf_feasible":True})
+        ws.addObject("Manipulator", "man_l", {"grasped_name":None, "conf_feasible":True})
+        ws.addObject("Manipulator", "man_r", {"grasped_name":None, "conf_feasible":True})
         ws.addObject("Object", "jar", {"pose":"inside cab"})
 
-        cab = Container("cab")
-        dl = Door("door_cab_l", "cab")
-        dr = Door("door_cab_r", "cab")
-        ml = Manipulator("man_l")
-        mr = Manipulator("man_r")
-        jar = Object("jar")
-        jar.is_reachable = False
-        jar.container_in = "cab"
-
-        self.world_state = [dl, dr, ml, mr, jar, cab]
-        obj_types_map = {}
-        for obj in self.world_state:
-            obj_types_map[obj.name] = obj.type
-
 #        self.goal = "([opened ?door_cab_r] or (not [opened ?door_cab_r])) and [closed ?door_cab_l]"
-#        self.goal = "[opened door_cab_r] and [free man_l] and [grasped man_r jar]"
-        self.goal = "[closed door_cab_r] and [closed door_cab_l] and [free man_l] and [grasped man_r jar]"
+        self.goal = "[opened door_cab_r] and [free man_l] and [grasped man_r jar]"
+#        self.goal = "[closed door_cab_r] and [closed door_cab_l] and [free man_l] and [grasped man_r jar]"
 
         # unit tests
-        assert self.getPred("free", ml) == True
-        assert self.getPred("grasped", ml, dl) == False
-        assert self.getPred("conf_feasible", ml) == True
-        ml.grasp(dl)
-        assert self.getPred("grasped", ml, dl) == True
-        ml.ungrasp(dl)
-        assert self.getPred("grasped", ml, dl) == False
+        assert ws.getPred("free", "man_l") == True
+        assert ws.getPred("grasped", "man_l door_cab_l") == False
+        assert ws.getPred("conf_feasible", "man_l") == True
+#        ml.grasp(dl)
+#        assert ws.getPred("grasped", ml, dl) == True
+#        ml.ungrasp(dl)
+#        assert ws.getPred("grasped", ml, dl) == False
+
+#        return
 
 #(:action explore
 #  :parameters (?s - vertical_surface ?m - _manipulator)
@@ -651,7 +701,9 @@ class for SymbolicPlanner
 
         def a_explore_sim(d, m):
             assert d != None
-            d.is_pose_certain = True
+            assert "pose_certain" in d[1]
+            assert d[1]["pose_certain"] == False
+            d[1]["pose_certain"] = True
 
         a_explore = Action("explore",
                 "?d Door,?m Manipulator",
@@ -669,8 +721,10 @@ class for SymbolicPlanner
         def a_grasp_door_sim(d, m):
             assert d != None
             assert m != None
-            m.is_free = False
-            m.grasped_name = d.name
+            assert "grasped_name" in m[1]
+#            assert m[1]["grasped_name"] == None
+            assert "name" in d[1]
+            m[1]["grasped_name"] = d[1]["name"]
 
         a_grasp_door = Action("grasp_door",
                 "?d Door,?m Manipulator",
@@ -692,8 +746,10 @@ class for SymbolicPlanner
                 a_ungrasp_door_sim)
 
         def a_ungrasp_sim(m):
-            m.is_free = True
-            m.grasped_name = None
+            assert m != None
+            assert "grasped_name" in m[1]
+            assert m[1]["grasped_name"] != None
+            m[1]["grasped_name"] = None
 
         a_ungrasp = Action("ungrasp",
                 "?m Manipulator",
@@ -702,20 +758,10 @@ class for SymbolicPlanner
                 "",
                 a_ungrasp_sim)
 
-#(:action open_door
-#  :parameters (?d - _door ?m - _manipulator)
-#  :precondition (and(grasped_o ?d ?m) (feasible ?m) (or (closed ?d) (ajar ?d)))
-#  :effect (and (grasped_o ?d ?m) (opened ?d))
-#  :rt_failure (and (grasped_o ?d ?m) (not(feasible ?m)) (or (closed ?d) (ajar ?d)))
-#)
-
         def a_open_door_sim(d, m):
             assert d != None
-            d.is_opened = True
-            d.is_ajar = False
-            d.is_closed = False
-            d.container
-            # TODO
+            assert "state" in d[1]
+            d[1]["state"] = "opened"
 
         a_open_door = Action("open_door",
                 "?d Door,?m Manipulator",
@@ -726,9 +772,8 @@ class for SymbolicPlanner
 
         def a_close_door_sim(d, m):
             assert d != None
-            d.is_opened = False
-            d.is_ajar = False
-            d.is_closed = True
+            assert "state" in d[1]
+            d[1]["state"] = "closed"
 
         a_close_door = Action("close_door",
                 "?d Door,?m Manipulator",
@@ -740,12 +785,14 @@ class for SymbolicPlanner
         def a_grasp_object_sim(o, m):
             assert o != None
             assert m != None
-            m.is_free = False
-            m.grasped_name = o.name
+            assert "grasped_name" in m[1]
+            assert m[1]["grasped_name"] == None
+            assert "name" in o[1]
+            m[1]["grasped_name"] = o[1]["name"]
 
         a_grasp_object = Action("grasp_object",
                 "?o Object,?m Manipulator",
-                "[free ?m] and (not [grasp_impossible ?o])",# and [reachable ?o] and [pose_certain ?o]",
+                "[free ?m] and [reachable ?o]",# and [pose_certain ?o]",
                 "[grasped ?m ?o]",
                 "",
                 a_grasp_object_sim)
@@ -768,9 +815,9 @@ class for SymbolicPlanner
             m.grasped_name = o.name
 
         a_uncover = Action("uncover",
-                "?o1 Object,?o2 Container,?d Door",
-                "[inside ?o1 ?o2] and [part_of ?d ?o2] and [opened ?d]",
-                "[reachable ?o1]",
+                "?o Object,?c Container,?d1 Door,?d2 Door",
+                "(not [reachable ?o]) and [inside ?o ?c] and [part_of ?d1 ?c] and [part_of ?d2 ?c] and [opened ?d1] and [opened ?d2]",
+                "[reachable ?o]",
                 "",
                 None)
 
@@ -788,7 +835,7 @@ class for SymbolicPlanner
 
         self.actions = [a_explore, a_grasp_door, a_ungrasp, a_open_door, a_close_door, a_grasp_object, a_uncover]
 
-        s = Scenario(self.world_state, self.goal, self.predicates_map, self.actions)
+        s = Scenario(ws, self.goal, self.predicates_map, self.actions)
         s.process()
         return
 

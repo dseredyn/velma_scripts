@@ -152,31 +152,10 @@ def closed(ws, ob):
     raise TypeError("wrong type in predicate closed: " + ob[0])
 
 def pose_certain(ws, ob):
-    if ob[0] == 'Door':
+    if ws.typeMatch(ob[0], 'VerticalPlane'):
         assert "pose_certain" in ob[1]
         return ob[1]["pose_certain"]
     raise TypeError("wrong type in predicate pose_certain: " + ob[0])
-
-# arguments: expr_str
-# returned value:
-# dictionary: pred_str:(pred_name, [obj1_name, obj2_name,...]):
-#def extractPredicatesInst(expr_str):
-#        result = {}
-#        e = 0
-#        while True:
-#            s = expr_str.find("[", e)
-#            if s < 0:
-#                break
-#            e = expr_str.find("]", s)+1
-#            if expr_str[s+1:e-1] in result:
-#                continue
-#            exp = expr_str[s+1:e-1].split()
-#            pred_name = exp[0]
-#            args = []
-#            for idx in range(1, len(exp)):
-#                args.append( exp[idx] )
-#            result[expr_str[s+1:e-1]] = (pred_name, args)
-#        return result
 
 # arguments: expr_str, parameters
 # returned value:
@@ -265,12 +244,6 @@ def substitute(exp_str, subst_map):
     for s in subst_map:
         result = result.replace(s, subst_map[s])
     return result
-
-def getObject(world_state, name):
-    for ob in world_state:
-        if ob.name == name:
-            return ob
-    return None
 
 def generateSubstitutionCases(obj_type_map, parameters, substitutions):
                     # get other substitutions
@@ -586,19 +559,6 @@ class for SymbolicPlanner
 
     def __init__(self, pub_marker=None):
         pass
-
-    def getObject(self, name):
-        for ob in self.world_state:
-            if ob.name == name:
-                return ob
-        return None
-
-    def getObjectsOfType(self, type_name):
-        result = []
-        for ob in self.world_state:
-            if ob.type == type_name:
-                result.append( ob.name )
-        return result
 
     def spin(self):
 

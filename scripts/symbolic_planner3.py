@@ -404,36 +404,20 @@ class Scenario:
         for a in self.actions:
             self.action_map[a.name] = a
 
-    def process(self):
-        indent_str = " "
-
-        steps = [
+        self.steps = [
             (None, self.init_state, None, None),
             (self.goal, None, None, None) ]
 
-        while True:
-            print "*"
-            print "*"
-            print "*"
-            for s_idx in range(0, len(steps)-1):
-                prev_step = steps[s_idx]
-                next_step = steps[s_idx+1]
-                goal = next_step[0]
-                world_state = prev_step[1]
-                print "iterating steps:"
-
-                print "getAllPossibilities", goal
-                posi = getAllPossibilities(goal, None, world_state.objects_n_t_map)
-
-                # fork here: goal variants
-                p = posi[0]
-                step_added = False
-                for pred in p:
-                    pred_name = p[pred][0][0]
-                    pred_objs = p[pred][0][1]
-                    pred_types = p[pred][0][3]
-                    pred_value = p[pred][1]
-#                    objs = []
+    def processGoal(self, goal_pred_list, world_state):
+                result_steps = []
+                indent_str = " "
+#                step_added = False
+                for pred in goal_pred_list:
+                    predicate = goal_pred_list[pred][0]
+                    pred_value = goal_pred_list[pred][1]
+                    pred_name = predicate[0]
+                    pred_objs = predicate[1]
+                    pred_types = predicate[3]
                     all_inst = True
                     pred_args = ""
                     for obj_name in pred_objs:
@@ -441,7 +425,6 @@ class Scenario:
                             all_inst = False
                             break
                         pred_args += obj_name + " "
-#                        objs.append(getObject(world_state, obj_name))
 
                     assert all_inst
                     curr_value = world_state.getPred(pred_name, pred_args)
@@ -477,19 +460,57 @@ class Scenario:
 
                                 precond = substitute(a.precondition, sc_all)
                                 print "step added", a.name, precond
-                                steps.insert( s_idx+1, (precond, new_state, a.name, sc_all) )
-                                step_added = True
-                                break
-                    if step_added:
-                        break
+#                                self.steps.insert( s_idx+1, (precond, new_state, a.name, sc_all) )
+                                result_steps.append( (precond, new_state, a.name, sc_all) )
+#                                step_added = True
+#                                break
+#                    if step_added:
+#                        break
+                return result_steps #step_added
+
+    def process(self):
+        indent_str = " "
+
+        all_c = 1
+        while True:
+            print "*"
+            print "*"
+            print "*"
+            for s_idx in range(0, len(self.steps)-1):
+                prev_step = self.steps[s_idx]
+                next_step = self.steps[s_idx+1]
+                goal = next_step[0]
+                world_state = prev_step[1]
+                print "iterating steps:"
+
+                print "getAllPossibilities", goal
+                posi = getAllPossibilities(goal, None, world_state.objects_n_t_map)
+
+                # fork here: goal variants
+                p = posi[0]
+                all_c *= len(posi)
+#                step_added = False
+
+                new_steps = self.processGoal(posi[0], world_state)
+                if len(new_steps) > 0:
+                    print "************* possible substitutions:"
+                    for st in new_steps:
+                        print st[2], st[3]
+                    print "*************"
+                    all_c *= len(new_steps)
+                    step_added = True
+                    self.steps.insert( s_idx+1, new_steps[0] )
+                else:
+                    step_added = False
+
                 if step_added:
                     break
             if not step_added:
                 break
             # post process all steps - propagate world changes
-            for s_idx in range(0, len(steps)-1):
-                prev_step = steps[s_idx]
-                next_step = steps[s_idx+1]
+            for s_idx in range(0, len(self.steps)-1):
+                prev_step = self.steps[s_idx]
+                next_step = self.steps[s_idx+1]
                 world_state = prev_step[1]
                 action_name = next_step[2]
                 sc_all = next_step[3]
@@ -497,27 +518,24 @@ class Scenario:
                 if action_name != None:
                     a = self.action_map[action_name]
                     new_state = copy.deepcopy(world_state)
-                    action_args = ""#[]
+                    action_args = ""
                     for par_name in a.param_list:
                         obj_name = sc_all[par_name]
-                        action_args += obj_name + " "#.append( getObject(new_state, obj_name) )
+                        action_args += obj_name + " "
 
                     new_state.simulateAction(a, action_args)
-#                    a.actionSim( *action_args )
                     print "world state: " + a.name, sc_all
-#                    for obj in new_state:
-#                        obj.printObj()
-                    steps[s_idx+1] = (steps[s_idx+1][0], new_state, steps[s_idx+1][2], steps[s_idx+1][3])
-
-#            raw_input(".")
+                    self.steps[s_idx+1] = (self.steps[s_idx+1][0], new_state, self.steps[s_idx+1][2], self.steps[s_idx+1][3])
 
             if rospy.is_shutdown():
                 break
 
 
         print "steps:"
-        for s in steps:
+        for s in self.steps:
             print s[2], s[3]
+
+        print "all_c", all_c
         return
 
 class SymbolicPlanner:
@@ -544,6 +562,7 @@ class for SymbolicPlanner
         ws.addObject("Object", "jar", {"pose":"inside cab"})
 
 #        self.goal = "([opened ?door_cab_r] or (not [opened ?door_cab_r])) and [closed ?door_cab_l]"
+#        self.goal = "[opened door_cab_r] and [free man_l]"
 #        self.goal = "[opened door_cab_r] and [free man_l] and [grasped man_r jar]"
 #        self.goal = "[grasped man_r jar]"
         self.goal = "[closed door_cab_r] and [closed door_cab_l] and [free man_l] and [grasped man_r jar]"

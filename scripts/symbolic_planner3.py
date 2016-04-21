@@ -67,10 +67,6 @@ import rospkg
 from scipy import optimize
 import re
 
-#def reachable(o):
-#    if o.type == 'Object':
-#        return o.is_reachable
-
 def opened(ws, ob):
     if ob[0] == 'Door':
         assert "state" in ob[1]
@@ -233,12 +229,6 @@ def getAllPossibilities(goal_exp, parameters, obj_types_map):
                 goal_cases.append(case)
         return goal_cases
 
-def getObjTypes(obj_list):
-    result = []
-    for obj in obj_list:
-        result.append( obj.type )
-    return result
-
 def substitute(exp_str, subst_map):
     result = exp_str
     for s in subst_map:
@@ -399,17 +389,6 @@ class Action:
 
         self.action_sim = action_sim
 
-    def hasEffect(self, pred_name, pred_types, pred_value):
-        for pred_str in self.effect_map:
-            if self.effect_map[pred_str][0] == pred_name:
-                match = True
-                for arg_i in range(len(pred_types)):
-                    if self.effect_map[pred_str][2][arg_i] != pred_types[arg_i]:
-                        match = False
-                        break
-                if match and pred_value:
-                    return True
-
     def actionSim(self, *args):
         if self.action_sim != None:
             return self.action_sim(*args)
@@ -442,15 +421,11 @@ class Scenario:
                 goal = next_step[0]
                 world_state = prev_step[1]
                 print "iterating steps:"
-#                print "state:"
-#                for obj in world_state:
-#                    obj.printObj()
-#                print "goal:", goal
 
                 print "getAllPossibilities", goal
                 posi = getAllPossibilities(goal, None, world_state.objects_n_t_map)
 
-                # fork here
+                # fork here: goal variants
                 p = posi[0]
                 step_added = False
                 for pred in p:
@@ -486,24 +461,20 @@ class Scenario:
 #                                print world_state.objects_t_n_map
                                 subst_cases = generateSubstitutionCases(world_state.objects_t_n_map, a.parameters, substitutions)
 
-                                # fork here
+                                # fork here: substitutions
                                 sc = subst_cases[0]
 
                                 sc_all = sc.copy()
                                 sc_all.update(substitutions)
-                                #precond = substitute(a.precondition, sc_all)
 
                                 new_state = copy.deepcopy(world_state)
 
-                                action_args = ""#[]
+                                action_args = ""
                                 for par_name in a.param_list:
                                     obj_name = sc_all[par_name]
-                                    action_args += obj_name + " " #.append( getObject(new_state, obj_name) )
-#                                print sc_all
-#                                print action_args
+                                    action_args += obj_name + " "
                                 new_state.simulateAction(a, action_args)
 
-#                                a.actionSim( *action_args )
                                 precond = substitute(a.precondition, sc_all)
                                 print "step added", a.name, precond
                                 steps.insert( s_idx+1, (precond, new_state, a.name, sc_all) )
@@ -549,9 +520,6 @@ class Scenario:
             print s[2], s[3]
         return
 
-    def extractGoalPossibilities(self):
-        pass        
-
 class SymbolicPlanner:
     """
 class for SymbolicPlanner
@@ -561,34 +529,6 @@ class for SymbolicPlanner
         pass
 
     def spin(self):
-
-        if False:
-            list_a = []
-            x = itertools.combinations( (1,2), 2 )
-            for elem in x:
-                p = itertools.permutations(elem)
-                for e in p:
-                    list_a.append(e)
-
-            list_b = []
-            x = itertools.combinations( ('a','b','c'), 2 )
-            for elem in x:
-                p = itertools.permutations(elem)
-                for e in p:
-                    list_b.append(e)
-
-            print "list_a"
-            print list_a
-            print "list_b"
-            print list_b
-
-            list_c = ['x','y']
-            ll = [list_a, list_b, list_c]
-            prod = itertools.product(*ll)
-            print "prod"
-            for e in prod:
-                print e
-            return
 
         ws = WorldState()
         ws.addType("VerticalPlane", [], ["pose_certain"])
@@ -604,25 +544,14 @@ class for SymbolicPlanner
         ws.addObject("Object", "jar", {"pose":"inside cab"})
 
 #        self.goal = "([opened ?door_cab_r] or (not [opened ?door_cab_r])) and [closed ?door_cab_l]"
-        self.goal = "[opened door_cab_r] and [free man_l] and [grasped man_r jar]"
-#        self.goal = "[closed door_cab_r] and [closed door_cab_l] and [free man_l] and [grasped man_r jar]"
+#        self.goal = "[opened door_cab_r] and [free man_l] and [grasped man_r jar]"
+#        self.goal = "[grasped man_r jar]"
+        self.goal = "[closed door_cab_r] and [closed door_cab_l] and [free man_l] and [grasped man_r jar]"
 
         # unit tests
         assert ws.getPred("free", "man_l") == True
         assert ws.getPred("grasped", "man_l door_cab_l") == False
         assert ws.getPred("conf_feasible", "man_l") == True
-#        ml.grasp(dl)
-#        assert ws.getPred("grasped", ml, dl) == True
-#        ml.ungrasp(dl)
-#        assert ws.getPred("grasped", ml, dl) == False
-
-#        return
-
-#(:action explore
-#  :parameters (?s - vertical_surface ?m - _manipulator)
-#  :precondition (and (free ?m) (not (pose_certain ?s)))
-#  :effect (pose_certain ?s)
-#)
 
         def a_explore_sim(d, m):
             assert d != None
@@ -636,12 +565,6 @@ class for SymbolicPlanner
                 "[pose_certain ?vp]",
                 "",
                 a_explore_sim)
-
-#(:action grasp_door_o
-#  :parameters (?d - door ?m - _manipulator)
-#  :precondition (and (free ?m) (pose_certain ?d))
-#  :effect (grasped_o ?d ?m)
-#)
 
         def a_grasp_door_sim(d, m):
             assert d != None
@@ -717,20 +640,10 @@ class for SymbolicPlanner
 
         a_grasp_object = Action("grasp_object",
                 "?o Object,?m Manipulator",
-                "[free ?m] and [reachable ?o]",# and [pose_certain ?o]",
+                "[free ?m] and [reachable ?o]",
                 "[grasped ?m ?o]",
                 "",
                 a_grasp_object_sim)
-
-#        def a_look_at_object_sim(o):
-#            pass
-
-#        a_grasp_object = Action("look_at_object",
-#                "?o Object",
-#                "[visible ?o]",
-#                "[pose_certain ?o]",
-#                "",
-#                a_look_at_object_sim)
 
         def a_uncover_sim(o1, o2, m):
             assert o1 != None
@@ -745,18 +658,6 @@ class for SymbolicPlanner
                 "[reachable ?o]",
                 "",
                 None)
-
-#inside jar cabinet
-#closed door_cab_l
-#closed door_cab_r
-
-
-#        a_take_out = Action("take_out",
-#                "?o1 Object,?o2 Object,?m Manipulator",
-#                "[inside ?o1 ?o2] and [opened ?o2] and [grasped ?o1 ?m]",
-#                "not [inside ?o1 ?o2]",
-#                "",
-#                a_grasp_object_sim)
 
         self.actions = [a_explore, a_grasp_door, a_ungrasp, a_open_door, a_close_door, a_grasp_object, a_uncover]
 

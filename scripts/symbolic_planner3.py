@@ -323,57 +323,6 @@ def generateSubstitutionCases(obj_type_map, parameters, substitutions):
                         subst_cases.append(s_case)
                     return subst_cases
 
-class Object:
-    def __init__(self, name):
-        self.type = 'Object'
-        self.name = name
-        self.is_reachable = True
-        self.container_in = None
-
-    def printObj(self):
-        print self.type, self.name
-
-class Manipulator:
-
-    def __init__(self, name):
-        self.type = 'Manipulator'
-        self.name = name
-        self.is_free = True
-        self.grasped_name = None
-        self.is_conf_feasible = True
-
-    def printObj(self):
-        print self.type, self.name, "is_free:", self.is_free, "grasped_name:", self.grasped_name, "is_conf_feasible:", self.is_conf_feasible
-
-    def grasp(self, ob):
-        self.grasped_name = ob.name
-
-    def ungrasp(self, ob):
-        self.grasped_name = None
-
-class Door:
-
-    def __init__(self, name, container):
-        self.type = 'Door'
-        self.name = name
-        self.is_opened = False
-        self.is_ajar = False
-        self.is_closed = True
-        self.is_pose_certain = False
-        self.container = container
-
-    def printObj(self):
-        print self.type, self.name, "is_opened:", self.is_opened, "is_ajar:", self.is_ajar, "is_closed:", self.is_closed, "is_pose_certain:", self.is_pose_certain, "container:", self.container
-
-class Container:
-
-    def __init__(self, name):
-        self.type = 'Container'
-        self.name = name
-
-    def printObj(self):
-        print self.type, self.name
-
 class WorldState:
 
     def __init__(self):
@@ -381,10 +330,19 @@ class WorldState:
         self.objects_n_t_map = {}
         self.objects_n_map = {}
 
+        self.types_t_b_map = {}
+        self.types_t_attr_map = {}
+
         predicates = [free, grasped, conf_feasible, opened, ajar, closed, pose_certain, inside, reachable, part_of]
         self.predicates_map = {}
         for pred in predicates:
             self.predicates_map[pred.__name__] = pred
+
+    def addType(self, type_name, base_types, attributes):
+        assert not type_name in self.types_t_b_map
+        assert not type_name in self.types_t_attr_map
+        self.types_t_b_map[type_name] = base_types
+        self.types_t_attr_map[type_name] = attributes
 
     def getPred(self, name, args):
         arg_names = args.split()
@@ -401,11 +359,27 @@ class WorldState:
         return a.actionSim(*arg_list)
 
     def addObject(self, obj_type, obj_name, obj_parameters):
+        assert obj_type in self.types_t_b_map
         assert not obj_name in self.objects_n_map
         assert not "name" in obj_parameters
         if not obj_type in self.objects_t_n_map:
             self.objects_t_n_map[obj_type] = []
         self.objects_t_n_map[obj_type].append( obj_name )
+
+        for attr in self.types_t_attr_map[obj_type]:
+            if not attr in obj_parameters:
+                raise TypeError("missing attribute " + attr + " in object " + obj_name + " of class " + obj_type)
+
+        for tb in self.types_t_b_map[obj_type]:
+            for attr in self.types_t_attr_map[tb]:
+                if not attr in obj_parameters:
+                    raise TypeError("missing attribute " + attr + " in object " + obj_name + " of class " + tb)
+
+        for tb in self.types_t_b_map[obj_type]:
+            if not tb in self.objects_t_n_map:
+                self.objects_t_n_map[tb] = []
+            self.objects_t_n_map[tb].append( obj_name )
+            
         obj_parameters["name"] = obj_name
         self.objects_n_map[obj_name] = (obj_type, obj_parameters)
         self.objects_n_t_map[obj_name] = obj_type
@@ -413,6 +387,24 @@ class WorldState:
     def getObject(self, obj_name):
         assert obj_name in self.objects_n_map
         return self.objects_n_map[obj_name]
+
+    def typeMatch(self, type_name, base_type):
+        assert type_name in self.types_t_b_map
+        return (base_type == type_name) or (base_type in self.types_t_b_map[type_name])
+
+    def getEffect(self, action, pred_name, pred_objs, pred_types, pred_value):
+        for pred_str in action.effect_map:
+            substitutions = {}
+            if action.effect_map[pred_str][0] == pred_name:
+                match = True
+                for arg_i in range(len(pred_types)):
+                    if not self.typeMatch(pred_types[arg_i], action.effect_map[pred_str][2][arg_i]):
+                        match = False
+                        break
+                    substitutions[ action.effect_map[pred_str][1][arg_i] ] = pred_objs[arg_i]
+                if match and pred_value:
+                    return substitutions
+        return None
 
 class Action:
 
@@ -445,20 +437,6 @@ class Action:
                 if match and pred_value:
                     return True
 
-    def getEffect(self, pred_name, pred_objs, pred_types, pred_value):
-        for pred_str in self.effect_map:
-            substitutions = {}
-            if self.effect_map[pred_str][0] == pred_name:
-                match = True
-                for arg_i in range(len(pred_types)):
-                    if self.effect_map[pred_str][2][arg_i] != pred_types[arg_i]:
-                        match = False
-                        break
-                    substitutions[ self.effect_map[pred_str][1][arg_i] ] = pred_objs[arg_i]
-                if match and pred_value:
-                    return substitutions
-        return None
-
     def actionSim(self, *args):
         if self.action_sim != None:
             return self.action_sim(*args)
@@ -466,25 +444,13 @@ class Action:
 
 class Scenario:
 
-    def __init__(self, init_state, goal, predicates_map, actions):
+    def __init__(self, init_state, goal, actions):
         self.init_state = copy.deepcopy(init_state)
         self.goal = copy.copy(goal)
-#        self.predicates_map = predicates_map
-#        self.obj_types_map = {}
-#        self.obj_types_map_inv = {}
         self.actions = actions
         self.action_map = {}
         for a in self.actions:
             self.action_map[a.name] = a
-
-#        for obj in self.init_state:
-#            self.obj_types_map[obj.name] = obj.type
-#            if not obj.type in self.obj_types_map_inv:
-#                self.obj_types_map_inv[obj.type] = []
-#            self.obj_types_map_inv[obj.type].append( obj.name )
-
-#    def getPred(self, name, *arg):
-#        return self.predicates_map[name](*arg)
 
     def process(self):
         indent_str = " "
@@ -539,7 +505,7 @@ class Scenario:
                         solution_found = False
                         for a in self.actions:
                             # get certain substitutions for a given action
-                            substitutions = a.getEffect(pred_name, pred_objs, pred_types, pred_value)
+                            substitutions = world_state.getEffect(a, pred_name, pred_objs, pred_types, pred_value)
                             if substitutions != None:
 
                                 action_found = True
@@ -619,13 +585,7 @@ class for SymbolicPlanner
 """
 
     def __init__(self, pub_marker=None):
-        predicates = [free, grasped, conf_feasible, opened, ajar, closed, pose_certain, inside, reachable, part_of]
-        self.predicates_map = {}
-        for pred in predicates:
-            self.predicates_map[pred.__name__] = pred
-
-    def getPred(self, name, *arg):
-        return self.predicates_map[name](*arg)
+        pass
 
     def getObject(self, name):
         for ob in self.world_state:
@@ -671,6 +631,11 @@ class for SymbolicPlanner
             return
 
         ws = WorldState()
+        ws.addType("VerticalPlane", [], ["pose_certain"])
+        ws.addType("Container", [], ["door1", "door2"])
+        ws.addType("Door", ["VerticalPlane"], ["state", "parent"])
+        ws.addType("Manipulator", [], ["grasped_name", "conf_feasible"])
+        ws.addType("Object", [], ["pose"])
         ws.addObject("Container", "cab", {"door1":"door_cab_l", "door2":"door_cab_r"})
         ws.addObject("Door", "door_cab_l", {"state":"closed", "parent":"cab", "pose_certain":False})
         ws.addObject("Door", "door_cab_r", {"state":"closed", "parent":"cab", "pose_certain":False})
@@ -706,9 +671,9 @@ class for SymbolicPlanner
             d[1]["pose_certain"] = True
 
         a_explore = Action("explore",
-                "?d Door,?m Manipulator",
-                "[free ?m] and (not [pose_certain ?d])",
-                "[pose_certain ?d]",
+                "?vp VerticalPlane,?m Manipulator",
+                "[free ?m] and (not [pose_certain ?vp])",
+                "[pose_certain ?vp]",
                 "",
                 a_explore_sim)
 
@@ -835,7 +800,7 @@ class for SymbolicPlanner
 
         self.actions = [a_explore, a_grasp_door, a_ungrasp, a_open_door, a_close_door, a_grasp_object, a_uncover]
 
-        s = Scenario(ws, self.goal, self.predicates_map, self.actions)
+        s = Scenario(ws, self.goal, self.actions)
         s.process()
         return
 

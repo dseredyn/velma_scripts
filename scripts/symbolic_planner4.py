@@ -68,10 +68,13 @@ from scipy import optimize
 import re
 
 def opened(ws, ob):
-    if ob[0] == 'Door':
+    if ws.typeMatch(ob[0], 'Door'):
         assert "state" in ob[1]
         return ob[1]["state"] == "opened"
-    if ob[0] == 'Container':
+    elif ws.typeMatch(ob[0], 'Jar'):
+        assert "cap" in ob[1]
+        return ob[1]["cap"] == None
+    elif ws.typeMatch(ob[0], 'Container'):
         if "door1" in ob[1]:
             door1_name = ob[1]["door1"]
         else:
@@ -165,6 +168,9 @@ def closed(ws, ob):
     if ob[0] == 'Door':
         assert "state" in ob[1]
         return ob[1]["state"] == "closed"
+    elif ws.typeMatch(ob[0], 'Jar'):
+        assert "cap" in ob[1]
+        return ob[1]["cap"] != None
     elif ws.typeMatch(ob[0],'Container'):
         if "door1" in ob[1]:
             door1_name = ob[1]["door1"]
@@ -411,7 +417,13 @@ class WorldState:
 
     def typeMatch(self, type_name, base_type):
         assert type_name in self.types_t_b_map
-        return (base_type == type_name) or (base_type in self.types_t_b_map[type_name])
+        if base_type == type_name:
+            return True
+        else:
+            for t in self.types_t_b_map[type_name]:
+                if self.typeMatch(t, base_type):
+                    return True
+        return False
 
     def getEffect(self, action, pred_name, pred_objs, pred_types, pred_value):
         for pred_str in action.effect_map:
@@ -637,15 +649,18 @@ class for SymbolicPlanner
         ws = WorldState()
         ws.addType("Object", [], ["pose"])
         ws.addType("Container", ["Object"], ["door1", "door2"])
+        ws.addType("Jar", ["Container"], ["cap"])
         ws.addType("VerticalPlane", [], ["pose_certain"])
         ws.addType("Door", ["VerticalPlane"], ["state", "parent"])
         ws.addType("Manipulator", [], ["grasped_name", "conf_feasible"])
-        ws.addGeometricType("Pose", [], [])
+
+#        ws.addGeometricType("Pose", [], [])
         ws.addObject("Container", "cabinet01", {"door1":"door_cab_l", "door2":"door_cab_r", "pose":None})
         ws.addObject("Door", "door_cab_l", {"state":"closed", "parent":"cabinet01", "pose_certain":False})
         ws.addObject("Door", "door_cab_r", {"state":"closed", "parent":"cabinet01", "pose_certain":False})
         ws.addObject("Container", "bowl01", {"door1":None, "door2":None, "pose":None})
-        ws.addObject("Container", "jar01", {"door1":None, "door2":None, "pose":"inside cabinet01"})
+        ws.addObject("Object", "jar_cap01", {"pose":"on jar01"})
+        ws.addObject("Jar", "jar01", {"door1":None, "door2":None, "pose":"inside cabinet01", "cap":"jar_cap01"})
         ws.addObject("Manipulator", "man_l", {"grasped_name":None, "conf_feasible":True})
         ws.addObject("Manipulator", "man_r", {"grasped_name":None, "conf_feasible":True})
         ws.addObject("Object", "powder01", {"pose":"inside jar01"})
@@ -664,53 +679,45 @@ class for SymbolicPlanner
             assert "pose" in s[1]
             assert "name" in c1[1]
             assert "name" in c2[1]
-            print "a_pour_sim", s[1]["pose"]
-            print c2[1]["name"]
             assert s[1]["pose"] == ("inside " + c2[1]["name"])
             s[1]["pose"] = "inside " + c1[1]["name"]
 
         a_pour = Action("pour",
-                "?c1 Container,?c2 Container,?s Object,?x Pose",
-                "[inside ?s ?c2] and [above ?x ?c1]",
-                "[at_pose ?c2 ?x] and [clear_on ?c1] and [opened ?c1] and [opened ?c2]",
+                "?c1 Container,?c2 Container,?s Object",
+                "[inside ?s ?c2]",
+                "[at_pose_above ?c2 ?c1] and [opened ?c1] and [opened ?c2]", #and [clear_on ?c1]
                 "[inside ?s ?c1]",
                 "",
                 a_pour_sim)
 
-#(:task pour
-#  :instances (?c1:Container,?c2:Container,?s:Substance)
-#  :relations (?s in ?c2)
-#  :precondition (?c2 above ?c1) and (clear on ?c1) and (opened ?c1) and (opened ?c2)
-#  :effect (?s in ?c1)
-#)
-
-        def a_transport_sim(c1, c2, s):
-            assert c1 != None
-            assert c2 != None
-            assert s != None
-            assert "pose" in s[1]
-            assert "name" in c1[1]
-            assert "name" in c2[1]
-            print "a_pour_sim", s[1]["pose"]
-            print c2[1]["name"]
-            assert s[1]["pose"] == ("inside " + c2[1]["name"])
-            s[1]["pose"] = "inside " + c1[1]["name"]
+        def a_transport_sim(o1, o2):
+            assert o1 != None
+            assert o2 != None
+            assert "pose" in o1[1]
+            assert "name" in o2[1]
+            assert o1[1]["pose"] != ("above " + o2[1]["name"])
+            o1[1]["pose"] = "above " + o2[1]["name"]
 
         a_transport = Action("transport",
-                "?o Object,?x Pose",
-                None,
-                None,
-                "[at_pose ?o ?x]",
+                "?o1 Object,?o2 Object",
+                "not [at_pose_above ?o1 ?o2]",
+                "True",
+                "[at_pose_above ?o1 ?o2]",
                 "",
                 a_transport_sim)
 
-#(:task transport
-#  :instances (?o:Object,?x:Pose)
-#  :relations (not (?o at_pose ?x)) and (free ?o)
-#  :precondition: (clearance ?o ?x)
-#  :effect (?o at_pose ?x)
-#)
+        def a_open_jar_sim(j):
+            assert j != None
+            assert "cap" in j[1]
+            j[1]["cap"] = None
 
+        a_open_jar = Action("open_jar",
+                "?j Jar",
+                "[closed ?j]",
+                "True",
+                "[opened ?j]",
+                "",
+                a_open_jar_sim)
 
 
         # unit tests
@@ -832,7 +839,7 @@ class for SymbolicPlanner
                 "",
                 None)
 
-        self.actions = [a_explore, a_grasp_door, a_ungrasp, a_open_door, a_close_door, a_grasp_object, a_uncover, a_pour, a_transport]
+        self.actions = [a_explore, a_grasp_door, a_ungrasp, a_open_door, a_close_door, a_grasp_object, a_uncover, a_pour, a_transport, a_open_jar]
 
         s = Scenario(ws, self.goal, self.actions)
         s.process()

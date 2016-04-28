@@ -235,11 +235,36 @@ def extractPredicatesAbst(expr_str, parameters):
             result[expr_str[s+1:e-1]] = (pred_name, arg_name, arg_type)
         return result
 
+class Predicate:
+
+    def __init__(self, pred_str):
+        self.pred_str = pred_str
+        pred_words = self.pred_str.split()
+        assert len(pred_words) > 1
+        self.pred_name = pred_words[0]
+        self.pred_args = self.pred_str[len(self.pred_name):]
+        self.pred_objs = pred_words[1:]
+
+    def getName(self):
+        return self.pred_name
+
+    def getStr(self):
+        return self.pred_str
+
+    def getArgs(self):
+        return self.pred_args
+
+    def getObjs(self):
+        return self.pred_objs
+
+    def getTypes(self, world_state):
+        return self.pred_objs
+
 # arguments: expr_str, parameters
 # returned value:
 # dictionary: pred_str:(pred_name, [obj1_name, obj2_name,...], [arg1_name, arg2_name,...], [arg1_type, arg2_type,...]):
-def extractPredicates(expr_str, parameters, obj_types_map):
-        result = {}
+def extractPredicates(expr_str):
+        result = []
         e = 0
         while True:
             s = expr_str.find("[", e)
@@ -248,44 +273,22 @@ def extractPredicates(expr_str, parameters, obj_types_map):
             e = expr_str.find("]", s)+1
             if expr_str[s+1:e-1] in result:
                 continue
-            exp = expr_str[s+1:e-1].split()
-            pred_name = exp[0]
-            obj_names = []
-            arg_names = []
-            arg_types = []
-            for idx in range(1, len(exp)):
-                if parameters != None and exp[idx] in parameters:
-                    assert exp[idx][0] == "?"
-                    obj_names.append( None )
-                    arg_names.append( exp[idx] )
-                    arg_types.append( parameters[exp[idx]] )
-                else:
-                    assert exp[idx][0] != "?"
-                    obj_names.append( exp[idx] )
-                    arg_names.append( None )
-                    if obj_types_map != None:
-#                        print exp[idx]
-#                        print obj_types_map
-                        assert exp[idx] in obj_types_map
-                        arg_types.append( obj_types_map[exp[idx]] )
-            result[expr_str[s+1:e-1]] = (pred_name, obj_names, arg_names, arg_types)
+            result.append(Predicate(expr_str[s+1:e-1]))
         return result
 
-def getAllPossibilities(goal_exp, parameters, obj_types_map):
+def getAllPossibilities(goal_exp, pred_list):
         # get all required conditions that archieve the goal expression
-        goal_pred = extractPredicates(goal_exp, parameters, obj_types_map)
-        goal_product = itertools.product([True, False], repeat = len(goal_pred))
+        goal_product = itertools.product([True, False], repeat=len(pred_list))
         goal_cases = []
         for subset in goal_product:
             goal_str = goal_exp
             i = 0
-            case = {}
-            for pred in goal_pred:
-                goal_str = goal_str.replace("["+pred+"]", str(subset[i]))
-                case[pred] = (goal_pred[pred], subset[i])
+            case = []
+            for pred in pred_list:
+                goal_str = goal_str.replace("["+pred.getStr()+"]", str(subset[i]))
                 i += 1
             if eval(goal_str):
-                goal_cases.append(case)
+                goal_cases.append(subset)
         return goal_cases
 
 def substitute(exp_str, subst_map):
@@ -347,6 +350,23 @@ def generateSubstitutionCases(obj_type_map, parameters, substitutions):
                     subst_cases.append(s_case)
                 return subst_cases
 
+
+
+class PredicatesContainer:
+
+    def __init__(self):
+        predicates = [free, grasped, conf_feasible, opened, ajar, closed, pose_certain, inside, reachable, part_of, at_pose_above, clear_on]
+        self.predicates_map = {}
+        for pred in predicates:
+            self.predicates_map[pred.__name__] = pred
+
+    def getPred(self, world_state, name, args):
+        arg_names = args.split()
+        arg_list = []
+        for arg in arg_names:
+            arg_list.append( world_state.getObject(arg) )
+        return self.predicates_map[name](world_state, *arg_list)
+
 class WorldState:
 
     def __init__(self):
@@ -357,11 +377,6 @@ class WorldState:
         self.types_t_b_map = {}
         self.types_t_attr_map = {}
 
-        predicates = [free, grasped, conf_feasible, opened, ajar, closed, pose_certain, inside, reachable, part_of, at_pose_above, clear_on]
-        self.predicates_map = {}
-        for pred in predicates:
-            self.predicates_map[pred.__name__] = pred
-
     def addType(self, type_name, base_types, attributes):
         assert not type_name in self.types_t_b_map
         assert not type_name in self.types_t_attr_map
@@ -370,13 +385,6 @@ class WorldState:
 
     def addGeometricType(self, type_name):
         pass
-
-    def getPred(self, name, args):
-        arg_names = args.split()
-        arg_list = []
-        for arg in arg_names:
-            arg_list.append( self.objects_n_map[arg] )
-        return self.predicates_map[name](self, *arg_list)
 
     def simulateAction(self, a, args):
         arg_names = args.split()
@@ -415,6 +423,10 @@ class WorldState:
         assert obj_name in self.objects_n_map
         return self.objects_n_map[obj_name]
 
+    def getObjectType(self, obj_name):
+        assert obj_name in self.objects_n_t_map
+        return self.objects_n_t_map[obj_name]
+
     def typeMatch(self, type_name, base_type):
         assert type_name in self.types_t_b_map
         if base_type == type_name:
@@ -425,13 +437,13 @@ class WorldState:
                     return True
         return False
 
-    def getEffect(self, action, pred_name, pred_objs, pred_types, pred_value):
+    def getEffect(self, action, pred_name, pred_objs, pred_value):
         for pred_str in action.effect_map:
             substitutions = {}
             if action.effect_map[pred_str][0] == pred_name:
                 match = True
-                for arg_i in range(len(pred_types)):
-                    if not self.typeMatch(pred_types[arg_i], action.effect_map[pred_str][2][arg_i]):
+                for arg_i in range(len(pred_objs)):
+                    if not self.typeMatch(self.getObjectType(pred_objs[arg_i]), action.effect_map[pred_str][2][arg_i]):
                         match = False
                         break
                     substitutions[ action.effect_map[pred_str][1][arg_i] ] = pred_objs[arg_i]
@@ -480,27 +492,20 @@ class Scenario:
             (None, self.init_state, None, None),
             (self.goal, None, None, None) ]
 
-    def processGoal(self, goal_pred_list, world_state):
+    def processGoal(self, pred_list, pred_value_list, pc, world_state):
+                assert len(pred_list) == len(pred_value_list)
                 result_steps = []
                 indent_str = " "
 #                step_added = False
-                for pred in goal_pred_list:
-                    predicate = goal_pred_list[pred][0]
-                    pred_value = goal_pred_list[pred][1]
-                    pred_name = predicate[0]
-                    pred_objs = predicate[1]
-                    pred_types = predicate[3]
-                    all_inst = True
-                    pred_args = ""
-                    for obj_name in pred_objs:
-                        if obj_name == None:
-                            all_inst = False
-                            break
-                        pred_args += obj_name + " "
+                for pred_idx in range(len(pred_list)):
+                    predicate = pred_list[pred_idx]
+                    pred_value = pred_value_list[pred_idx]
+                    pred_name = predicate.getName()
+                    pred_args = predicate.getArgs()
+                    pred_objs = predicate.getObjs()
 
-                    assert all_inst
-                    curr_value = world_state.getPred(pred_name, pred_args)
-                    print indent_str + " ", pred_value, "==", pred_name, pred_objs, pred_types, " (current value: ", curr_value, ")"
+                    curr_value = pc.getPred(world_state, pred_name, pred_args)
+                    print indent_str + " ", pred_value, "==", pred_args, " (current value: ", curr_value, ")"
 
                     # the predicate is not yet satisfied
                     if curr_value != pred_value:
@@ -508,7 +513,7 @@ class Scenario:
                         solution_found = False
                         for a in self.actions:
                             # get certain substitutions for a given action
-                            substitutions = world_state.getEffect(a, pred_name, pred_objs, pred_types, pred_value)
+                            substitutions = world_state.getEffect(a, pred_name, pred_objs, pred_value)
                             if substitutions != None:
 
                                 action_found = True
@@ -526,25 +531,15 @@ class Scenario:
                                     # check if the substitution satisfies the relations constraints
                                     relations = substitute(a.relations, sc_all)
 #                                    print "relations", relations
-                                    rel_pred = extractPredicates(relations, None, world_state.objects_n_t_map)
+                                    rel_pred = extractPredicates(relations)
 #                                    print rel_pred
                                     for r_pred in rel_pred:
-                                        r_pred_name = rel_pred[r_pred][0]
-                                        r_pred_objs = rel_pred[r_pred][1]
-                                        r_pred_types = rel_pred[r_pred][3]
-                                        all_inst = True
-                                        r_pred_args = ""
-                                        for obj_name in r_pred_objs:
-                                            if obj_name == None:
-                                                all_inst = False
-                                                break
-                                            r_pred_args += obj_name + " "
-
-                                        assert all_inst
+                                        r_pred_name = r_pred.getName()
+                                        r_pred_args = r_pred.getArgs()
                                         print "getPred", r_pred_name, r_pred_args
-                                        r_curr_value = world_state.getPred(r_pred_name, r_pred_args)
+                                        r_curr_value = pc.getPred(world_state, r_pred_name, r_pred_args)
 
-                                        relations = relations.replace("["+r_pred+"]", str(r_curr_value))
+                                        relations = relations.replace("["+r_pred.getStr()+"]", str(r_curr_value))
                                     if not eval(relations):
                                         continue
 
@@ -558,7 +553,6 @@ class Scenario:
 
                                     precond = substitute(a.precondition, sc_all)
                                     print "step added", a.name, precond
-    #                                self.steps.insert( s_idx+1, (precond, new_state, a.name, sc_all) )
                                     result_steps.append( (precond, new_state, a.name, sc_all) )
     #                                step_added = True
                                     break
@@ -566,7 +560,7 @@ class Scenario:
 #                        break
                 return result_steps #step_added
 
-    def process(self):
+    def process(self, pc):
         indent_str = " "
 
         all_c = 1
@@ -582,14 +576,15 @@ class Scenario:
                 print "iterating steps:"
 
                 print "getAllPossibilities", goal
-                posi = getAllPossibilities(goal, None, world_state.objects_n_t_map)
+                pred_list = extractPredicates(goal)
+                posi = getAllPossibilities(goal, pred_list)
 
                 # fork here: goal variants
                 p = posi[0]
                 all_c *= len(posi)
 #                step_added = False
 
-                new_steps = self.processGoal(posi[0], world_state)
+                new_steps = self.processGoal(pred_list, posi[0], pc, world_state)
                 if len(new_steps) > 0:
                     print "************* possible substitutions:"
                     for st in new_steps:
@@ -645,6 +640,8 @@ class for SymbolicPlanner
         pass
 
     def spin(self):
+
+        pc = PredicatesContainer()
 
         ws = WorldState()
         ws.addType("Object", [], ["pose"])
@@ -721,9 +718,9 @@ class for SymbolicPlanner
 
 
         # unit tests
-        assert ws.getPred("free", "man_l") == True
-        assert ws.getPred("grasped", "man_l door_cab_l") == False
-        assert ws.getPred("conf_feasible", "man_l") == True
+        assert pc.getPred(ws, "free", "man_l") == True
+        assert pc.getPred(ws, "grasped", "man_l door_cab_l") == False
+        assert pc.getPred(ws, "conf_feasible", "man_l") == True
 
         def a_explore_sim(d, m):
             assert d != None
@@ -842,7 +839,7 @@ class for SymbolicPlanner
         self.actions = [a_explore, a_grasp_door, a_ungrasp, a_open_door, a_close_door, a_grasp_object, a_uncover, a_pour, a_transport, a_open_jar]
 
         s = Scenario(ws, self.goal, self.actions)
-        s.process()
+        s.process(pc)
         return
 
 if __name__ == '__main__':

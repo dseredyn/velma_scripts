@@ -204,8 +204,20 @@ def at_pose_above(ws, ob1, ob2):
                 return False
         else:
             return False
-
     raise TypeError("wrong types in predicate at_pose_above: " + ob1[0] + " " + ob2[0])
+
+def at_pose_inside(ws, ob1, ob2):
+    if ws.typeMatch(ob1[0], 'Object') and ws.typeMatch(ob2[0], 'Container'):
+        str_list = ob1[1]["pose"].split()
+        if str_list[0] == "inside":
+            inside_name = str_list[1]
+            if inside_name == ob2[1]["name"]:
+                return True
+            else:
+                return False
+        else:
+            return False
+    raise TypeError("wrong types in predicate at_pose_inside: " + ob1[0] + " " + ob2[0])
 
 def clear_on(ws, ob):
     return True
@@ -355,7 +367,7 @@ def generateSubstitutionCases(obj_type_map, parameters, substitutions):
 class PredicatesContainer:
 
     def __init__(self):
-        predicates = [free, grasped, conf_feasible, opened, ajar, closed, pose_certain, inside, reachable, part_of, at_pose_above, clear_on]
+        predicates = [free, grasped, conf_feasible, opened, ajar, closed, pose_certain, inside, reachable, part_of, at_pose_above, clear_on, at_pose_inside]
         self.predicates_map = {}
         for pred in predicates:
             self.predicates_map[pred.__name__] = pred
@@ -505,7 +517,7 @@ class Scenario:
                     pred_objs = predicate.getObjs()
 
                     curr_value = pc.getPred(world_state, pred_name, pred_args)
-                    print indent_str + " ", pred_value, "==", pred_args, " (current value: ", curr_value, ")"
+                    print indent_str + " ", pred_value, "==", pred_name, pred_args, " (current value: ", curr_value, ")"
 
                     # the predicate is not yet satisfied
                     if curr_value != pred_value:
@@ -520,6 +532,7 @@ class Scenario:
                                 print indent_str + "  ", a.name, substitutions
 #                                print world_state.objects_t_n_map
                                 subst_cases = generateSubstitutionCases(world_state.objects_t_n_map, a.parameters, substitutions)
+                                case_found = False
 
                                 for sc in subst_cases:
                                     # fork here: substitutions
@@ -527,6 +540,7 @@ class Scenario:
 
                                     sc_all = sc.copy()
                                     sc_all.update(substitutions)
+                                    print "sc_all", sc_all
 
                                     # check if the substitution satisfies the relations constraints
                                     relations = substitute(a.relations, sc_all)
@@ -554,8 +568,13 @@ class Scenario:
                                     precond = substitute(a.precondition, sc_all)
                                     print "step added", a.name, precond
                                     result_steps.append( (precond, new_state, a.name, sc_all) )
+                                    case_found = True
     #                                step_added = True
                                     break
+                                print "case_found",case_found
+                                if not case_found:
+                                    continue
+
 #                    if step_added:
 #                        break
                 return result_steps #step_added
@@ -667,7 +686,7 @@ class for SymbolicPlanner
 #        self.goal = "[opened door_cab_r] and [free man_l] and [grasped man_r jar]"
 #        self.goal = "[grasped man_r jar]"
 #        self.goal = "[closed door_cab_r] and [closed door_cab_l] and [free man_l] and [grasped man_r jar]"
-        self.goal = "[inside powder01 bowl01] and [inside jar01 cabinet01] and [closed cabinet01]"
+        self.goal = "[inside powder01 bowl01] and [at_pose_inside jar01 cabinet01] and [closed cabinet01]"
 
         def a_pour_sim(c1, c2, s):
             assert c1 != None
@@ -702,6 +721,22 @@ class for SymbolicPlanner
                 "[at_pose_above ?o1 ?o2]",
                 "",
                 a_transport_sim)
+
+        def a_transport2_sim(o1, o2):
+            assert o1 != None
+            assert o2 != None
+            assert "pose" in o1[1]
+            assert "name" in o2[1]
+            assert o1[1]["pose"] != ("inside " + o2[1]["name"])
+            o1[1]["pose"] = "inside " + o2[1]["name"]
+
+        a_transport2 = Action("transport2",
+                "?o1 Object,?o2 Object",
+                "not [at_pose_inside ?o1 ?o2]",
+                "True",
+                "[at_pose_inside ?o1 ?o2]",
+                "",
+                a_transport2_sim)
 
         def a_open_jar_sim(j):
             assert j != None
@@ -836,7 +871,7 @@ class for SymbolicPlanner
                 "",
                 None)
 
-        self.actions = [a_explore, a_grasp_door, a_ungrasp, a_open_door, a_close_door, a_grasp_object, a_uncover, a_pour, a_transport, a_open_jar]
+        self.actions = [a_explore, a_grasp_door, a_ungrasp, a_open_door, a_close_door, a_grasp_object, a_uncover, a_pour, a_transport, a_open_jar, a_transport2]
 
         s = Scenario(ws, self.goal, self.actions)
         s.process(pc)

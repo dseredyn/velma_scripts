@@ -192,6 +192,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.3), Vector3(0.0, 0.0, 0.0))
         goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_r.publish(goal)
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(1.1, 1.1, 1.1), Vector3(0.1, 0.1, 0.1))
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_l.publish(goal)
 
@@ -236,6 +237,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.3), Vector3(0.0, 0.0, 0.0))
         goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_r.publish(goal)
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(1.1, 1.1, 1.1), Vector3(0.1, 0.1, 0.1))
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_l.publish(goal)
 

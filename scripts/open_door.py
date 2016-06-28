@@ -181,7 +181,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
             raise Exception()
 
         # wait a while to stabilize the robot and the F/T sensor output
-        rospy.sleep(1)
+        rospy.sleep(2)
 
         pub_fcl_r = rospy.Publisher('/right_arm/fcl_param', force_control_msgs.msg.ForceControl, queue_size=0)
         pub_fcl_l = rospy.Publisher('/left_arm/fcl_param', force_control_msgs.msg.ForceControl, queue_size=0)
@@ -208,7 +208,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
                 vel = diff.vel.Norm()
                 rot = diff.rot.Norm()
                 print vel, rot
-                if vel < 0.003*0.1 and rot < (1.0/180.0*math.pi)*0.1 and wr.force.z() > 0.4:
+                if vel < 0.003*0.1 and rot < (1.0/180.0*math.pi)*0.1 and wr.force.z() > 0.2:
                     break
             prev_T_B_Gr = T_B_Gr
             rospy.sleep(0.1)
@@ -229,7 +229,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
             raise Exception()
 
         # wait a while to stabilize the robot and the F/T sensor output
-        rospy.sleep(1)
+        rospy.sleep(2)
 
         goal = force_control_msgs.msg.ForceControl()
         goal.inertia = force_control_msgs.msg.Inertia(Vector3(20.0, 20.0, 20.0), Vector3(0.5, 0.5, 0.5))
@@ -253,7 +253,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
                 vel = diff.vel.Norm()
                 rot = diff.rot.Norm()
                 print vel, rot
-                if vel < 0.003*0.1 and rot < (1.0/180.0*math.pi)*0.1 and wr.force.z() > 0.4:
+                if vel < 0.003*0.1 and rot < (1.0/180.0*math.pi)*0.1 and wr.force.z() > 0.2:
                     break
             prev_T_B_Gr = T_B_Gr
             rospy.sleep(0.1)
@@ -312,7 +312,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
                 vel = diff.vel.Norm()
                 rot = diff.rot.Norm()
                 print vel, rot
-                if vel < 0.003*0.1 and rot < (1.0/180.0*math.pi)*0.1 and wr.force.y() > 0.4:
+                if vel < 0.003*0.1 and rot < (1.0/180.0*math.pi)*0.1 and wr.force.y() > 0.2:
                     break
             prev_T_B_Gr = T_B_Gr
             rospy.sleep(0.1)

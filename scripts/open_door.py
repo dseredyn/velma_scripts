@@ -133,6 +133,24 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         velma.waitForInit()
         print "done."
 
+#        raw_input("Press ENTER to switch to JntImp...")
+
+#        if not velma.switchToJntImp():
+#            raise Exception()
+
+#        q_dest = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+#        joint_names = ["torso_0_joint", "right_arm_0_joint", "right_arm_1_joint",
+#        "right_arm_2_joint", "right_arm_3_joint", "right_arm_4_joint", "right_arm_5_joint",
+#        "right_arm_6_joint", "left_arm_0_joint", "left_arm_1_joint", "left_arm_2_joint",
+#        "left_arm_3_joint", "left_arm_4_joint", "left_arm_5_joint", "left_arm_6_joint"]
+#        velma.moveJoint(q_dest, joint_names, 20.0, start_time=0.2)
+#        result = velma.waitForJoint()
+#        print result
+#        raw_input("Press ENTER to switch to CartImp...")
+
+#        if not velma.switchToCartImp():
+#            raise Exception()
+
         # door parameters from the vision system
         lh_pos_W = PyKDL.Vector(0.9, -0.1, 1.4)
         rh_pos_W = PyKDL.Vector(0.9, -0.15, 1.4)
@@ -148,6 +166,9 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         velma.waitForHandRight()
         rospy.sleep(0.5)
         velma.moveHandRight([100.0/180.0*math.pi, 100.0/180.0*math.pi, 100.0/180.0*math.pi, 179.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+
+        velma.waitForHandRight()
+        rospy.sleep(0.5)
 
         if not velma.switchToJntImp():
             raise Exception()
@@ -171,9 +192,6 @@ Class for the Control Subsystem behaviour: cabinet door opening.
 
         T_B_Grd = PyKDL.Frame( PyKDL.Rotation(gx_B, gy_B, gz_B) * PyKDL.Rotation.RotY(180.0/180.0*math.pi), grip_pos_B )
 
-        velma.waitForHandRight()
-        rospy.sleep(0.5)
-
         velma.moveEffectorRight(T_B_Grd, 3.0, PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4)), start_time=0.1, stamp=None, path_tol=None)
         result = velma.waitForEffectorRight()
         if result != CartesianTrajectoryResult.SUCCESSFUL:
@@ -192,7 +210,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.3), Vector3(0.0, 0.0, 0.0))
         goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_r.publish(goal)
-        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(1.1, 1.1, 1.1), Vector3(0.1, 0.1, 0.1))
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.01, 0.01, 0.01), Vector3(0.1, 0.1, 0.1))
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_l.publish(goal)
 
@@ -237,7 +255,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.3), Vector3(0.0, 0.0, 0.0))
         goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_r.publish(goal)
-        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(1.1, 1.1, 1.1), Vector3(0.1, 0.1, 0.1))
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.01, 0.01, 0.01), Vector3(0.1, 0.1, 0.1))
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_l.publish(goal)
 
@@ -297,6 +315,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.3, 0.0), Vector3(0.0, 0.0, 0.0))
         goal.twist = geometry_msgs.msg.Twist(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_r.publish(goal)
+        goal.reciprocaldamping = force_control_msgs.msg.ReciprocalDamping(Vector3(0.01, 0.01, 0.01), Vector3(0.1, 0.1, 0.1))
         goal.wrench = geometry_msgs.msg.Wrench(Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, 0.0))
         pub_fcl_l.publish(goal)
 

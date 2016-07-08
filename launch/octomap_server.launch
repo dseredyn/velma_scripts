@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-    <node pkg="pointcloud_filter" type="pc_filter" name="pc_filter" output="screen">
+    <node pkg="pointcloud_utils" type="pc_filter" name="pc_filter" output="screen">
       <param name="tolerance" value="0.1" type="double" />
       <remap from="cloud_in" to="/head_kinect/depth/points"/>
       <remap from="cloud_out" to="/pc_filtered/points"/>

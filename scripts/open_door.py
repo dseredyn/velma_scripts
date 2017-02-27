@@ -129,7 +129,7 @@ Class for the Control Subsystem behaviour: cabinet door opening.
 
         print "creating interface for Velma..."
         # create the interface for Velma robot
-        velma = VelmaInterface("/gazebo")
+        velma = VelmaInterface("/velma_task_cs_ros_interface")
         velma.waitForInit()
         print "done."
 

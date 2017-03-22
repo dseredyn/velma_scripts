@@ -52,8 +52,7 @@ import PyKDL
 import math
 import numpy as np
 
-import conversions as conv
-import velmautils
+import velma_common.velmautils as velmautils
 
 class TestQ5Q6:
     """
@@ -76,20 +75,26 @@ class TestQ5Q6:
 
             tab2=[
             [-0.397855401039,-2.90307354927],
-            [2.12894010544,-2.90307354927],
-            [2.12043237686,-1.87363839149],
-            [1.92475450039,-1.43123674393],
+#            [2.12894010544,-2.90307354927],
+            [1.8,-2.90307354927],
+#            [2.12043237686,-1.87363839149],
+#            [1.92475450039,-1.43123674393],
+            [1.8,-1.43123674393],
             [0.77621114254,-1.39720571041],
             [0.350824713707,-1.00585031509],
-            [0.401871085167,-0.571956157684],
-            [0.810242056847,0.414940297604],
-            [1.34622907639,0.942419290543],
-            [2.11192464828,1.01898884773],
-            [2.12894010544,2.8906891346],
-            [-0.814733862877,2.8906891346],
-            [-1.22310483456,2.27813267708],
-            [-2.21850919724,2.29514837265],
-            [-2.22701668739,-1.32063627243],
+#            [0.401871085167,-0.571956157684],
+            [0.35,0.414940297604],
+            [0.8,0.942419290543],
+#            [2.11192464828,1.01898884773],
+#            [2.12894010544,2.8906891346],
+            [1.8,1.01898884773],
+            [1.8,2.8906891346],
+            [-0.4,2.8906891346],
+            [-0.8,2.27813267708],
+#            [-2.21850919724,2.29514837265],
+#            [-2.22701668739,-1.32063627243],
+            [-1.8,2.29514837265],
+#            [-1.8,-1.32063627243],
             [-1.81013822556,-1.66945314407],
             [-0.814733862877,-1.73751521111],
             [-0.423378348351,-2.09483933449],
@@ -99,6 +104,8 @@ class TestQ5Q6:
                 m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(pt[0], pt[1], 0.0), m_id, r=1, g=0, b=0, m_type=Marker.SPHERE, frame_id='world', namespace='edges', scale=Vector3(0.05, 0.05, 0.05))
                 rospy.sleep(0.01)
 
+            q5_prev = 0.0
+            q6_prev = 0.0
             while not rospy.is_shutdown():
                 rospy.sleep(0.01)
                 if not "left_arm_5_joint" in js or not "left_arm_6_joint" in js:
@@ -107,8 +114,14 @@ class TestQ5Q6:
 #                q6 = -js["left_arm_6_joint"]
                 q5 = js["right_arm_5_joint"]
                 q6 = js["right_arm_6_joint"]
-                print velmautils.point_inside_polygon(q5,q6,tab2)
-                self.pub_marker.publishSinglePointMarker(PyKDL.Vector(q5, q6, 0.0), m_id, r=1, g=1, b=1, m_type=Marker.SPHERE, frame_id='world', namespace='edges', scale=Vector3(0.05, 0.05, 0.05))
+#                print velmautils.point_inside_polygon(q5,q6,tab2)
+                q5_d = q5-q5_prev
+                q6_d = q6-q6_prev
+                dist = math.sqrt(q5_d*q5_d + q6_d*q6_d)
+                if dist > 2.0/180.0*math.pi:
+                    q5_prev = q5
+                    q6_prev = q6
+                    m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(q5, q6, 0.0), m_id, r=1, g=1, b=1, m_type=Marker.SPHERE, frame_id='world', namespace='edges', scale=Vector3(0.05, 0.05, 0.05))
                 
 if __name__ == '__main__':
 

@@ -53,6 +53,7 @@ import math
 import numpy as np
 
 import velma_common.velmautils as velmautils
+import random
 
 class TestQ5Q6:
     """
@@ -74,35 +75,42 @@ class TestQ5Q6:
             joint_states_listener = rospy.Subscriber('/joint_states', JointState, jsCallback)
 
             tab2=[
-            [-0.397855401039,-2.90307354927],
-#            [2.12894010544,-2.90307354927],
-            [1.8,-2.90307354927],
-#            [2.12043237686,-1.87363839149],
-#            [1.92475450039,-1.43123674393],
-            [1.8,-1.43123674393],
-            [0.77621114254,-1.39720571041],
-            [0.350824713707,-1.00585031509],
-#            [0.401871085167,-0.571956157684],
-            [0.35,0.414940297604],
-            [0.8,0.942419290543],
-#            [2.11192464828,1.01898884773],
-#            [2.12894010544,2.8906891346],
-            [1.8,1.01898884773],
-            [1.8,2.8906891346],
-            [-0.4,2.8906891346],
-            [-0.8,2.27813267708],
-#            [-2.21850919724,2.29514837265],
-#            [-2.22701668739,-1.32063627243],
-            [-1.8,2.29514837265],
-#            [-1.8,-1.32063627243],
-            [-1.81013822556,-1.66945314407],
-            [-0.814733862877,-1.73751521111],
-            [-0.423378348351,-2.09483933449],
-            ]
+                [ -0.397855401039,-2.90307354927],
+                [ 1.79,-2.91307354927],
+                [ 1.78,-1.43123674393],
+                [ 0.77621114254,-1.39720571041],
+                [ 0.36,-1.00585031509],
+                [ 0.35,0.414940297604],
+                [ 0.8,0.942419290543],
+                [ 1.8,1.01898884773],
+                [ 1.81,2.88],
+                [ -0.4,2.89],
+                [ -0.81,2.27813267708],
+                [ -1.82,2.29514837265],
+                [ -1.83,-1.66945314407],
+                [ -0.84,-1.73751521111],
+                [ -0.423378348351,-2.09483933449]]
+
             m_id = 0
             for pt in tab2:
                 m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(pt[0], pt[1], 0.0), m_id, r=1, g=0, b=0, m_type=Marker.SPHERE, frame_id='world', namespace='edges', scale=Vector3(0.05, 0.05, 0.05))
                 rospy.sleep(0.01)
+
+#            print velmautils.point_inside_polygon(0.390823, 0.15054, tab2)
+#            m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(0.390823, 0.15054, 0.0), m_id, r=1, g=1, b=1, m_type=Marker.SPHERE, frame_id='world', namespace='edges', scale=Vector3(0.05, 0.05, 0.05))
+#            rospy.sleep(1.01)
+#            return
+            
+#            for i in range(10000):
+#                x = random.uniform(-1.9, 1.9)
+#                y = random.uniform(-2.92, 2.9)
+#                if not velmautils.point_inside_polygon(x, y, tab2):
+#                    m_id = self.pub_marker.publishSinglePointMarker(PyKDL.Vector(x, y, 0.0), m_id, r=1, g=0, b=0, m_type=Marker.SPHERE, frame_id='world', namespace='edges', scale=Vector3(0.05, 0.05, 0.05))
+#                if (i%1000) == 0:
+#                    rospy.sleep(0.01)
+
+            print "ok"
+#            return
 
             q5_prev = 0.0
             q6_prev = 0.0

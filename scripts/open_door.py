@@ -162,25 +162,47 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         lh_pos_B = T_B_Wo * lh_pos_W
         rh_pos_B = T_B_Wo * rh_pos_W
 
-        velma.moveHandRight([1.0/180.0*math.pi, 1.0/180.0*math.pi, 1.0/180.0*math.pi, 179.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
-        velma.waitForHandRight()
-        rospy.sleep(0.5)
-        velma.moveHandRight([100.0/180.0*math.pi, 100.0/180.0*math.pi, 100.0/180.0*math.pi, 179.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+#        velma.moveHandRight([1.0/180.0*math.pi, 1.0/180.0*math.pi, 1.0/180.0*math.pi, 179.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+#        velma.waitForHandRight()
+#        rospy.sleep(0.5)
+#        velma.moveHandRight([100.0/180.0*math.pi, 100.0/180.0*math.pi, 100.0/180.0*math.pi, 179.0/180.0*math.pi], [1.2, 1.2, 1.2, 1.2], [3000,3000,3000,3000], 4000, hold=True)
+#        velma.waitForHandRight()
+#        rospy.sleep(0.5)
 
-        velma.waitForHandRight()
-        rospy.sleep(0.5)
+        max_wr = PyKDL.Wrench(PyKDL.Vector(10,10,10), PyKDL.Vector(4,4,4))
 
-        if not velma.switchToJntImp():
+        print "moving right tool..."
+        T_B_Gr = velma.getTf('B', 'Gr')
+        T_Wr_Gr = velma.getTf('Wr', 'Gr')
+        velma.moveCartImpRight([T_B_Gr], [4.0], [T_Wr_Gr], [4.0], None, None, max_wr, start_time=0.5)
+
+        result = velma.waitForEffectorRight()
+        if result != CartesianTrajectoryResult.SUCCESSFUL:
+            print result
             raise Exception()
 
-        velma.moveToolRight(velma.getTf('Wr', 'Gr'), 0.1)
-        velma.moveToolLeft(velma.getTf('Wl', 'Gl'), 0.1)
-        if velma.waitForToolLeft() != 0 or velma.waitForToolRight() != 0:
+        print "moving left tool..."
+        T_B_Gl = velma.getTf('B', 'Gl')
+        T_Wl_Gl = velma.getTf('Wl', 'Gl')
+        velma.moveCartImpLeft([T_B_Gl], [4.0], [T_Wl_Gl], [4.0], None, None, max_wr, start_time=0.5)
+
+        result = velma.waitForEffectorLeft()
+        if result != CartesianTrajectoryResult.SUCCESSFUL:
+            print result
             raise Exception()
 
-        if not velma.switchToCartImp():
-            raise Exception()
+#        if not velma.switchToJntImp():
+#            raise Exception()
 
+#        velma.moveToolRight(velma.getTf('Wr', 'Gr'), 0.1)
+#        velma.moveToolLeft(velma.getTf('Wl', 'Gl'), 0.1)
+#        if velma.waitForToolLeft() != 0 or velma.waitForToolRight() != 0:
+#            raise Exception()
+
+#        if not velma.switchToCartImp():
+#            raise Exception()
+
+        print "moving right arm..."
         gx_B = T_B_Wo * PyKDL.Vector(0,0,1)
         gz_B = door_n_B
         gy_B = gz_B * gx_B
@@ -197,6 +219,9 @@ Class for the Control Subsystem behaviour: cabinet door opening.
         if result != CartesianTrajectoryResult.SUCCESSFUL:
             print result
             raise Exception()
+
+        return
+
 
         # wait a while to stabilize the robot and the F/T sensor output
         rospy.sleep(2)

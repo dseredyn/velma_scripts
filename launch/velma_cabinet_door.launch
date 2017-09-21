@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
     <env name="GAZEBO_MODEL_PATH" value="$(find velma_scripts)/data/gazebo/models" />
-	<include file="$(find velma_sim_gazebo)/launch/velma_gazebo_re_ve.launch">
+	<include file="$(find velma_sim_gazebo)/launch/velma_gazebo_re.launch">
       <arg name="world_name" value="$(find velma_scripts)/data/gazebo/worlds/world_cabinet_door.world"/> <!-- Note: the world_name is with respect to GAZEBO_RESOURCE_PATH environmental variable -->
       <arg name="use_kinect" default="true"/>
       <arg name="gui" default="false"/>
